@@ -26,7 +26,7 @@
       recreation: 'Recreation', tribal: 'Tribal Water Right', wildlife: 'Wildlife & Minimum Flow', downstream: 'Colorado River Delivery'
     },
 
-    PHASES: { BOOT: 'boot', INTRO: 'intro', PLAN: 'plan', EVENT: 'event', LIVE: 'live', FLOOD_PREP: 'flood_prep', FLOOD: 'flood', REPORT: 'report', END: 'end' },
+    PHASES: { BOOT: 'boot', INTRO: 'intro', PLAN: 'plan', EVENT: 'event', LIVE: 'live', FLOOD_PREP: 'flood_prep', FLOOD: 'flood', FIRE: 'fire', STORM: 'storm', REPORT: 'report', END: 'end' },
 
     OUTCOME_KEYS: ['W', 'E', 'P', 'F', 'T'],
     OUTCOME_NAMES: { W: 'Water Security', E: 'Ecosystem Health', P: 'Public Safety', F: 'Food & Economy', T: 'Public Trust' },
@@ -67,7 +67,7 @@
       wetland: 0x4f8f6f, riparian: 0x5f9a4c, aspenFall: 0xe6b422,
       burnLight: 0x5a4d40, burnSevere: 0x1f1b18, ash: 0x8f8a86,
       water: 0x3b7fb0, waterDeep: 0x25597f, waterTurbid: 0x7a6a3d, waterAsh: 0x3d3a37,
-      fire: 0xff6a1a, ember: 0xffc14d, smoke: 0x6b6b6b,
+      fire: 0xff6a1a, ember: 0xffc14d, smoke: 0x6b6b6b, retardant: 0xe8677a, floodWater: 0x6d7f8f, sandbag: 0xc9b48a,
       houseWall: 0xe8dcc4, houseRoof: 0x8a4b3a, barnRed: 0xa33b2e, school: 0xd9b45a, hospital: 0xf2f2f2, fireStation: 0xc9302c, dam: 0xb5b0a8
     }
   };
