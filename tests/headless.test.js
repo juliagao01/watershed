@@ -104,7 +104,82 @@ function policy(log) {
     if (!HAS.Hydrology) skip('historical snowpack series', 'Hydrology');
   }
 
+  /* ---------------------------------------------------------------- SPEC2 §E: real-time crises through the headless hooks */
+  const HAS2 = {
+    tactics: !!(WS.Fire && typeof WS.Fire.startTactics === 'function' && typeof WS.Fire.applyTactic === 'function'),
+    live: !!(WS.Flood && typeof WS.Flood.simulate === 'function' && WS.Flood.TOOLS && WS.Flood.TOOLS.sandbag && WS.Flood.TOOLS.sandbag.live)
+  };
+  // facade additions never depend on the sim modules
+  {
+    const g = WS.Game.createHeadless({ seed: 2, years: 4, decide: policy() });
+    const v = g.game.setAllocation('power_rec', 0.6);
+    assert(v === 0.6 && g.state.water.alloc.hydro === 0.6 && g.state.water.alloc.recreation === 0.6, "setAllocation('power_rec') sets both hydro and recreation");
+    const core = g.game.getCoreProjects();
+    assert(Array.isArray(core) && core.length === 8 && core.indexOf('forest_thinning') >= 0 && core.indexOf('warning_system') >= 0, 'getCoreProjects returns the 8 core ids');
+    assert(g.game.getCrisis() === null && g.game.isPaused() === false && g.game.selectTactic('dozer') === null, 'no crisis outside a fire/storm: selectTactic/getCrisis/isPaused are inert');
+  }
+  if (HAS2.tactics && HAS.World && HAS.Hydrology) {
+    // decide.tactics: at step 3 cut a dozer ring at Chebyshev radius 3 around the ignition cell
+    let calls = 0, ringCells = 0, fireReport = null, fireSeed = null;
+    const dec = policy();
+    dec.tactics = (fireSim, threat, step) => {
+      calls++;
+      if (step !== 3 || !fireSim || !isFinite(fireSim.startCell)) return [];
+      const p = C.xy(fireSim.startCell), cells = [];
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== 3) continue;
+        if (C.inBounds(p.x + dx, p.y + dy)) cells.push(C.idx(p.x + dx, p.y + dy));
+      }
+      ringCells = cells.length;
+      return [{ type: 'dozer', target: cells }];
+    };
+    for (let seed = 1; seed <= 12 && !fireReport; seed++) {
+      const d = WS.Game.createHeadless({ seed, years: 6, mode: 'simulated', decide: dec });
+      while (!d.isEnded()) { const r = await d.runSeason(); if (r && r.fire) { fireReport = r.fire; fireSeed = seed; break; } }
+    }
+    assert(fireReport, 'tactical fire: a wildfire occurred under decide.tactics (seed ' + fireSeed + ')');
+    assert(calls > 0 && ringCells >= 20, 'decide.tactics was consulted each step and built a ring (' + ringCells + ' cells)');
+    const t = fireReport.tactics;
+    assert(t && typeof t === 'object', 'report.tactics present on the fire report');
+    assert(isFinite(t.acresSaved) && t.acresSaved >= 0, 'report.tactics.acresSaved finite and ≥ 0 (' + t.acresSaved + ')');
+    assert(t.counterfactual && isFinite(t.counterfactual.acres) && t.counterfactual.acres >= fireReport.acres - 1e-6, 'counterfactual acres finite and ≥ actual (' + Math.round(t.counterfactual.acres) + ' vs ' + Math.round(fireReport.acres) + ')');
+    assert(isFinite(t.cellsBroken) && t.cellsBroken > 0, 'the dozer ring was accepted (cellsBroken=' + t.cellsBroken + ')');
+    assert(fireReport.afterAction && fireReport.afterAction.mode === 'fire' && Array.isArray(fireReport.afterAction.actions) && fireReport.afterAction.counterfactual && typeof fireReport.afterAction.summary === 'string', 'fire after-action report built (mode/actions/counterfactual/summary)');
+  } else skip('tactical fire run (decide.tactics)', 'Fire.startTactics/applyTactic + World + Hydrology');
+  if (HAS2.live && HAS.World && HAS.Fire && HAS.Hydrology) {
+    // decide.liveTools: at frame 2 lay sandbags on up to 6 placeable cells; expect result.tactics with a counterfactual
+    let liveCalls = 0, stormReport = null, stormSeed = null, wanted = 0;
+    const dec2 = policy();
+    dec2.liveTools = (result, frame, info) => {
+      liveCalls++;
+      if (frame !== 2) return [];
+      let cells = [];
+      try { if (typeof WS.Flood.placeableLive === 'function' && info && info.prep) cells = Array.from(WS.Flood.placeableLive(info.prep, info.world, 'sandbag')); } catch (e) { cells = []; }
+      if (!cells.length && result && result.floodedCells) cells = Array.from(result.floodedCells);
+      const out = cells.slice(0, 6).map(i => { const p = C.xy(i); return { type: 'sandbag', x: p.x, y: p.y }; });
+      wanted += out.length;
+      return out;
+    };
+    for (let seed = 1; seed <= 12 && !stormReport; seed++) {
+      const d = WS.Game.createHeadless({ seed, years: 8, mode: 'simulated', decide: dec2 });
+      while (!d.isEnded()) { const r = await d.runSeason(); if (r && r.flood) { stormReport = r; stormSeed = seed; break; } }
+    }
+    assert(stormReport, 'storm run: a burn-scar storm occurred under decide.liveTools (seed ' + stormSeed + ')');
+    assert(liveCalls > 0, 'decide.liveTools was consulted per frame (' + liveCalls + ' calls)');
+    const res = stormReport.flood, st = res.tactics;
+    assert(st && typeof st === 'object' && st.counterfactual && isFinite(st.counterfactual.damageM), 'result.tactics present with a finite counterfactual damageM');
+    const placed = (stormReport.liveMitigations || []).filter(m => m.type === 'sandbag');
+    assert(placed.every(m => m.atFrame === 2), 'live sandbags carry atFrame = 2 (' + placed.length + ' placed of ' + wanted + ' requested)');
+    if (placed.length) assert(isFinite(st.sandbagCells) && st.sandbagCells >= 1 && isFinite(st.damageSaved) && st.damageSaved >= 0, 'result.tactics counts the sandbag cells (' + st.sandbagCells + ') with damageSaved ≥ 0');
+    else skip('sandbag effectiveness', 'a placeable sandbag site at frame 2 on seed ' + stormSeed);
+    const saa = stormReport.flood.afterAction;
+    assert(saa && saa.mode === 'storm' && Array.isArray(saa.actions) && saa.counterfactual && typeof saa.summary === 'string', 'storm after-action report built (mode/actions/counterfactual/summary)');
+    assert(stormReport.afterAction === saa && Array.isArray(stormReport.afterActions) && stormReport.afterActions.indexOf(saa) >= 0, "season report carries the storm's after-action as the latest crisis (afterAction + afterActions)");
+    let e4 = null; try { noNaN(stormReport.flood.tactics, 'flood.tactics'); } catch (e) { e4 = e; }
+    assert(!e4, 'no NaN in flood tactics');
+  } else skip('storm run (decide.liveTools)', 'Flood live tools + World + Fire + Hydrology');
+
   const dt = (Date.now() - t0) / 1000;
-  assert(dt < 20, 'whole run took ' + dt.toFixed(1) + ' s (< 20 s)');
+  assert(dt < 90, 'whole run took ' + dt.toFixed(1) + ' s (< 90 s; v2 runs tactical + storm counterfactuals for 7 seeded games)');
   console.log('DONE: ' + (process.exitCode ? 'FAILURES' : 'all passed') + ' in ' + dt.toFixed(1) + 's; modules present: ' + Object.keys(HAS).filter(k => HAS[k]).join(', '));
 })().catch(e => { console.error('FAIL: unhandled', e); process.exitCode = 1; });

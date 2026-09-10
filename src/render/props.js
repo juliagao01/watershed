@@ -6,6 +6,8 @@
      props.setSeason(seasonIdx, {snowlineElev})
      props.update(dt, state)          // life animation, burning-tree flicker
      props.setFire(burningIdx)        // [] to clear
+     props.setBurningCells(cells)     // houses in these cells flicker toward orange (instanceColor); [] to clear
+     props.setFireIntensity(level)    // 0..1, strengthens the house flicker
      props.setWind(dirRad, mph)
      props.dispose()
 */
@@ -681,6 +683,8 @@
     var season = 0, snowline = fin(world.snowlineElev, 2600) + SNOWLINE_BY_SEASON[0], drought = false, windDir = 0, windMph = 0, time = 0;
     var cellBurning = new Uint8Array(NN), burningInst = new Int32Array(MAX_BURNING_INST), burningN = 0;
     var burningInstA = new Int32Array(MAX_BURNING_INST), burningNA = 0; // aspens
+    var cellBurnH = new Uint8Array(NN), burnHouses = new Int32Array(MAX_HOUSES), burnHousesN = 0, fireLevel = 0; // flickering houses
+    var FLAME_COL = rgb(0xff7a2a), FLAME_HOT = rgb(0xffc24a);
     var fireCX = 0, fireCZ = 0, fireCount = 0, fireBX = new Float32Array(2048), fireBZ = new Float32Array(2048), fireBN = 0;
     var SNOW = rgb(PAL.snow), DRY = rgb(PAL.forestDry), SHRUB_DRY = rgb(PAL.shrubDry), ASPEN_GOLD = rgb(PAL.aspenFall), ASPEN_BARE = rgb(0x8a7a6a);
     var scene_ = scene;
@@ -721,13 +725,15 @@
       sage.mesh.instanceColor.needsUpdate = true;
       // houses
       var wa = houseWalls.instanceColor.array, ra = houseRoofs.instanceColor.array;
-      for (i = 0; i < houses.n; i++) {
-        var wc = houses.burned[i] ? CHAR_WALL : WALL_COLS[houses.wc[i]], rc = houses.burned[i] ? CHAR_ROOF : ROOF_COLS[houses.rc[i]];
-        wa[i * 3] = wc[0]; wa[i * 3 + 1] = wc[1]; wa[i * 3 + 2] = wc[2];
-        e = houses.cell[i] >= 0 ? elev[houses.cell[i]] : 0;
-        if (!houses.burned[i] && e > snowline) lerp3(ra, i * 3, rc, SNOW, w ? 0.85 : 0.6); else { ra[i * 3] = rc[0]; ra[i * 3 + 1] = rc[1]; ra[i * 3 + 2] = rc[2]; }
-      }
+      for (i = 0; i < houses.n; i++) writeHouseColor(i, wa, ra);
       houseWalls.instanceColor.needsUpdate = true; houseRoofs.instanceColor.needsUpdate = true;
+    }
+    function writeHouseColor(i, wa, ra) {
+      var w = (season === 0), elev = world.elev;
+      var wc = houses.burned[i] ? CHAR_WALL : WALL_COLS[houses.wc[i]], rc = houses.burned[i] ? CHAR_ROOF : ROOF_COLS[houses.rc[i]];
+      wa[i * 3] = wc[0]; wa[i * 3 + 1] = wc[1]; wa[i * 3 + 2] = wc[2];
+      var e = houses.cell[i] >= 0 ? elev[houses.cell[i]] : 0;
+      if (!houses.burned[i] && e > snowline) lerp3(ra, i * 3, rc, SNOW, w ? 0.85 : 0.6); else { ra[i * 3] = rc[0]; ra[i * 3 + 1] = rc[1]; ra[i * 3 + 2] = rc[2]; }
     }
     function updateAspenMatrices() {
       var w = (season === 0), i;
@@ -823,6 +829,18 @@
 
       setWind: function (dirRad, mph) { windDir = fin(dirRad, 0); windMph = clamp(fin(mph, 0), 0, 120); },
 
+      /* houses standing in currently burning cells flicker toward orange (instanceColor only — no geometry work) */
+      setBurningCells: function (cells) {
+        var k, i, wa = houseWalls.instanceColor.array, ra = houseRoofs.instanceColor.array;
+        for (k = 0; k < burnHousesN; k++) writeHouseColor(burnHouses[k], wa, ra); // restore previous set
+        if (burnHousesN) { houseWalls.instanceColor.needsUpdate = true; houseRoofs.instanceColor.needsUpdate = true; }
+        burnHousesN = 0; cellBurnH.fill(0);
+        if (!cells || !cells.length) return;
+        for (k = 0; k < cells.length; k++) { i = cells[k] | 0; if (i >= 0 && i < NN) cellBurnH[i] = 1; }
+        for (i = 0; i < houses.n && burnHousesN < MAX_HOUSES; i++) if (houses.cell[i] >= 0 && cellBurnH[houses.cell[i]]) burnHouses[burnHousesN++] = i;
+      },
+      setFireIntensity: function (level) { fireLevel = clamp(fin(level, 0), 0, 1); },
+
       setFire: function (burningIdx) {
         var k, i;
         restoreBurningInst();
@@ -850,6 +868,20 @@
       update: function (dt, state) {
         dt = clamp(fin(dt, 0.016), 0, 0.1); time += dt;
         var k, p, y, mv;
+        // burning houses flicker toward orange
+        if (burnHousesN) {
+          var wa = houseWalls.instanceColor.array, ra = houseRoofs.instanceColor.array;
+          for (k = 0; k < burnHousesN; k++) {
+            var hi = burnHouses[k], ho = hi * 3;
+            writeHouseColor(hi, wa, ra);
+            var fl = clamp(0.4 + 0.3 * fireLevel + 0.22 * Math.sin(time * 13 + hi * 1.7) * Math.sin(time * 5.1 + hi), 0.15, 0.95);
+            var hot = 0.5 + 0.5 * Math.sin(time * 21 + hi);
+            var tr = FLAME_COL[0] + (FLAME_HOT[0] - FLAME_COL[0]) * hot, tg = FLAME_COL[1] + (FLAME_HOT[1] - FLAME_COL[1]) * hot, tb = FLAME_COL[2] + (FLAME_HOT[2] - FLAME_COL[2]) * hot;
+            wa[ho] += (tr - wa[ho]) * fl; wa[ho + 1] += (tg - wa[ho + 1]) * fl; wa[ho + 2] += (tb - wa[ho + 2]) * fl;
+            ra[ho] += (tr - ra[ho]) * fl * 0.8; ra[ho + 1] += (tg - ra[ho + 1]) * fl * 0.8; ra[ho + 2] += (tb - ra[ho + 2]) * fl * 0.8;
+          }
+          houseWalls.instanceColor.needsUpdate = true; houseRoofs.instanceColor.needsUpdate = true;
+        }
         // burning trees flicker / shrink
         if (burningN || burningNA) {
           for (k = 0; k < burningN; k++) { var ii = burningInst[k]; writeInst(conifers, ii, 0.75 + 0.15 * Math.sin(time * 21 + ii), 0.55 + 0.2 * Math.sin(time * 17 + ii * 0.7)); }

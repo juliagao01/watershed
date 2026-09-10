@@ -16,7 +16,8 @@
   var OUT_KEYS = C.OUTCOME_KEYS || ['W', 'E', 'P', 'F', 'T'];
   var OUT_NAMES = C.OUTCOME_NAMES || { W: 'Water Security', E: 'Ecosystem Health', P: 'Public Safety', F: 'Food & Economy', T: 'Public Trust' };
   var OUT_WEIGHTS = C.OUTCOME_WEIGHTS || { W: 0.25, E: 0.2, P: 0.2, F: 0.2, T: 0.15 };
-  var PH = C.PHASES || { BOOT: 'boot', INTRO: 'intro', PLAN: 'plan', EVENT: 'event', LIVE: 'live', FLOOD_PREP: 'flood_prep', FLOOD: 'flood', REPORT: 'report', END: 'end' };
+  var PH = C.PHASES || { BOOT: 'boot', INTRO: 'intro', PLAN: 'plan', EVENT: 'event', LIVE: 'live', FLOOD_PREP: 'flood_prep', FLOOD: 'flood', FIRE: 'fire', STORM: 'storm', REPORT: 'report', END: 'end' };
+  var PH_FIRE = PH.FIRE || 'fire', PH_STORM = PH.STORM || 'storm';
 
   /* ------------------------------------------------------------------ helpers */
   function esc(s) {
@@ -94,6 +95,15 @@
   UI.h = h; UI.hs = hs; UI.esc = esc; UI.clear = clear; UI.fmt = { num: num, money: money, af: af, pct: pct, signed: signed, fin: fin, clamp: clamp, seasonName: seasonName, turnLabel: turnLabel };
   UI.gradeOf = gradeOf; UI.resilienceOf = resilienceOf;
   UI.els = {};
+  /** Small persisted UI preference (localStorage, guarded). pref(key) → value|null; pref(key, value) stores. */
+  UI.pref = function (key, value) {
+    var k = 'watershed.ui.' + key;
+    try {
+      if (value === undefined) { var raw = root.localStorage ? root.localStorage.getItem(k) : null; return raw == null ? null : JSON.parse(raw); }
+      if (root.localStorage) root.localStorage.setItem(k, JSON.stringify(value));
+    } catch (e) { /* storage unavailable or full: ignore */ }
+    return value === undefined ? null : value;
+  };
 
   UI.COLORS = { W: '#4aa3df', E: '#6fbf73', P: '#e07a5f', F: '#d4a24c', T: '#e9c46a', water: '#4aa3df', fire: '#ff7a33', forest: '#6fbf73', trust: '#e9c46a', danger: '#e63946' };
   UI.OUTCOME_CLASS = { W: 'water', E: 'forest', P: 'fire', F: 'trust', T: 'trust' };
@@ -304,7 +314,9 @@
     E.btnHelp = h('button', { id: 'btn-help', type: 'button', 'data-tip': 'Controls, phases and how scoring works' }, [h('span', { class: 'txt' }, 'Help'), h('span', { 'aria-hidden': 'true' }, ' ?')]);
     E.btnHelp.addEventListener('click', function () { if (UI.showHelp) UI.showHelp(); });
     E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnLog, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
-    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
+    /* crisis chip: shown in the top bar while a fire/storm is fought live */
+    E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, '🚨'), h('span', { class: 'txt' }, '')]);
+    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
     ui.appendChild(E.topbar);
 
     /* evidence topic menu (popover) */
@@ -340,8 +352,10 @@
       var b = h('button', { type: 'button', role: 'tab', 'data-tab': t[0], 'aria-selected': 'false', onclick: function () { UI.setTab(t[0]); } }, [t[1], h('span', { class: 'badge', hidden: true }, '')]);
       E.tabs[t[0]] = b; return b;
     }));
+    E.btnAdvisors = h('button', { id: 'btn-advisors', class: 'tiny advisors', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'Ask the advisors: six people read the same numbers and reach different conclusions' }, [h('span', { 'aria-hidden': 'true' }, '🗣 '), 'Advisors']);
+    E.btnAdvisors.addEventListener('click', function (e) { e.stopPropagation(); UI.toggleEvidenceMenu(null, E.btnAdvisors); });
     E.panelRight = h('section', { id: 'panel-right', class: 'panel side right', 'aria-label': 'Actions' }, [
-      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, '▶')]),
+      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('div', { class: 'row' }, [E.btnAdvisors, h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, '▶')])]),
       E.tabbar,
       E.tabBody = h('div', { class: 'body', id: 'tab-body', role: 'tabpanel' })
     ]);
@@ -352,6 +366,12 @@
     /* placement toolbar */
     E.placement = h('div', { id: 'placement', class: 'placement panel', hidden: true, role: 'region', 'aria-label': 'Storm preparation' });
     ui.appendChild(E.placement);
+
+    /* tactical HUD (live fire / storm) + centre alerts */
+    E.tactical = h('div', { id: 'tactical', class: 'tactical panel', hidden: true, role: 'region', 'aria-label': 'Crisis response' });
+    ui.appendChild(E.tactical);
+    E.alert = h('div', { id: 'alert', class: 'alert', hidden: true, role: 'alert', 'aria-live': 'assertive' });
+    ui.appendChild(E.alert);
 
     /* bottom bar */
     E.phaseChip = h('span', { id: 'phase-chip', class: 'chip phase-chip' }, [h('i', { class: 'dot' }), h('span', { class: 'txt' }, 'Boot')]);
@@ -378,10 +398,18 @@
     bindTooltips(ui);
     window.addEventListener('resize', function () { UI.syncPanelToggles(); });
     document.addEventListener('keydown', function (e) {
+      var tag = ((e.target && e.target.tagName) || '').toLowerCase();
+      var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!(e.target && e.target.isContentEditable);
       if (e.key === 'Escape') {
         if (UI.toggleEvidenceMenu(false)) return;
-        if (modalActive && !modalActive.critical) { e.preventDefault(); modalActive.close(undefined); }
+        if (modalActive && !modalActive.critical) { e.preventDefault(); modalActive.close(undefined); return; }
+        if (!modalActive && UI.tacticalVisible()) { e.preventDefault(); UI.tacticalDeselect(); }
+        return;
       }
+      /* crisis keys: only while the tactical HUD is up and no modal is open */
+      if (!UI.tacticalVisible() || modalActive || typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); UI.tacticalTogglePause(); return; }
+      if (/^[1-5]$/.test(e.key)) { e.preventDefault(); UI.tacticalSelectIndex(Number(e.key) - 1); }
     });
     UI.setTab(UI._tab);
     UI.setPhase(st().phase || PH.BOOT);
@@ -421,13 +449,15 @@
       p[2].style.display = visible ? 'inline-flex' : 'none';
     });
   };
-  UI.toggleEvidenceMenu = function (force) {
+  /** Toggle the advisor-topic popover. `anchor` (optional) is the button it hangs from; defaults to the top-bar Evidence button. */
+  UI.toggleEvidenceMenu = function (force, anchor) {
     var m = UI.els.evidenceMenu; if (!m) return false;
     var wasOpen = !m.hidden;
     var open = force == null ? !wasOpen : !!force;
     m.hidden = !open;
     if (open) {
-      var r = UI.els.btnEvidence.getBoundingClientRect();
+      var a = (anchor && anchor.getBoundingClientRect) ? anchor : UI.els.btnEvidence;
+      var r = a.getBoundingClientRect();
       m.style.top = (r.bottom + 6) + 'px';
       m.style.left = Math.max(8, Math.min(window.innerWidth - 216, r.left)) + 'px';
       var first = m.querySelector('button'); if (first) first.focus();
@@ -481,6 +511,8 @@
     else if (p === PH.FLOOD_PREP) { label = 'Brace for storm ⛈'; enabled = true; warn = true; }
     else if (p === PH.LIVE) label = 'Season in progress…';
     else if (p === PH.FLOOD) label = 'Storm underway…';
+    else if (p === PH_FIRE) label = 'Fighting fire 🔥';
+    else if (p === PH_STORM) label = 'Storm defense 🌊';
     else if (p === PH.EVENT) label = 'Decide…';
     else if (p === PH.REPORT) label = 'Reviewing…';
     else if (p === PH.END) label = 'Game over';
@@ -491,6 +523,7 @@
     E.primary.disabled = !enabled;
     E.primary.classList.toggle('warn', warn);
     E.primary.title = p === PH.PLAN ? 'Space: end the ' + seasonName(s.season) + ' planning phase and run the season' : '';
+    if (E.btnAdvisors) E.btnAdvisors.classList.toggle('pulse', p === PH.PLAN && !E.ui.classList.contains('busy'));
   };
 
   /* ------------------------------------------------------------------ phase / toast / ticker / banner */
@@ -499,7 +532,7 @@
     UI._phase = phase || PH.BOOT; info = info || {};
     UI._primaryOverride = (info.label || info.action || info.enabled != null) ? { label: info.label, action: info.action, enabled: info.enabled } : null;
     var E = UI.els; if (!E.phaseChip) return;
-    var names = { boot: 'Loading', intro: 'Welcome', plan: 'Plan', event: 'Event', live: 'Season live', flood_prep: 'Storm prep', flood: 'Flood', report: 'Report', end: 'Finished' };
+    var names = { boot: 'Loading', intro: 'Welcome', plan: 'Plan', event: 'Event', live: 'Season live', flood_prep: 'Storm prep', flood: 'Flood', fire: 'Fighting fire', storm: 'Storm defense', report: 'Report', end: 'Finished' };
     E.phaseChip.className = 'chip phase-chip ' + UI._phase;
     E.phaseChip.querySelector('.txt').textContent = (names[UI._phase] || UI._phase) + (info.hint ? ' · ' + info.hint : '');
     if (info.ticker) UI.ticker(info.ticker);
@@ -574,7 +607,7 @@
     UI.renderTab();
     var badge = E.tabs.log && E.tabs.log.querySelector('.badge'); if (badge) badge.hidden = true;
     var fire = (s.fire || {}).activeFire;
-    if (fire && typeof fire === 'object' && E.fireBanner.hidden && isFinite(Number(fire.acres))) UI.showFireBanner(fire);
+    if (fire && typeof fire === 'object' && E.fireBanner.hidden && isFinite(Number(fire.acres)) && !UI.tacticalVisible()) UI.showFireBanner(fire);
     if (!fire && !E.fireBanner.hidden && UI._phase !== PH.LIVE) UI.showFireBanner(null);
     UI.syncPanelToggles();
   };
@@ -609,10 +642,13 @@
     var box = clear(E.conditions);
     var uncTip = uncertain ? ' Measurement uncertainty is ±' + Math.round(unc * 100) + '% — funding streamgages narrows this range.' : '';
     if (uncertain) box.appendChild(h('div', { class: 'note warn small' }, ['Readings are estimates (±' + Math.round(unc * 100) + '%). ', h('b', {}, 'Streamgages'), ' would narrow these ranges.']));
+    /* six core gauges; the rest live under "More readings" (choice remembered) */
+    var moreOpen = UI.pref('condMore') === true;
+    var core = h('div', { class: 'gauges core' }), more = h('div', { class: 'gauges more', id: 'cond-more', hidden: !moreOpen });
 
     /* snowpack */
     var sp = fin(cl.snowpackPct, 100), swe = fin(cl.snowSWEin, 0);
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'snowpack', label: 'Snowpack',
       tip: 'Snow water equivalent (SWE) is the water stored in the snowpack, measured on April 1 against the long-term median. Roughly 70–80% of Colorado\'s streamflow starts as snowmelt, so this is the best early forecast of the year\'s supply.' + uncTip,
       spark: UI.sparkline(historyValues('snowpackPct'), { color: '#bfe1f7', min: 0 }),
@@ -620,7 +656,7 @@
       sub: 'SWE ' + (uncertain ? '≈ ' + rangeText(swe, unc, function (v) { return num(v, 1); }) : num(swe, 1)) + ' in · avg ' + fin((C.HYDRO || {}).AVG_SNOW_SWE_IN, 18) + ' in'
     }));
     /* precipitation */
-    box.appendChild(gauge({
+    more.appendChild(gauge({
       id: 'precip', label: 'Precipitation',
       tip: 'Rain and snow this season, in inches. Summer monsoon moisture and fall storms matter most after a fire: intense rain on a burn scar produces flash floods and debris flows.',
       spark: UI.sparkline(historyValues('precipIn'), { color: '#7dd3c0', min: 0 }),
@@ -628,7 +664,7 @@
     }));
     /* temperature anomaly */
     var ta = fin(cl.tempAnomF);
-    box.appendChild(gauge({
+    more.appendChild(gauge({
       id: 'temp', label: 'Temperature anomaly',
       tip: 'Departure from the seasonal average in °F. Warm seasons melt snow early, dry out fuels and soils, raise crop water demand and evaporate reservoir water.',
       spark: UI.sparkline(historyValues('tempAnomF'), { color: ta > 2 ? '#ff7a33' : '#e9c46a' }),
@@ -636,7 +672,7 @@
     }));
     /* reservoir */
     var spct = cap > 0 ? stor / cap * 100 : 0;
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'reservoir', label: 'Reservoir storage',
       tip: 'Water in storage in acre-feet (1 AF ≈ 326,000 gallons, about what two Colorado households use in a year). Storage buffers dry years — but the bottom ' + fin((C.HYDRO || {}).RESERVOIR_DEAD_POOL_AF, 4000).toLocaleString() + ' AF is dead pool that cannot be delivered.',
       spark: UI.sparkline(historyValues('storageAF'), { color: UI.COLORS.water, min: 0, max: cap }),
@@ -645,7 +681,7 @@
     }));
     /* soil moisture */
     var sm = clamp(cl.soilMoisturePct, 0, 100);
-    box.appendChild(gauge({
+    more.appendChild(gauge({
       id: 'soil', label: 'Soil moisture',
       tip: 'Percent of field capacity. Dry soils absorb the first snowmelt before it reaches the stream (lower runoff efficiency), stress crops and forests, and let fires spread faster.',
       spark: UI.sparkline(historyValues('soilMoisturePct'), { color: '#a5843c', min: 0, max: 100 }),
@@ -654,7 +690,7 @@
     }));
     /* streamflow */
     var cfs = fin(cl.streamflowCfs), minf = fin((C.HYDRO || {}).MIN_FLOW_CFS, 14);
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'flow', label: 'Streamflow below dam',
       tip: 'Cubic feet per second in Bitterbrush Creek below the dam. The instream-flow right needs ' + minf + ' cfs to keep fish and the riparian corridor alive; hydropower and rafting also depend on releases.' + uncTip,
       spark: UI.sparkline(historyValues('streamflowCfs'), { color: '#38bdf8', min: 0 }),
@@ -663,7 +699,7 @@
     }));
     /* fire danger */
     var lvl = dangerLevel(cl.fireDanger, cl.fireDangerLabel);
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'danger', label: 'Fire danger',
       tip: 'Combines heat, dryness, soil moisture, wind and how much fuel has built up in the forest. Colorado\'s biggest fires (2020) came after a hot, dry summer with a century of accumulated fuel.',
       spark: UI.sparkline(historyValues('fireDanger'), { color: UI.COLORS.fire, min: 0, max: 1 }),
@@ -673,14 +709,14 @@
     }));
     /* drought */
     var dc = String(cl.drought || 'None'), di = ['D0', 'D1', 'D2', 'D3', 'D4'].indexOf(dc);
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'drought', label: 'Drought status',
       tip: 'U.S. Drought Monitor categories: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme, D4 exceptional. Built from cumulative precipitation deficit; Colorado has spent much of the 21st century in some level of drought.',
       value: [dc === 'None' ? 'None' : dc, h('span', { class: 'unit' }, ['', 'abnormally dry', 'moderate', 'severe', 'extreme', 'exceptional'][di + 1] || '')],
       bar: h('div', { class: 'drought' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= di ? 'on d' + i : '' }); }))
     }));
     /* population */
-    box.appendChild(gauge({
+    more.appendChild(gauge({
       id: 'pop', label: 'Population',
       tip: 'Residents served. Every new home adds demand at ~' + fin((C.HYDRO || {}).GPCD, 118) + ' gallons per person per day — and homes in the wildland-urban interface add fire exposure.',
       spark: UI.sparkline(historyValues('population'), { color: '#c9c4b8' }),
@@ -688,7 +724,7 @@
     }));
     /* water quality */
     var turb = clamp(rv.turbidity, 0, 1), ash = clamp(rv.ashContam, 0, 1), alg = clamp(rv.algae, 0, 1);
-    box.appendChild(gauge({
+    core.appendChild(gauge({
       id: 'quality', label: 'Water quality',
       tip: 'Turbidity is suspended sediment; ash carries nutrients, metals and organic carbon that treatment plants struggle with. After the 2020 fires, Front Range utilities faced years of sediment and taste-and-odour problems.',
       spark: UI.sparkline(historyValues('turbidity'), { color: '#a5843c', min: 0, max: 1 }),
@@ -698,12 +734,303 @@
         h('div', { class: 'meter thin', 'data-tip': 'Ash contamination ' + Math.round(ash * 100) + '/100' }, h('i', { class: 'ash', style: { width: ash * 100 + '%' } }))
       ])
     }));
+    box.appendChild(core);
+    var moreBtn = h('button', { class: 'ghost tiny cond-more-btn', type: 'button', id: 'cond-more-btn', 'aria-expanded': moreOpen ? 'true' : 'false', 'aria-controls': 'cond-more' }, moreOpen ? 'Fewer readings ▴' : 'More readings ▾ (precipitation, temperature, soil, population)');
+    moreBtn.addEventListener('click', function () {
+      var open = more.hidden; more.hidden = !open;
+      moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      moreBtn.textContent = open ? 'Fewer readings ▴' : 'More readings ▾ (precipitation, temperature, soil, population)';
+      UI.pref('condMore', open);
+    });
+    box.appendChild(moreBtn);
+    box.appendChild(more);
     if (cl.description) box.appendChild(h('p', { class: 'small muted', style: { marginTop: '8px' } }, String(cl.description)));
   };
   function compass(rad) {
     var d = ((fin(rad) * 180 / Math.PI) % 360 + 360) % 360;
     var names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     return names[Math.round(d / 45) % 8];
+  }
+
+  /* ------------------------------------------------------------------ Tactical HUD (live fire / storm), crisis chip, alerts */
+  var TAC = UI._tac = { spec: null, order: '', tools: {}, zoneKey: '', built: false, on: false };
+  var ZONE_TOOLS = { engine: 1, evacuate: 1 }, INSTANT_TOOLS = { spillway: 1, mutual_aid: 1 };
+  var ZONE_TYPE_ICONS = { neighborhood: '🏘', farm: '🌾', civic: '🏛', forest: '🌲', reservoir: '💧', wetland: '🌿', town: '🏙' };
+  function setText(el, s) { s = String(s == null ? '' : s); if (el && el.textContent !== s) el.textContent = s; }
+  function setAttr(el, k, v) {
+    if (!el) return;
+    if (v == null || v === false) { if (el.hasAttribute(k)) el.removeAttribute(k); return; }
+    v = v === true ? '' : String(v);
+    if (el.getAttribute(k) !== v) el.setAttribute(k, v);
+  }
+  /** Reuse existing children in `box` for `items` (make(item,i) → el; update(el,item,i)); trims extras. */
+  function syncChildren(box, items, make, update) {
+    items = Array.isArray(items) ? items : [];
+    while (box.children.length > items.length) box.removeChild(box.lastChild);
+    for (var i = 0; i < items.length; i++) {
+      var el = box.children[i];
+      if (!el) { el = make(items[i], i); box.appendChild(el); }
+      update(el, items[i], i);
+    }
+  }
+  /** 'map' (paint/click cells) | 'zone' (needs a neighborhood) | 'instant' (applies immediately) */
+  function toolKind(t) {
+    t = t || {};
+    if (t.kind === 'map' || t.kind === 'zone' || t.kind === 'instant') return t.kind;
+    if (t.zone || ZONE_TOOLS[t.type]) return 'zone';
+    if (t.instant || INSTANT_TOOLS[t.type]) return 'instant';
+    return 'map';
+  }
+  function fmtPoints(v, unit) {
+    v = fin(v);
+    if (unit === '$M') return money(v);
+    return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
+  }
+  function tacTools() { return (TAC.spec && Array.isArray(TAC.spec.tools)) ? TAC.spec.tools : []; }
+  function tacTool(type) { var ts = tacTools(); for (var i = 0; i < ts.length; i++) if (ts[i] && ts[i].type === type) return ts[i]; return null; }
+  function tacSelected() { var ts = tacTools(); for (var i = 0; i < ts.length; i++) if (ts[i] && ts[i].selected) return ts[i]; return null; }
+  function tacticResult(r) {
+    if (!r || typeof r !== 'object') return;
+    if (r.ok === false) UI.toast(r.reason || r.text || 'That is not possible right now', 'warn');
+    else if (r.text) UI.toast(r.text, 'good');
+  }
+
+  function buildTactical() {
+    var E = UI.els, box = E.tactical; if (!box || TAC.built) return;
+    clear(box);
+    E.tacIcon = h('span', { class: 'mode-ic', 'aria-hidden': 'true' }, '🔥');
+    E.tacTitle = h('div', { class: 't' }, ''); E.tacSub = h('div', { class: 'sub' }, '');
+    E.tacStepN = h('span', { class: 'n num' }, ''); E.tacStepBar = h('i', { style: { width: '0%' } });
+    E.tacPause = h('button', { id: 'tac-pause', type: 'button', 'aria-pressed': 'false', 'data-tip': 'Space: pause / resume' }, '⏸ Pause');
+    E.tacPause.addEventListener('click', function () { UI.tacticalTogglePause(); });
+    E.tacSpeedBtns = {};
+    E.tacSpeed = h('div', { class: 'seg', id: 'tac-speed', role: 'group', 'aria-label': 'Speed' }, [1, 2].map(function (n) {
+      var b = h('button', { type: 'button', 'data-speed': n, 'aria-label': n + 'x speed', onclick: function () { UI.tacticalSpeed(n); } }, n + '×');
+      E.tacSpeedBtns[n] = b; return b;
+    }));
+    box.appendChild(h('div', { class: 'thead' }, [
+      E.tacIcon, h('div', { class: 'tt' }, [E.tacTitle, E.tacSub]),
+      h('div', { class: 'stepc', 'data-tip': 'Steps so far / longest this crisis can run' }, [h('span', { class: 'label' }, 'Step'), E.tacStepN, h('div', { class: 'meter thin' }, E.tacStepBar)]),
+      h('div', { class: 'ctrl' }, [E.tacPause, E.tacSpeed])
+    ]));
+    E.tacPointsLabel = h('span', { class: 'label' }, 'Points'); E.tacPointsN = h('span', { class: 'n num' }, ''); E.tacPointsBar = h('i', { style: { width: '0%' } });
+    E.tacPoints = h('div', { class: 'points', id: 'tac-points' }, [h('div', { class: 'row between' }, [E.tacPointsLabel, E.tacPointsN]), h('div', { class: 'meter' }, E.tacPointsBar)]);
+    E.tacTools = h('div', { class: 'tools', id: 'tac-tools', role: 'group', 'aria-label': 'Tools (keys 1–5)' });
+    E.tacZoneSel = h('select', { id: 'tac-zone-select', 'aria-label': 'Neighborhood' });
+    E.tacZoneSel.addEventListener('change', function () { var v = Number(E.tacZoneSel.value); if (isFinite(v)) UI.callGame('highlightZone', [v]); });
+    E.tacZoneApply = h('button', { class: 'primary tiny', id: 'tac-zone-apply', type: 'button' }, 'Apply');
+    E.tacZoneApply.addEventListener('click', function () { UI.tacticalApplyZone(); });
+    E.tacZoneLabel = h('span', { class: 'label' }, 'Neighborhood');
+    E.tacZone = h('div', { class: 'zone-row', id: 'tac-zone', hidden: true }, [E.tacZoneLabel, E.tacZoneSel, E.tacZoneApply]);
+    E.tacHint = h('div', { class: 'hint', id: 'tac-hint' }, '');
+    E.tacHeadline = h('div', { class: 'headline' }, '');
+    E.tacRows = h('div', { class: 'rows' });
+    E.tacThreatened = h('div', { class: 'threatened' });
+    E.tacThreatLabel = h('div', { class: 'label', style: { marginTop: '6px' } }, 'Threatened');
+    E.tacThreat = h('div', { class: 'threat', id: 'tac-threat', role: 'status', 'aria-live': 'polite' }, [E.tacHeadline, E.tacRows, E.tacThreatLabel, E.tacThreatened]);
+    box.appendChild(h('div', { class: 'tgrid' }, [h('div', { class: 'tleft' }, [E.tacPoints, E.tacTools, E.tacZone, E.tacHint]), E.tacThreat]));
+    TAC.built = true;
+  }
+
+  function renderTacTools() {
+    var E = UI.els, tools = tacTools();
+    var order = tools.map(function (t) { return (t && t.type) || ''; }).join(',');
+    if (order !== TAC.order) {
+      clear(E.tacTools); TAC.tools = {}; TAC.order = order;
+      tools.forEach(function (t, i) {
+        t = t || {}; var type = t.type || ('tool' + i);
+        var r = { btn: null, ic: h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), n: h('span', { class: 'n' }, ''), cost: h('b', {}, ''), rem: h('span', { class: 'rem' }, '') };
+        r.btn = h('button', { class: 'tool', type: 'button', 'data-tool': type, 'aria-pressed': 'false' }, [
+          i < 9 ? h('kbd', { class: 'key', 'aria-hidden': 'true' }, String(i + 1)) : null, r.ic, r.n, h('span', { class: 'c' }, [r.cost, r.rem])
+        ]);
+        r.btn.addEventListener('click', function () { UI.tacticalToolClick(type); });
+        TAC.tools[type] = r; E.tacTools.appendChild(r.btn);
+      });
+    }
+    tools.forEach(function (t) {
+      t = t || {}; var r = TAC.tools[t.type]; if (!r) return;
+      setText(r.ic, t.icon || '▪'); setText(r.n, t.name || t.type); setText(r.cost, t.cost || '');
+      var cd = fin(t.cooldown, 0), remaining = t.remaining;
+      var remText = cd > 0 ? ' · ⏱ ' + Math.ceil(cd) : (remaining != null && isFinite(Number(remaining)) ? ' · ' + Math.max(0, Math.round(remaining)) + ' left' : '');
+      setText(r.rem, remText);
+      var disabled = !!t.disabled || cd > 0 || (remaining != null && fin(remaining) <= 0);
+      r.btn.classList.toggle('selected', !!t.selected);
+      r.btn.classList.toggle('disabled', disabled);
+      r.btn.classList.toggle('cooling', cd > 0);
+      setAttr(r.btn, 'aria-pressed', t.selected ? 'true' : 'false');
+      setAttr(r.btn, 'aria-disabled', disabled ? 'true' : null);
+      var tip = disabled && t.reason ? String(t.reason) : (t.desc || t.name || '');
+      setAttr(r.btn, 'data-tip', tip || null);
+    });
+  }
+  function renderTacZone() {
+    var E = UI.els, sel = tacSelected();
+    var show = !!sel && toolKind(sel) === 'zone';
+    if (E.tacZone.hidden === show) E.tacZone.hidden = !show;
+    if (!show) return;
+    var ztype = typeof sel.zone === 'string' ? sel.zone : 'neighborhood';
+    var zones = [];
+    try { if (UI.game && typeof UI.game.listZones === 'function') zones = UI.game.listZones(ztype); } catch (e) { zones = null; }
+    if (!Array.isArray(zones)) {
+      var w = wd(); zones = null;
+      try { if (typeof w.zonesOf === 'function') zones = w.zonesOf(ztype); } catch (e) { zones = null; }
+      if (!Array.isArray(zones)) zones = (w.zones || []).filter(function (z) { return z && z.type === ztype; });
+    }
+    var key = ztype + ':' + zones.map(function (z) { return z && z.id; }).join(',');
+    if (key !== TAC.zoneKey) {
+      TAC.zoneKey = key; clear(E.tacZoneSel);
+      zones.forEach(function (z) { if (z) E.tacZoneSel.appendChild(h('option', { value: String(z.id) }, z.name || ('Zone ' + z.id))); });
+      if (!zones.length) E.tacZoneSel.appendChild(h('option', { value: '' }, 'No ' + ztype + 's'));
+    }
+    setText(E.tacZoneLabel, ztype === 'neighborhood' ? 'Neighborhood' : ztype);
+    setText(E.tacZoneApply, (sel.icon ? sel.icon + ' ' : '') + (sel.type === 'evacuate' ? 'Evacuate' : sel.type === 'engine' ? 'Station' : 'Apply'));
+    E.tacZoneApply.disabled = !zones.length;
+  }
+  function renderTacThreat() {
+    var E = UI.els, th = (TAC.spec && TAC.spec.threat) || {};
+    setText(E.tacHeadline, th.headline || (TAC.spec && TAC.spec.subtitle) || '');
+    syncChildren(E.tacRows, Array.isArray(th.rows) ? th.rows : [],
+      function () { return h('div', { class: 'r' }, [h('span', { class: 'k' }, ''), h('span', { class: 'v num' }, '')]); },
+      function (el, r) { r = r || {}; setText(el.firstChild, r.label); setText(el.lastChild, r.value); el.classList.toggle('bad', !!r.bad); });
+    var list = Array.isArray(th.threatened) ? th.threatened : [];
+    E.tacThreatLabel.hidden = !list.length;
+    syncChildren(E.tacThreatened, list,
+      function () { return h('div', { class: 'tz' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), h('span', { class: 'n' }, ''), h('span', { class: 'd num' }, ''), h('span', { class: 'burning' }, 'burning')]); },
+      function (el, z) {
+        z = z || {}; var kids = el.children;
+        setText(kids[0], ZONE_TYPE_ICONS[z.type] || '📍'); setText(kids[1], z.name || UI.zoneName(z.zoneId) || 'Zone');
+        var d = Number(z.distance != null ? z.distance : z.distanceCells);
+        setText(kids[2], z.burning ? '' : (isFinite(d) ? (d <= 0 ? 'here' : Math.round(d) + ' cells') : ''));
+        var storm = !!(TAC.spec && TAC.spec.mode === 'storm');
+        setText(kids[3], storm ? 'flooding' : 'burning');
+        kids[3].hidden = !z.burning; el.classList.toggle('is-burning', !!z.burning);
+        setAttr(el, 'data-tip', (z.name || 'Zone') + (z.type ? ' · ' + z.type : '') + (z.burning ? (storm ? ' · water is in the streets' : ' · fire is inside') : (isFinite(d) ? ' · ' + Math.round(d) + ' cells (' + Math.round(d * fin(C.CELL_M, 100)) + ' m) from the ' + (storm ? 'water' : 'fire line') : '')));
+      });
+  }
+  function renderTacHead() {
+    var E = UI.els, s = TAC.spec || {}, mode = s.mode === 'storm' ? 'storm' : 'fire';
+    E.tactical.classList.toggle('fire', mode === 'fire'); E.tactical.classList.toggle('storm', mode === 'storm');
+    setText(E.tacIcon, mode === 'storm' ? '⛈' : '🔥');
+    setText(E.tacTitle, s.title || (mode === 'storm' ? 'Storm defense' : 'Wildfire response'));
+    setText(E.tacSub, s.subtitle || '');
+    var step = fin(s.step), max = fin(s.maxSteps);
+    setText(E.tacStepN, max > 0 ? Math.round(step) + ' / ' + Math.round(max) : String(Math.round(step)));
+    var w = (max > 0 ? clamp(step / max * 100, 0, 100) : 0) + '%'; if (E.tacStepBar.style.width !== w) E.tacStepBar.style.width = w;
+    var paused = !!s.paused;
+    setText(E.tacPause, paused ? '▶ Resume' : '⏸ Pause'); E.tacPause.classList.toggle('paused', paused); setAttr(E.tacPause, 'aria-pressed', paused ? 'true' : 'false');
+    var sp = Number(s.speed) === 2 ? 2 : 1;
+    for (var k in E.tacSpeedBtns) E.tacSpeedBtns[k].classList.toggle('active', Number(k) === sp);
+    if (E.speedBtns) for (var k2 in E.speedBtns) E.speedBtns[k2].classList.toggle('active', Number(k2) === sp);
+    var p = s.points || {};
+    setText(E.tacPointsLabel, p.label || (mode === 'storm' ? 'Emergency fund' : 'Crew points'));
+    var pv = fin(p.value), pm = fin(p.max);
+    setText(E.tacPointsN, fmtPoints(pv, p.unit) + (pm > 0 ? ' / ' + fmtPoints(pm, p.unit) : '') + (p.unit === 'pts' ? ' pts' : ''));
+    var pw = (pm > 0 ? clamp(pv / pm * 100, 0, 100) : 0) + '%'; if (E.tacPointsBar.style.width !== pw) E.tacPointsBar.style.width = pw;
+    E.tacPoints.classList.toggle('low', pm > 0 && pv / pm < 0.15);
+    var sel = tacSelected(), hint = s.hint;
+    if (!hint) {
+      if (!sel) hint = 'Pick a tool (keys 1–5). Space pauses; Esc deselects.';
+      else if (toolKind(sel) === 'zone') hint = 'Choose a neighborhood and apply.';
+      else if (toolKind(sel) === 'instant') hint = 'Applies immediately.';
+      else hint = 'Click or drag on the map to place ' + (sel.name || sel.type) + '.';
+    }
+    setText(E.tacHint, hint);
+    var chip = s.chip || s.alarm || s.title || (mode === 'storm' ? 'FLASH FLOOD' : 'WILDFIRE');
+    setText(E.crisisChip.querySelector('.txt'), chip); E.crisisChip.hidden = false;
+    E.topbar.classList.toggle('crisis-fire', mode === 'fire'); E.topbar.classList.toggle('crisis-storm', mode === 'storm');
+  }
+  function applyTactical(spec) {
+    TAC.spec = spec && typeof spec === 'object' ? spec : {};
+    renderTacHead(); renderTacTools(); renderTacZone(); renderTacThreat();
+  }
+
+  UI.tacticalVisible = function () { return !!(TAC.on && UI.els.tactical && !UI.els.tactical.hidden); };
+  UI.handlesCrisisKeys = true; /* main.js may skip its own 1–5 / Space / Esc handling while UI.tacticalVisible() */
+  /** Show the tactical HUD for a live fire or storm. spec: see SPEC2 §D. */
+  UI.showTactical = function (spec) {
+    var E = UI.els; if (!E.tactical) return;
+    buildTactical();
+    TAC.order = ''; TAC.zoneKey = ''; TAC.on = true;
+    E.ui.classList.add('crisis-on');
+    E.tactical.hidden = false;
+    if (E.placement) E.placement.hidden = true;
+    if (E.fireBanner) E.fireBanner.hidden = true;
+    UI.toggleEvidenceMenu(false);
+    applyTactical(spec);
+    var mode = (TAC.spec.mode === 'storm') ? PH_STORM : PH_FIRE;
+    if (UI._phase !== mode) UI.setPhase(mode);
+  };
+  /** Diff-update: called ~2×/s by the game; only touches text/classes that changed. */
+  UI.updateTactical = function (spec) {
+    if (!TAC.on || !UI.els.tactical || UI.els.tactical.hidden) { UI.showTactical(spec); return; }
+    applyTactical(spec);
+  };
+  UI.hideTactical = function () {
+    var E = UI.els; if (!E.tactical) return;
+    TAC.on = false; TAC.spec = null;
+    E.tactical.hidden = true;
+    E.ui.classList.remove('crisis-on');
+    E.topbar.classList.remove('crisis-fire'); E.topbar.classList.remove('crisis-storm');
+    E.crisisChip.hidden = true;
+    if (UI._phase === PH_FIRE || UI._phase === PH_STORM) UI.setPhase(PH.LIVE || 'live');
+    UI.syncPanelToggles();
+  };
+  UI.tacticalToolClick = function (type) {
+    var t = tacTool(type); if (!t) return;
+    var cd = fin(t.cooldown, 0);
+    if (t.disabled || cd > 0 || (t.remaining != null && fin(t.remaining) <= 0)) {
+      UI.toast(t.reason || (cd > 0 ? (t.name || type) + ' ready in ' + Math.ceil(cd) + ' steps' : (t.name || type) + ' is used up'), 'warn'); return;
+    }
+    if (toolKind(t) === 'instant') { UI.callGame('applyTactic', [type], tacticResult); return; }
+    var next = t.selected ? null : type;
+    tacTools().forEach(function (x) { if (x) x.selected = !!next && x.type === next; }); /* optimistic; next update overrides */
+    renderTacTools(); renderTacZone(); renderTacHead();
+    UI.callGame('selectTactic', [next]);
+  };
+  UI.tacticalSelectIndex = function (i) { var t = tacTools()[i]; if (t && t.type) UI.tacticalToolClick(t.type); };
+  UI.tacticalDeselect = function () {
+    tacTools().forEach(function (x) { if (x) x.selected = false; });
+    renderTacTools(); renderTacZone(); renderTacHead();
+    UI.callGame('selectTactic', [null]);
+  };
+  UI.tacticalTogglePause = function () {
+    if (!TAC.spec) return;
+    var p = !TAC.spec.paused; TAC.spec.paused = p; renderTacHead();
+    UI.callGame('setPaused', [p]);
+  };
+  UI.tacticalSpeed = function (n) {
+    n = Number(n) === 2 ? 2 : 1; if (TAC.spec) TAC.spec.speed = n; UI._speed = n; renderTacHead();
+    UI.callGame('setSpeed', [n]);
+  };
+  UI.tacticalApplyZone = function () {
+    var E = UI.els, sel = tacSelected(); if (!sel || toolKind(sel) !== 'zone') return;
+    var zid = Number(E.tacZoneSel.value); if (!isFinite(zid)) return;
+    UI.callGame('applyTacticToZone', [sel.type, zid], tacticResult);
+  };
+
+  /* --- centre alerts: large 2 s flash, queued --- */
+  var alertQ = [], alertBusy = false;
+  UI.alert = function (text, kind) {
+    var E = UI.els; if (!E.alert) return;
+    alertQ.push({ text: String(text == null ? '' : text), kind: kind || 'info' });
+    if (alertQ.length > 6) alertQ.splice(0, alertQ.length - 6);
+    pumpAlert();
+  };
+  function pumpAlert() {
+    if (alertBusy || !alertQ.length) return;
+    var a = alertQ.shift(), E = UI.els; alertBusy = true;
+    clear(E.alert);
+    var icon = UI.KIND_ICONS[a.kind] || (a.kind === 'storm' ? '⛈' : '');
+    var card = h('div', { class: 'alert-card ' + a.kind }, [icon ? h('span', { class: 'ic', 'aria-hidden': 'true' }, icon) : null, h('span', { class: 'txt' }, a.text)]);
+    E.alert.appendChild(card); E.alert.hidden = false;
+    setTimeout(function () {
+      card.classList.add('leaving');
+      setTimeout(function () {
+        if (card.parentNode) card.parentNode.removeChild(card);
+        if (!E.alert.children.length) E.alert.hidden = true;
+        alertBusy = false; pumpAlert();
+      }, 260);
+    }, 2000);
   }
 
   /* ------------------------------------------------------------------ Log tab */

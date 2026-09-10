@@ -1,7 +1,9 @@
 /* Watershed — post-fire storm / debris-flow model. Export WS.Flood.
    Deterministic runoff + sediment routing along world.flowDir in topological order, with the
    player's emergency mitigations (mulch, log barriers, debris basins, bank stabilisation, intake
-   boom, sensors, warning sirens) and project effects (restored wetland, rain capture). Runs in Node. */
+   boom, sensors, warning sirens) and project effects (restored wetland, rain capture). Runs in Node.
+   v2 (SPEC2 §B): live storm-defence tools (sandbag, pump, evacuate, spillway) with an `atFrame` timing rule,
+   per-cell arrival frames + a flood timeline aligned with the particle frames, and a tactics counterfactual. */
 (function () {
   'use strict';
   var root = (typeof window !== 'undefined') ? window : globalThis;
@@ -13,10 +15,15 @@
   var IN_TO_M = 0.0254;
   var SCAR_MIN_BURN = 0.2;
   var FRAME_COUNT = 32, MAX_PARTICLES = 3000;
+  var DELAY_SALT = 7, DELAY_MOD = 7;         // particle start delay = hash32(cell, DELAY_SALT) % DELAY_MOD frames (shared by tracer + arrival)
+  var LOCAL_ARRIVAL_BASE = 6, LOCAL_ARRIVAL_SPREAD = 6; // cells flooded by their own/unburned runoff (no flow path from the scar) fill in frames 6..11
+  var SANDBAG_THR = 2.5, LATE_EFF = 0.4, PUMP_DMG = 0.4, EVAC_RISK = 0.1, SPILLWAY_PEAK = 0.6, SPILLWAY_AF = 1500, SPILLWAY_FARM_DMG = 1.2;
 
   function fin(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
   function seasonOf(state) { return state && isFinite(state.season) ? (state.season | 0) : (state && isFinite(state.turn) ? (state.turn % 4) : 2); }
-  function hash32(i, salt) { var h = (i | 0) ^ ((salt | 0) * 0x9E3779B1); h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B); h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35); return (h ^ (h >>> 16)) >>> 0; }
+  // 32-bit multiply without Math.imul (bit-identical; avoids slow cross-realm builtin calls when run inside a vm context)
+  function imul(a, b) { var ah = (a >>> 16) & 0xffff, al = a & 0xffff, bh = (b >>> 16) & 0xffff, bl = b & 0xffff; return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0)) | 0; }
+  function hash32(i, salt) { var h = (i | 0) ^ ((salt | 0) * 0x9E3779B1); h = imul(h ^ (h >>> 16), 0x85EBCA6B); h = imul(h ^ (h >>> 13), 0xC2B2AE35); return (h ^ (h >>> 16)) >>> 0; }
   function hash01(i, salt) { return hash32(i, salt) / 4294967296; }
 
   // runoff coefficient (fraction of rain that becomes runoff) and "fast" fraction (share that
@@ -35,14 +42,20 @@
   COEFF[L.RIPARIAN] = 0.18; FAST[L.RIPARIAN] = 0.10;
 
   var TOOLS = {
-    mulch: { name: 'Straw / wood mulch', desc: 'Aerial mulch covers bare burned soil so rain soaks in instead of stripping ash and topsoil. Cuts hillslope erosion about 60% within its footprint.', costM: 0.35, radius: 1, effect: 'Erosion -60% in a 3x3 patch; slightly less runoff.' },
-    barrier: { name: 'Log erosion barrier', desc: 'Felled logs or straw wattles staked across small burned drainages slow water and trap sediment before it reaches a creek.', costM: 0.15, effect: 'Traps 50% of passing sediment, up to 300 t.', capacityTons: 300 },
-    debris_basin: { name: 'Debris basin', desc: 'An excavated catch basin on a channel below the scar captures boulders, logs and mud from a debris flow. Must be cleaned out after each storm.', costM: 1.2, capacityTons: 4000, effect: 'Traps up to 4,000 t of sediment.' },
-    bank_stab: { name: 'Bank stabilisation', desc: 'Rock, root wads and willow plantings hold streambanks below the dam so a flood pulse does not carve new sediment from the banks.', costM: 0.5, effect: 'Stops bank erosion on that reach.' },
-    intake_protect: { name: 'Intake protection', desc: 'A floating boom and curtain around the treatment intake keeps floating ash and the muddiest water away from the pumps.', costM: 0.8, max: 1, effect: 'Contamination at the intake -40%.' },
-    sensor: { name: 'Stream sensor', desc: 'A turbidity and stage sensor on the river above the intake gives the treatment plant hours of warning to shut the intake before the ash slug arrives.', costM: 0.2, effect: 'Early detection halves any treatment outage.' },
-    warning: { name: 'Flash-flood siren', desc: 'A siren and reverse-911 alert for a neighbourhood in the flood path. Flash floods off burn scars can arrive in minutes.', costM: 0.25, effect: 'Injury risk -80% in that neighbourhood.' }
+    mulch: { name: 'Straw / wood mulch', desc: 'Aerial mulch covers bare burned soil so rain soaks in instead of stripping ash and topsoil. Cuts hillslope erosion about 60% within its footprint.', costM: 0.35, radius: 1, live: false, effect: 'Erosion -60% in a 3x3 patch; slightly less runoff.' },
+    barrier: { name: 'Log erosion barrier', desc: 'Felled logs or straw wattles staked across small burned drainages slow water and trap sediment before it reaches a creek.', costM: 0.15, live: false, effect: 'Traps 50% of passing sediment, up to 300 t.', capacityTons: 300 },
+    debris_basin: { name: 'Debris basin', desc: 'An excavated catch basin on a channel below the scar captures boulders, logs and mud from a debris flow. Must be cleaned out after each storm.', costM: 1.2, capacityTons: 4000, live: false, effect: 'Traps up to 4,000 t of sediment.' },
+    bank_stab: { name: 'Bank stabilisation', desc: 'Rock, root wads and willow plantings hold streambanks below the dam so a flood pulse does not carve new sediment from the banks.', costM: 0.5, live: false, effect: 'Stops bank erosion on that reach.' },
+    intake_protect: { name: 'Intake protection', desc: 'A floating boom and curtain around the treatment intake keeps floating ash and the muddiest water away from the pumps.', costM: 0.8, max: 1, live: false, effect: 'Contamination at the intake -40%.' },
+    sensor: { name: 'Stream sensor', desc: 'A turbidity and stage sensor on the river above the intake gives the treatment plant hours of warning to shut the intake before the ash slug arrives.', costM: 0.2, live: false, effect: 'Early detection halves any treatment outage.' },
+    warning: { name: 'Flash-flood siren', desc: 'A siren and reverse-911 alert for a neighbourhood in the flood path. Flash floods off burn scars can arrive in minutes.', costM: 0.25, live: false, effect: 'Injury risk -80% in that neighbourhood.' },
+    // live (during-the-storm) tools — SPEC2 §B. `atFrame` on the mitigation says when it went in.
+    sandbag: { name: 'Sandbag line', icon: '🧱', costM: 0.04 /* per cell */, live: true, desc: 'Protects this cell and its 4 neighbours: flood threshold ×2.5. Placed before the water arrives = full effect; after = 40%.', effect: 'Flood threshold x2.5 on 5 cells (x1.6 if placed late).' },
+    pump: { name: 'Pump crew', icon: '🔧', costM: 0.15, live: true, max: 3, desc: 'Clears a flooded street or basement: damage on this cell ×0.4.', effect: 'Damage on this cell x0.4 (x0.76 if placed late).' },
+    evacuate: { name: 'Evacuate', icon: '📢', costM: 0, live: true, zone: 'neighborhood', desc: 'Empty a neighborhood: injury risk there ×0.1; trust dips if no water ever arrived.', effect: 'Injury risk in the neighbourhood x0.1.' },
+    spillway: { name: 'Emergency release', icon: '🌊', costM: 0, live: true, once: true, desc: 'Open the dam gates early: the reservoir swallows the pulse (peak below dam ×0.6) but you dump 1,500 AF and farms downstream see a surge.', effect: 'Peak below the dam x0.6; -1,500 AF storage; farm damage x1.2; trust -1.' }
   };
+  function isLive(type) { return !!(TOOLS[type] && TOOLS[type].live); }
 
   /* ---------- topological order along flowDir (cached on world._topo) ---------- */
   function topo(world) {
@@ -149,6 +162,69 @@
     for (var i = 0; i < NN; i++) if (fin(world.burn[i], 0) >= SCAR_MIN_BURN) out.push(i);
     return out;
   }
+  /* particle sources shared by the tracer (buildFrames) and the arrival-frame pass (reachFrames): scar cells strided to
+     <= MAX_PARTICLES, or with no scar a sample of channel cells (flowAcc > 40) outside the reservoir */
+  function seedCells(world, maps) {
+    var seeds = [], i, p;
+    var scar = scarCells(world);
+    if (scar.length) {
+      var stride = Math.max(1, scar.length / MAX_PARTICLES);
+      for (p = 0; p < scar.length; p += stride) seeds.push(scar[Math.floor(p)]);
+    } else if (world.flowAcc) {
+      var chan = [];
+      for (i = 0; i < NN; i++) if (fin(world.flowAcc[i], 0) > 40 && !maps.isRes[i]) chan.push(i);
+      var stride2 = Math.max(1, chan.length / 800);
+      for (p = 0; p < chan.length; p += stride2) seeds.push(chan[Math.floor(p)]);
+    }
+    if (seeds.length > MAX_PARTICLES) seeds.length = MAX_PARTICLES;
+    return seeds;
+  }
+
+  /* ---------- arrival frames ----------
+     Per-cell "when does the water get here" in animation frames, derived from the same routing progression as the
+     particle tracer in buildFrames: the same seed cells (seedCells), each starting at delay hash32(i, 7) % 7, and a
+     particle crosses a cell in 1 / (1 + [flowAcc>40] + [flowAcc>200]) frames. T[cell] = earliest source arrival (min
+     over paths along flowDir, through the reservoir). Frame = ceil(T) - 1 matches the frame index whose positions first
+     show a particle on (or past) that cell. Cells with no flow path from a source (they flood from their own / unburned
+     runoff) get a local-runoff frame in 6..11. Clamped to the last frame. */
+  function reachFrames(world, maps, tp, seeds) {
+    // hot per-cell loops: plain comparisons only (NaN compares false, matching fin(v, 0)); no fin/Math.* builtins
+    var order = tp.order, dir = tp.dir, acc = world.flowAcc, i, k, a;
+    var T = new Float32Array(NN); T.fill(Infinity);
+    for (k = 0; k < seeds.length; k++) { i = seeds[k]; T[i] = hash32(i, DELAY_SALT) % DELAY_MOD; }
+    for (k = 0; k < NN; k++) {
+      i = order[k]; var t = T[i]; if (t === Infinity) continue;
+      var d = dir[i]; if (d < 0) continue;
+      a = acc ? acc[i] : 0;
+      t += a > 200 ? (1 / 3) : (a > 40 ? 0.5 : 1);
+      if (t < T[d]) T[d] = t;
+    }
+    var out = new Int32Array(NN), last = FRAME_COUNT - 1;
+    for (i = 0; i < NN; i++) {
+      var v = T[i];
+      if (v === Infinity) { out[i] = LOCAL_ARRIVAL_BASE + (((i * 2654435761) >>> 0) % LOCAL_ARRIVAL_SPREAD); continue; }
+      var f = v | 0; if (f < v) f++;          // ceil
+      f -= 1; if (f < 0) f = 0; else if (f > last) f = last;
+      out[i] = f;
+    }
+    return out;
+  }
+  /* zone a placed marker belongs to: the cell's own zone, else the zone whose centre is that cell (neighbourhood centres are
+     usually road cells with zone -1 on the real map), else the first zone whose bbox contains it; -1 if none */
+  function zoneForCell(world, mi) {
+    if (mi < 0 || mi >= NN) return -1;
+    var z = world.zone ? world.zone[mi] : -1;
+    if (z >= 0) return z;
+    var zones = world.zones || [], x = mi % N, y = (mi / N) | 0, k, zn, byBox = -1;
+    for (k = 0; k < zones.length; k++) {
+      zn = zones[k]; if (!zn) continue;
+      if (zn.center && (zn.center.x | 0) === x && (zn.center.y | 0) === y) return zn.id != null ? zn.id : k;
+      if (byBox < 0 && zn.bbox && x >= zn.bbox.x0 && x <= zn.bbox.x1 && y >= zn.bbox.y0 && y <= zn.bbox.y1 && (zn.type === 'neighborhood' || zn.type === 'civic')) byBox = zn.id != null ? zn.id : k;
+    }
+    return byBox;
+  }
+  function emptyTactics() { return { sandbagCells: 0, pumps: 0, evacuated: [], spillwayUsed: false, counterfactual: { damageM: 0, floodedHouses: 0, injuriesRisk: 0 }, damageSaved: 0, housesSaved: 0 }; }
+  function zoneNameOf(world, z) { var zn = world && world.zones && world.zones[z]; return (zn && zn.name) ? String(zn.name) : ('Zone ' + z); }
 
   /* ---------- the storm ---------- */
   function simulate(state, world, storm, mitigations, opts) {
@@ -156,7 +232,9 @@
     var res = { peakCfsReservoir: 0, peakCfsTown: 0, sedimentTons: 0, sedimentToReservoir: 0, ashToReservoir: 0, trappedTons: 0,
                 floodedCells: new Int32Array(0), floodedHouses: 0, damageM: 0, injuriesRisk: 0,
                 contamination: { turbidityDelta: 0, ashDelta: 0, outageDays: 0 }, earlyWarning: false, frames: [],
-                floodedResidential: 0, floodedFarm: 0, floodedCivic: 0, runoffAF: 0, bankErosionTons: 0, scarAcres: 0, storm: normStorm(storm) };
+                floodedResidential: 0, floodedFarm: 0, floodedCivic: 0, runoffAF: 0, bankErosionTons: 0, scarAcres: 0, storm: normStorm(storm),
+                arrivalFrame: new Int32Array(0), floodTimeline: [], floodedByFrame: new Int32Array(0), firstTownFloodFrame: -1, firstTownFloodZone: null,
+                releasedAF: 0, spillwayUsed: false, unnecessaryEvacs: 0, tactics: emptyTactics() };
     if (!world || !world.land) return res;
     var st = res.storm;
     var eff = effectsOf(state, opts);
@@ -164,14 +242,42 @@
     var order = tp.order, dir = tp.dir;
     var land = world.land, burn = world.burn, slope = world.slope, moist = world.moisture;
     var i, k, x, y, lv;
+    var seeds = seedCells(world, maps);               // the particle sources (shared by the tracer and the arrival pass)
+    var reach = reachFrames(world, maps, tp, seeds);  // frame the water reaches each cell (see reachFrames)
 
     // --- mitigation sets ---
     var mulch = new Uint8Array(NN), barrierCap = new Float32Array(NN), basinCap = new Float32Array(NN), bank = new Uint8Array(NN);
     var sensorCells = [], warnZones = {}, intakeProtect = false;
+    // live tools (SPEC2 §B). atFrame == null → placed before the storm (-1); effectiveness 1.0 if atFrame <= reach[cell], else LATE_EFF.
+    var NONE = 0x7fffffff, sandbagAt = null, sbMult = null, sandbagCells = 0, pumpMult = null, pumps = 0, evacZones = null, evacNames = [], spillway = false, anyLive = false;
     var mits = Array.isArray(mitigations) ? mitigations : [];
     for (k = 0; k < mits.length; k++) {
-      var mt = mits[k]; var mi = mitIndex(mt); if (mi < 0 || !mt.type) continue;
-      var t = mt.type;
+      var mt = mits[k]; if (!mt || !mt.type) continue;
+      var mi = mitIndex(mt), t = mt.type;
+      if (isLive(t)) {
+        var af = (mt.atFrame == null || !isFinite(mt.atFrame)) ? -1 : (mt.atFrame | 0);
+        if (t === 'sandbag') {
+          if (mi < 0) continue;
+          if (!sandbagAt) { sandbagAt = new Int32Array(NN); sandbagAt.fill(NONE); }
+          if (sandbagAt[mi] === NONE) sandbagCells++;
+          if (af < sandbagAt[mi]) sandbagAt[mi] = af;
+          anyLive = true;
+        } else if (t === 'pump') {
+          if (mi < 0 || pumps >= TOOLS.pump.max) continue;
+          if (!pumpMult) { pumpMult = new Float32Array(NN); pumpMult.fill(1); }
+          if (pumpMult[mi] < 1) continue;                       // one crew per cell
+          var pe = (af < 0 || af <= reach[mi]) ? 1 : LATE_EFF;
+          pumpMult[mi] = 1 - (1 - PUMP_DMG) * pe; pumps++; anyLive = true;
+        } else if (t === 'evacuate') {
+          var ez = (mt.zoneId != null && isFinite(mt.zoneId)) ? (mt.zoneId | 0) : zoneForCell(world, mi);
+          if (ez < 0) continue;
+          if (!evacZones) evacZones = {};
+          if (!evacZones[ez]) { evacZones[ez] = true; evacNames.push(zoneNameOf(world, ez)); }
+          anyLive = true;
+        } else if (t === 'spillway') { spillway = true; anyLive = true; }
+        continue;
+      }
+      if (mi < 0) continue;
       if (t === 'mulch') {
         x = mi % N; y = (mi / N) | 0;
         for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { var nx = x + dx, ny = y + dy; if (C.inBounds(nx, ny)) mulch[ny * N + nx] = 1; }
@@ -180,7 +286,20 @@
       else if (t === 'bank_stab') { x = mi % N; y = (mi / N) | 0; for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) { nx = x + dx; ny = y + dy; if (C.inBounds(nx, ny)) bank[ny * N + nx] = 1; } }
       else if (t === 'intake_protect') intakeProtect = true;
       else if (t === 'sensor') sensorCells.push(mi);
-      else if (t === 'warning') { var wz = world.zone ? world.zone[mi] : -1; if (wz >= 0) warnZones[wz] = true; else warnZones['cell' + mi] = mi; }
+      else if (t === 'warning') { var wz = zoneForCell(world, mi); if (wz >= 0) warnZones[wz] = true; }
+    }
+    if (sandbagAt) {   // a line protects its cell + 4 neighbours; each protected cell judges the timing against its own arrival
+      sbMult = new Float32Array(NN); sbMult.fill(1);
+      for (i = 0; i < NN; i++) {
+        var sa = sandbagAt[i]; if (sa === NONE) continue;
+        x = i % N; y = (i / N) | 0;
+        for (var q = 0; q < 5; q++) {
+          var qx = x + (q === 1 ? 1 : q === 2 ? -1 : 0), qy = y + (q === 3 ? 1 : q === 4 ? -1 : 0);
+          if (!C.inBounds(qx, qy)) continue;
+          var qi = qy * N + qx, se = (sa < 0 || sa <= reach[qi]) ? 1 : LATE_EFF, sm = 1 + (SANDBAG_THR - 1) * se;
+          if (sm > sbMult[qi]) sbMult[qi] = sm;
+        }
+      }
     }
 
     var rainM = st.intensityIn * IN_TO_M;
@@ -233,8 +352,8 @@
       if (barrierCap[i] > 0 && s > 0) { var tb = Math.min(s * 0.5, barrierCap[i]); barrierCap[i] -= tb; var fr = tb / s; s -= tb; a -= a * fr; trapped += tb; }
       if (basinCap[i] > 0 && s > 0) { var tbb = Math.min(s * 0.9, basinCap[i]); basinCap[i] -= tbb; var fr2 = tbb / s; s -= tbb; a -= a * fr2; trapped += tbb; }
       // flooding of developed / farmed cells
-      if (lv === L.RESIDENTIAL || lv === L.CIVIC) { if (f >= THR_RES) flooded[i] = 1; }
-      else if (lv === L.FARM) { if (f >= THR_FARM) flooded[i] = 1; }
+      if (lv === L.RESIDENTIAL || lv === L.CIVIC) { if (f >= THR_RES * (sbMult ? sbMult[i] : 1)) flooded[i] = 1; }
+      else if (lv === L.FARM) { if (f >= THR_FARM * (sbMult ? sbMult[i] : 1)) flooded[i] = 1; }
       if (maps.town[i] && cms > peakTown) peakTown = cms;
       var d = dir[i];
       if (d < 0) continue;
@@ -242,8 +361,8 @@
       if (maps.isRes[d] && !maps.isRes[i]) {           // entering the reservoir
         resInflow += f; sedRes += s; ashRes += a;
         flow[d] += f; sed[d] += s * 0.03; ash[d] += a * 0.03;
-      } else if (maps.isRes[i] && !maps.isRes[d]) {    // leaving over the dam: pool attenuates the pulse
-        flow[d] += f * resAtt; sed[d] += s; ash[d] += a;
+      } else if (maps.isRes[i] && !maps.isRes[d]) {    // leaving over the dam: pool attenuates the pulse (more so after an emergency release)
+        flow[d] += spillway ? f * resAtt * SPILLWAY_PEAK : f * resAtt; sed[d] += s; ash[d] += a;
       } else { flow[d] += f; sed[d] += s; ash[d] += a; }
     }
     // overbank flooding next to the river below the dam
@@ -256,30 +375,60 @@
       for (dy = -rad; dy <= rad; dy++) for (dx = -rad; dx <= rad; dx++) {
         nx = x + dx; ny = y + dy; if (!C.inBounds(nx, ny)) continue;
         var j = ny * N + nx, lj = land[j];
-        if (lj === L.RESIDENTIAL || lj === L.CIVIC || lj === L.FARM) flooded[j] = 1;
+        if ((lj === L.RESIDENTIAL || lj === L.CIVIC || lj === L.FARM) && (!sbMult || rcms >= 900 * sbMult[j])) flooded[j] = 1;
       }
     }
 
     // --- damage ---
-    var fl = [], dmg = 0, houses = 0, nRes = 0, nFarm = 0, nCiv = 0, risk = 0;
+    var fl = [], dmg = 0, houses = 0, nRes = 0, nFarm = 0, nCiv = 0, risk = 0, evacHit = evacZones ? {} : null;
     for (i = 0; i < NN; i++) {
       if (!flooded[i]) continue;
       fl.push(i); lv = land[i];
       var z = world.zone ? world.zone[i] : -1;
+      var pm = pumpMult ? pumpMult[i] : 1, ev = 1;
+      if (evacZones && z >= 0 && evacZones[z]) { ev = EVAC_RISK; evacHit[z] = true; }
       if (lv === L.RESIDENTIAL) {
-        nRes++; dmg += 0.12 * (1 - eff.rainCapture * 0.3);
+        nRes++; dmg += 0.12 * (1 - eff.rainCapture * 0.3) * pm;
         var warned = eff.warningSystem || (z >= 0 && warnZones[z]);
-        risk += (0.015 + 0.03 * maps.houses[i]) * (warned ? 0.2 : 1);
-      } else if (lv === L.CIVIC) { nCiv++; dmg += 0.2; risk += 0.01 * (eff.warningSystem ? 0.2 : 1); }
-      else if (lv === L.FARM) { nFarm++; dmg += 0.03; }
+        risk += (0.015 + 0.03 * maps.houses[i]) * (warned ? 0.2 : 1) * ev;
+      } else if (lv === L.CIVIC) { nCiv++; dmg += 0.2 * pm; risk += 0.01 * (eff.warningSystem ? 0.2 : 1) * ev; }
+      else if (lv === L.FARM) { nFarm++; dmg += 0.03 * pm * ((spillway && !maps.upstream[i]) ? SPILLWAY_FARM_DMG : 1); }
       houses += maps.houses[i];
     }
+    if (evacZones) for (var ezk in evacZones) if (Object.prototype.hasOwnProperty.call(evacZones, ezk) && !evacHit[ezk]) res.unnecessaryEvacs++;
     var peakTownCfs = peakTown * CFS_PER_CMS;
     risk += peakTownCfs / 12000 * (eff.warningSystem ? 0.3 : 1);
     res.floodedCells = Int32Array.from(fl);
     res.floodedHouses = houses; res.floodedResidential = nRes; res.floodedFarm = nFarm; res.floodedCivic = nCiv;
     res.damageM = Math.round(dmg * 100) / 100;
     res.injuriesRisk = clamp(risk, 0, 1);
+    res.spillwayUsed = spillway; res.releasedAF = spillway ? SPILLWAY_AF : 0;
+
+    // --- arrival frames + flood timeline (aligned with res.frames) ---
+    var arrival = new Int32Array(NN); arrival.fill(-1);
+    var perFrame = new Int32Array(FRAME_COUNT), firstTown = FRAME_COUNT, firstTownCell = -1;
+    for (k = 0; k < fl.length; k++) {
+      i = fl[k]; var rf = reach[i]; arrival[i] = rf; perFrame[rf]++;
+      if (maps.town[i] && rf < firstTown) { firstTown = rf; firstTownCell = i; }
+    }
+    var timeline = new Array(FRAME_COUNT), fill = new Int32Array(FRAME_COUNT), byFrame = new Int32Array(FRAME_COUNT), cum = 0;
+    for (k = 0; k < FRAME_COUNT; k++) { timeline[k] = new Int32Array(perFrame[k]); cum += perFrame[k]; byFrame[k] = cum; }
+    for (k = 0; k < fl.length; k++) { i = fl[k]; var af2 = arrival[i]; timeline[af2][fill[af2]++] = i; }
+    res.arrivalFrame = arrival; res.floodTimeline = timeline; res.floodedByFrame = byFrame;
+    if (firstTownCell >= 0) { res.firstTownFloodFrame = firstTown; var ftz = world.zone ? world.zone[firstTownCell] : -1; res.firstTownFloodZone = ftz >= 0 ? zoneNameOf(world, ftz) : 'town'; }
+
+    // --- tactics: what the live tools bought, against the same storm with only the pre-storm mitigations ---
+    var tac = res.tactics;
+    tac.sandbagCells = sandbagCells; tac.pumps = pumps; tac.evacuated = evacNames; tac.spillwayUsed = spillway;
+    tac.counterfactual.damageM = res.damageM; tac.counterfactual.floodedHouses = res.floodedHouses; tac.counterfactual.injuriesRisk = res.injuriesRisk;
+    if (anyLive && !opts.noTactics) {
+      var preOnly = [];
+      for (k = 0; k < mits.length; k++) if (mits[k] && mits[k].type && !isLive(mits[k].type)) preOnly.push(mits[k]);
+      var cfr = simulate(state, world, storm, preOnly, { noFrames: true, noTactics: true, disableWetland: opts.disableWetland, disableRainCapture: opts.disableRainCapture });
+      tac.counterfactual.damageM = fin(cfr.damageM, 0); tac.counterfactual.floodedHouses = fin(cfr.floodedHouses, 0); tac.counterfactual.injuriesRisk = fin(cfr.injuriesRisk, 0);
+      tac.damageSaved = Math.max(0, Math.round((tac.counterfactual.damageM - res.damageM) * 100) / 100);
+      tac.housesSaved = Math.max(0, tac.counterfactual.floodedHouses - res.floodedHouses);
+    }
     res.peakCfsReservoir = Math.round(resInflow / Tpeak * CFS_PER_CMS);
     res.peakCfsTown = Math.round(peakTownCfs);
     res.sedimentTons = Math.round(sedTotal);
@@ -301,7 +450,7 @@
     res.contamination = contaminationPreview(state, world, res.sedimentToReservoir, res.sedimentToReservoir > 0 ? res.ashToReservoir / res.sedimentToReservoir : 0, intakeProtect, early, eff);
 
     // --- animation frames ---
-    if (!opts.noFrames) res.frames = buildFrames(world, maps, dir, burn, mulch, barrierCap, basinCap, res, eff, st);
+    if (!opts.noFrames) res.frames = buildFrames(world, maps, dir, burn, mulch, barrierCap, basinCap, res, eff, st, seeds);
     finiteCheck(res);
     return res;
   }
@@ -337,20 +486,11 @@
     return { turbidityDelta: turb, ashDelta: ashD, outageDays: outage };
   }
 
-  function buildFrames(world, maps, dir, burn, mulch, barrierCap, basinCap, res, eff, st) {
+  function buildFrames(world, maps, dir, burn, mulch, barrierCap, basinCap, res, eff, st, seeds) {
     var frames = [];
-    var seeds = [], i, k;
-    var scar = scarCells(world);
-    var salt = 7;
-    if (scar.length) {
-      var stride = Math.max(1, scar.length / MAX_PARTICLES);
-      for (var p = 0; p < scar.length; p += stride) seeds.push(scar[Math.floor(p)]);
-    } else if (world.flowAcc) {
-      var chan = [];
-      for (i = 0; i < NN; i++) if (fin(world.flowAcc[i], 0) > 40 && !maps.isRes[i]) chan.push(i);
-      var stride2 = Math.max(1, chan.length / 800);
-      for (p = 0; p < chan.length; p += stride2) seeds.push(chan[Math.floor(p)]);
-    }
+    var i, k;
+    var salt = DELAY_SALT;
+    if (!seeds) seeds = seedCells(world, maps);
     var n = Math.min(seeds.length, MAX_PARTICLES);
     var pos = new Int32Array(n), sf = new Float32Array(n), delay = new Uint8Array(n), speed = new Uint8Array(n), alive = new Uint8Array(n), weight = new Float32Array(n);
     var totalW = 0;
@@ -396,6 +536,7 @@
       if (fidx === 0) frame.notes = storm.intensityIn.toFixed(1) + ' in of rain hits the burn scar';
       else if (fidx === Math.floor(FRAME_COUNT / 2)) frame.notes = res.peakCfsReservoir > 300 ? 'Debris flow reaches the reservoir' : 'Runoff reaches the creek';
       else if (fidx === FRAME_COUNT - 1) frame.notes = res.sedimentToReservoir + ' t of sediment delivered';
+      else if (fidx === res.firstTownFloodFrame && res.firstTownFloodZone) frame.notes = 'Water reaches ' + res.firstTownFloodZone;
       frames.push(frame);
     }
     return frames;
@@ -416,7 +557,7 @@
     var scarF = scar > 0 ? Math.pow(clamp(scarAcres / 3000, 0, 1), 0.6) : 0.05;
     var cl = (state && state.climate) || {};
     var wet = clamp(1 + 0.3 * (fin(cl.precipIn, 3) - 3) / 3, 0.7, 1.4);
-    return clamp(base * Math.max(0.05, scarF) * wet, 0, 0.7);
+    return clamp(base * Math.max(0.05, scarF) * wet * 1.4, 0, 0.7);   // v2: x1.4 — a scar should almost always get tested within two seasons
   }
 
   function prepare(state, world, storm) {
@@ -465,7 +606,54 @@
     if (world.reservoir && world.reservoir.zoneId != null && base.sedimentToReservoir > 200) zset[world.reservoir.zoneId] = true;
     if (world.wetland && world.wetland.zoneId != null && base.peakCfsTown > 300) zset[world.wetland.zoneId] = true;
     prep.atRiskZones = Object.keys(zset).map(Number).sort(function (a, b) { return a - b; });
+    // live-tool sites (SPEC2 §B); the unmitigated flooded set marks "flooded-risk" cells for sandbags
+    var baseFlooded = new Uint8Array(NN);
+    for (k = 0; k < base.floodedCells.length; k++) baseFlooded[base.floodedCells[k]] = 1;
+    hidden(prep, '_world', world); hidden(prep, '_baseFlooded', baseFlooded);
+    placeableLive(prep, world, 'sandbag');
     return prep;
+  }
+  function hidden(obj, key, value) { try { Object.defineProperty(obj, key, { value: value, enumerable: false, writable: true, configurable: true }); } catch (e) { obj[key] = value; } }
+
+  /* live-tool sites: sandbag → residential/civic/farm cells with flowAcc > 3 or next to a river / flooded-risk cell;
+     pump → any residential/civic/farm cell; evacuate → neighbourhood centres; spillway → the dam cell. */
+  function liveSets(prep, world) {
+    var maps = ensureMaps(world), land = world.land, acc = world.flowAcc, i, x, y, dx, dy;
+    var riskC = (prep && prep._baseFlooded && prep._baseFlooded.length === NN) ? prep._baseFlooded : null;
+    var sandbag = [], pump = [], evac = [], spill = [];
+    for (i = 0; i < NN; i++) {
+      var lv = land[i];
+      if (lv !== L.RESIDENTIAL && lv !== L.CIVIC && lv !== L.FARM) continue;
+      pump.push(i);
+      var ok = (acc ? fin(acc[i], 0) : 0) > 3 || (riskC && riskC[i]);
+      if (!ok) {
+        x = i % N; y = (i / N) | 0;
+        for (dy = -1; dy <= 1 && !ok; dy++) for (dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          var nx = x + dx, ny = y + dy; if (!C.inBounds(nx, ny)) continue;
+          var j = ny * N + nx;
+          if (land[j] === L.RIVER || (riskC && riskC[j])) { ok = true; break; }
+        }
+      }
+      if (ok) sandbag.push(i);
+    }
+    var zones = world.zones || [];
+    for (i = 0; i < zones.length; i++) { var zn = zones[i]; if (zn && zn.type === 'neighborhood' && zn.center) evac.push(C.idx(zn.center.x | 0, zn.center.y | 0)); }
+    if (maps.damCell >= 0) spill.push(maps.damCell);
+    return { sandbag: Int32Array.from(sandbag), pump: Int32Array.from(pump), evacuate: Int32Array.from(evac), spillway: Int32Array.from(spill) };
+  }
+  function placeableLive(prep, world, type) {
+    if (!isLive(type)) return new Int32Array(0);
+    if (prep && prep._liveReady && prep.placeable && prep.placeable[type] instanceof Int32Array) return prep.placeable[type];
+    if ((!world || !world.land) && prep && prep._world) world = prep._world;
+    if (!world || !world.land) return new Int32Array(0);
+    var sets = liveSets(prep, world);
+    if (prep) {
+      prep.placeable = prep.placeable || {}; prep._sets = prep._sets || {};
+      for (var t in sets) if (Object.prototype.hasOwnProperty.call(sets, t)) { prep.placeable[t] = sets[t]; prep._sets[t] = new Set(sets[t]); }
+      hidden(prep, '_liveReady', true);
+    }
+    return sets[type];
   }
 
   function canPlace(prep, type, i) {
@@ -473,6 +661,7 @@
     i = i | 0;
     if (!prep._sets) { prep._sets = {}; for (var t in prep.placeable || {}) if (Object.prototype.hasOwnProperty.call(prep.placeable, t)) prep._sets[t] = new Set(prep.placeable[t]); }
     var s = prep._sets[type];
+    if (!s && isLive(type)) { placeableLive(prep, null, type); s = prep._sets[type]; }
     return !!(s && s.has(i));
   }
 
@@ -483,18 +672,19 @@
   function lossOf(r) { return fin(r.damageM, 0) + fin(r.sedimentToReservoir, 0) / 2000 + fin(r.injuriesRisk, 0) * 2; }
   function attribute(state, world, storm, mitigations) {
     var mits = Array.isArray(mitigations) ? mitigations : [];
-    var withAll = simulate(state, world, storm, mits, { noFrames: true });
+    var Q = { noFrames: true, noTactics: true };   // attribution only reads damage/sediment: skip frames and the live-tools counterfactual
+    var withAll = simulate(state, world, storm, mits, Q);
     var eff = effectsOf(state);
     var entries = [], types = [], seen = {}, k;
     for (k = 0; k < mits.length; k++) { var t = mits[k] && mits[k].type; if (t && TOOLS[t] && !seen[t]) { seen[t] = true; types.push(t); } }
     var rows = [];
     for (k = 0; k < types.length; k++) {
       var t2 = types[k];
-      var without = simulate(state, world, storm, mits.filter(function (m) { return !m || m.type !== t2; }), { noFrames: true });
+      var without = simulate(state, world, storm, mits.filter(function (m) { return !m || m.type !== t2; }), Q);
       rows.push({ key: t2, label: TOOLS[t2].name, count: mits.filter(function (m) { return m && m.type === t2; }).length, without: without });
     }
-    if (eff.wetlandRestored) rows.push({ key: 'wetland', label: 'Restored wetland', count: 1, without: simulate(state, world, storm, mits, { noFrames: true, disableWetland: true }) });
-    if (eff.rainCapture > 0) rows.push({ key: 'rain_capture', label: 'Rain capture', count: 1, without: simulate(state, world, storm, mits, { noFrames: true, disableRainCapture: true }) });
+    if (eff.wetlandRestored) rows.push({ key: 'wetland', label: 'Restored wetland', count: 1, without: simulate(state, world, storm, mits, { noFrames: true, noTactics: true, disableWetland: true }) });
+    if (eff.rainCapture > 0) rows.push({ key: 'rain_capture', label: 'Rain capture', count: 1, without: simulate(state, world, storm, mits, { noFrames: true, noTactics: true, disableRainCapture: true }) });
     var total = 0;
     for (k = 0; k < rows.length; k++) {
       var r = rows[k], w = r.without;
@@ -561,6 +751,19 @@
     if (contam.outageDays > 0) state.flags.contaminationEvents = fin(state.flags.contaminationEvents, 0) + 1;
     state.flags.lastFloodDamageM = dmg;
     state.flags.floods = fin(state.flags.floods, 0) + 1;
+    // live tactics (SPEC2 §B): an emergency release dumps storage and costs trust; evacuating a neighbourhood that never flooded also dips trust
+    var released = 0, trustD = 0;
+    if (result.spillwayUsed) {
+      released = fin(result.releasedAF, 0) > 0 ? fin(result.releasedAF, 0) : SPILLWAY_AF;
+      var before = fin(state.reservoir.storageAF, 0);
+      state.reservoir.storageAF = Math.max(0, before - released);
+      released = before - state.reservoir.storageAF;
+      trustD -= 1;
+      logLine(state, 'Emergency release at the dam dumped ' + Math.round(released).toLocaleString() + ' AF to blunt the flood pulse; downstream farms took the surge and the county lost some trust.', 'warn');
+    }
+    var ue = Math.max(0, fin(result.unnecessaryEvacs, 0) | 0);
+    if (ue > 0) { trustD -= 0.5 * ue; logLine(state, ue + ' neighbourhood' + (ue > 1 ? 's were' : ' was') + ' evacuated but never flooded — residents grumble about the false alarm.', 'warn'); }
+    if (trustD !== 0) state.trustDelta = Math.round((fin(state.trustDelta, 0) + trustD) * 100) / 100;
     // recovery boost under mulch, and a slightly lighter scar there
     if (world && world.burn) {
       var mits = state.mitigations || [];
@@ -583,16 +786,18 @@
     if (dmg > 0) logLine(state, 'Flooding damaged ' + fin(result.floodedHouses, 0) + ' homes and cost $' + dmg.toFixed(2) + 'M (' + (result.floodedCells ? result.floodedCells.length : 0) + ' cells).', 'bad');
     if (fin(result.trappedTons, 0) > 0) logLine(state, 'Your mitigations trapped ' + fin(result.trappedTons, 0).toLocaleString() + ' t of sediment before it reached the water supply.', 'good');
     if (contam.outageDays > 0) logLine(state, 'Ash and turbidity overwhelmed the treatment plant: ' + contam.outageDays + ' days of water restrictions.' + (result.earlyWarning ? ' Early warning from your sensors halved the outage.' : ''), 'bad');
-    var applied = { damageM: dmg, fromEmergency: fromEmergency, fromBudget: fromBudget, contamination: contam, cropCellsHit: farmHit };
+    var applied = { damageM: dmg, fromEmergency: fromEmergency, fromBudget: fromBudget, contamination: contam, cropCellsHit: farmHit, releasedAF: released, trustDelta: trustD };
     result.applied = applied;
     return applied;
   }
 
   WS.Flood = {
     TOOLS: TOOLS,
+    FRAME_COUNT: FRAME_COUNT,
     stormRisk: stormRisk,
     prepare: prepare,
     canPlace: canPlace,
+    placeableLive: placeableLive,
     simulate: simulate,
     counterfactual: counterfactual,
     attribute: attribute,

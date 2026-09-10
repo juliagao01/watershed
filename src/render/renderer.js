@@ -10,9 +10,14 @@
   var ctx = null, world = null, state = null;
   var terrain = null, water = null, props = null, fx = null;
   var heightAt = null, dom = null;
-  var clickFns = [], hoverFns = [];
+  var clickFns = [], hoverFns = [], paintFns = [];
   var hovered = { x: -1, y: -1, i: -1 }, hoverValid = false, lastHoverT = 0;
   var down = { x: 0, y: 0, t: 0, active: false, button: -1 };
+  /* tactical paint stroke: Uint8 stamp per stroke (stroke id, array cleared on wrap), pending cells collected into one
+     small array handed to listeners at ≤ 30 Hz. Nothing else is allocated per pointermove. */
+  var tactical = false;
+  var paint = { active: false, id: 0, stamp: null, pending: [], lastEmit: 0, lastX: -1, lastY: -1, pointerId: -1, pickV: null };
+  var pulseSeq = 0, pulseTimer = null, hlOwner = null;
   var placementType = null, overlayMode = 'none', season = 0, seasonClimate = null;
   var lastWind = { dir: 0.8, mph: 8 };
   var broken = { water: false, props: false, fx: false };
@@ -66,12 +71,68 @@
       emit(hoverFns, null);
     }
   }
+  /* ---------- tactical paint ---------- */
+  function emitPaint(done) {
+    if (paint.pending.length === 0 && !done) return;
+    var cells = paint.pending; paint.pending = []; paint.lastEmit = nowMs();
+    if (cells.length) emit(paintFns, { cells: cells, done: false });
+    if (done) emit(paintFns, { cells: [], done: true });
+  }
+  /* cell index under the pointer without allocating (uses the controls' pickAt with a reusable vector) */
+  function pickIdx(clientX, clientY) {
+    if (!ctx || !WS.C) return -1;
+    var C = WS.C, mesh = terrain ? terrain.mesh : null, sx, sz;
+    if (ctx.controls && typeof ctx.controls.pickAt === 'function') {
+      if (!paint.pickV) paint.pickV = new THREE.Vector3();
+      if (!ctx.controls.pickAt(clientX, clientY, mesh || ctx.controls.pickMesh, paint.pickV)) return -1;
+      sx = paint.pickV.x; sz = paint.pickV.z;
+    } else { var p = ctx.pick(clientX, clientY, mesh); if (!p) return -1; sx = p.sx; sz = p.sz; }
+    var cx = Math.floor(sx / C.RENDER.CELL + C.N / 2), cy = Math.floor(sz / C.RENDER.CELL + C.N / 2);
+    if (cx < 0 || cy < 0 || cx >= C.N || cy >= C.N) return -1;
+    return cy * C.N + cx;
+  }
+  function stampCell(i) {
+    if (paint.stamp[i] === paint.id) return;
+    paint.stamp[i] = paint.id; paint.pending.push(i);
+  }
+  /* walk the grid line from the last painted cell to (x,y) so fast strokes still make continuous lines */
+  function paintTo(x, y) {
+    var N = WS.C.N;
+    if (paint.lastX < 0) { stampCell(y * N + x); paint.lastX = x; paint.lastY = y; return; }
+    var x0 = paint.lastX, y0 = paint.lastY, dx = Math.abs(x - x0), dy = Math.abs(y - y0), sx = x0 < x ? 1 : -1, sy = y0 < y ? 1 : -1, err = dx - dy, guard = 0;
+    while (guard++ < 512) {
+      stampCell(y0 * N + x0);
+      if (x0 === x && y0 === y) break;
+      var e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x0 += sx; }
+      if (e2 < dx) { err += dx; y0 += sy; }
+    }
+    paint.lastX = x; paint.lastY = y;
+  }
+  function beginPaint(e) {
+    if (!paint.stamp) paint.stamp = new Uint8Array(WS.C.N * WS.C.N);
+    paint.id++; if (paint.id > 255) { paint.stamp.fill(0); paint.id = 1; }
+    paint.active = true; paint.pending = []; paint.lastX = paint.lastY = -1; paint.lastEmit = 0; paint.pointerId = e.pointerId;
+    try { dom.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    var i = pickIdx(e.clientX, e.clientY);
+    if (i >= 0) paintTo(i % WS.C.N, (i / WS.C.N) | 0);
+  }
+  function endPaint() {
+    if (!paint.active) return;
+    paint.active = false;
+    if (dom && paint.pointerId >= 0) { try { dom.releasePointerCapture(paint.pointerId); } catch (err) { /* ignore */ } }
+    paint.pointerId = -1;
+    emitPaint(true);
+  }
+
   function onPointerDown(e) {
     if (e.pointerType !== 'touch' && e.button !== 0) { down.active = false; return; }
     if (e.ctrlKey || e.shiftKey || e.metaKey) { down.active = false; return; }
     down.x = e.clientX; down.y = e.clientY; down.t = nowMs(); down.active = true; down.button = e.button;
+    if (tactical && (e.pointerType !== 'touch' || e.isPrimary !== false)) beginPaint(e);
   }
   function onPointerUp(e) {
+    if (paint.active && (e.pointerId === paint.pointerId || e.pointerType !== 'touch')) endPaint();
     if (!down.active) return;
     down.active = false;
     if (e.pointerType !== 'touch' && e.button !== 0) return;
@@ -83,9 +144,22 @@
       emit(clickFns, cell);
     }
   }
-  function onPointerMove(e) { if (e.pointerType === 'touch' && e.buttons === 0) return; updateHover(e.clientX, e.clientY, false); }
+  function onPointerMove(e) {
+    if (e.pointerType === 'touch' && e.buttons === 0) return;
+    if (paint.active) {
+      if (e.buttons === 0 && e.pointerType !== 'touch') { endPaint(); }
+      else if (e.pointerType !== 'touch' || e.pointerId === paint.pointerId) {
+        var i = pickIdx(e.clientX, e.clientY);
+        if (i >= 0) paintTo(i % WS.C.N, (i / WS.C.N) | 0);
+        if (paint.pending.length && nowMs() - paint.lastEmit >= 33) emitPaint(false);
+      }
+    }
+    updateHover(e.clientX, e.clientY, false);
+  }
+  function onPointerCancel() { endPaint(); down.active = false; }
   function onPointerLeave() {
     down.active = false;
+    if (paint.active && !(dom && dom.hasPointerCapture && paint.pointerId >= 0 && dom.hasPointerCapture(paint.pointerId))) endPaint();
     if (hoverValid) {
       hoverValid = false; hovered.x = hovered.y = hovered.i = -1;
       if (placementType && fx && fx.setPlacementCursor) guard('setPlacementCursor', function () { fx.setPlacementCursor(null, 0, 0); });
@@ -98,6 +172,7 @@
     dom.addEventListener('pointerup', onPointerUp);
     dom.addEventListener('pointermove', onPointerMove);
     dom.addEventListener('pointerleave', onPointerLeave);
+    dom.addEventListener('pointercancel', onPointerCancel);
   }
   function unbind() {
     if (!bound || !dom) return; bound = false;
@@ -105,6 +180,7 @@
     dom.removeEventListener('pointerup', onPointerUp);
     dom.removeEventListener('pointermove', onPointerMove);
     dom.removeEventListener('pointerleave', onPointerLeave);
+    dom.removeEventListener('pointercancel', onPointerCancel);
   }
 
   /* ---------- Effects fog bridge ----------
@@ -211,6 +287,56 @@
   };
   R.getHoveredCell = function () { return hoverValid ? { x: hovered.x, y: hovered.y, i: hovered.i } : null; };
 
+  /* ---------- tactical mode (SPEC2 §C) ---------- */
+  R.setTacticalMode = function (on) {
+    var v = !!on;
+    if (v === tactical) return;
+    tactical = v;
+    if (!tactical) endPaint();
+    if (ctx && ctx.setPanEnabled) ctx.setPanEnabled(!tactical);
+  };
+  R.isTacticalMode = function () { return tactical; };
+  R.onCellPaint = function (fn) {
+    if (typeof fn !== 'function') return function () {};
+    paintFns.push(fn);
+    return function () { var k = paintFns.indexOf(fn); if (k >= 0) paintFns.splice(k, 1); };
+  };
+  R.setFlooded = function (cells) {
+    if (!fx || !fx.setFlooded) return;
+    guard('fx.setFlooded', function () { fx.setFlooded(cells || []); });
+  };
+  R.playRetardantDrop = function (x, y, radius) {
+    if (!fx || !fx.playRetardantDrop) return;
+    guard('fx.playRetardantDrop', function () { fx.playRetardantDrop(num(x, 0) | 0, num(y, 0) | 0, radius == null ? 2 : num(radius, 2)); });
+  };
+  R.setFireIntensity = function (level) {
+    var l = clamp(num(level, 0), 0, 1);
+    if (fx && fx.setFireIntensity) guard('fx.setFireIntensity', function () { fx.setFireIntensity(l); });
+    if (props && props.setFireIntensity) guard('props.setFireIntensity', function () { props.setFireIntensity(l); });
+  };
+  function zoneOf(zoneId) {
+    if (!world) return null;
+    var z = null;
+    if (typeof world.zoneById === 'function') z = guard('zoneById', function () { return world.zoneById(zoneId); }) || null;
+    if (!z && world.zones) { for (var k = 0; k < world.zones.length; k++) if (world.zones[k] && world.zones[k].id === zoneId) { z = world.zones[k]; break; } }
+    return z;
+  }
+  /* 1.2 s highlight pulse on a zone; a later external setHighlight() takes precedence and is not cleared by the pulse */
+  R.pulseZone = function (zoneId, colorHex) {
+    var z = zoneOf(zoneId);
+    if (!z || !z.cells || !fx || !fx.setHighlight) return;
+    var mine = ++pulseSeq;
+    hlOwner = 'pulse';
+    guard('fx.setHighlight', function () { fx.setHighlight(z.cells, colorHex == null ? 0xffd24a : colorHex); });
+    if (pulseTimer) clearTimeout(pulseTimer);
+    pulseTimer = setTimeout(function () {
+      pulseTimer = null;
+      if (mine !== pulseSeq || hlOwner !== 'pulse' || !fx || !fx.setHighlight) return;
+      hlOwner = null;
+      guard('fx.setHighlight', function () { fx.setHighlight(null, null); });
+    }, 1200);
+  };
+
   R.setSeason = function (seasonIdx, climate) {
     season = clamp(num(seasonIdx, season) | 0, 0, 3);
     seasonClimate = climate || (state && state.climate) || null;
@@ -244,6 +370,7 @@
     var b = burningIdx || [], d = burnedIdx || [];
     if (fx && fx.setFire) guard('fx.setFire', function () { fx.setFire(b, d); });
     if (props && props.setFire) guard('props.setFire', function () { props.setFire(b); });
+    if (props && props.setBurningCells) guard('props.setBurningCells', function () { props.setBurningCells(b); });
   };
   R.setWeather = function (kind, intensity) {
     if (!fx || !fx.setWeather) return;
@@ -271,6 +398,7 @@
   };
   R.getOverlay = function () { return overlayMode; };
   R.setHighlight = function (indices, colorHex) {
+    hlOwner = (indices && indices.length) ? 'ext' : null;
     if (!fx || !fx.setHighlight) return;
     guard('fx.setHighlight', function () { fx.setHighlight(indices || null, colorHex == null ? null : colorHex); });
   };
@@ -334,8 +462,9 @@
     if (ctx) guard('ctx.dispose', function () { ctx.dispose(); });
     ctx = null; R._ctx = null; dom = null; terrain = water = props = fx = null; heightAt = null;
     hoverValid = false; hovered.x = hovered.y = hovered.i = -1; down.active = false;
-    placementType = null; overlayMode = 'none';
-    clickFns.length = 0; hoverFns.length = 0;
+    placementType = null; overlayMode = 'none'; tactical = false; paint.active = false; paint.pending = []; paint.pointerId = -1;
+    if (pulseTimer) { clearTimeout(pulseTimer); pulseTimer = null; } hlOwner = null;
+    clickFns.length = 0; hoverFns.length = 0; paintFns.length = 0;
   };
 
   R._ctx = null;

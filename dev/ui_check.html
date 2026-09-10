@@ -8,9 +8,9 @@
 <style>
   /* dev-only: fake terrain backdrop + control strip */
   #canvas-host { background: radial-gradient(ellipse at 40% 60%, #3b7fb0 0, #35643a 18%, #5c6b3a 40%, #b3a45e 62%, #9a948c 85%, #d9e3ec 100%); }
-  #devbar { position: fixed; top: 140px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; max-width: 700px; justify-content: center; }
+  #devbar { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; max-width: 900px; justify-content: center; }
   #devbar button { font: 12px/1.2 system-ui, sans-serif; padding: 4px 8px; background: #fbf6ea; color: #1b1f22; border: 1px solid #8a7a4a; border-radius: 6px; cursor: pointer; }
-  #devout { position: fixed; top: 205px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
+  #devout { position: fixed; top: 178px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
 </style>
 </head>
 <body>
@@ -108,7 +108,13 @@
   var game = {
     state: state, world: world, formatters: C.fmt,
     fundProject: function (id, target) { say('fundProject(' + id + ', ' + target + ')'); state.budget -= 1; return { ok: true, text: 'Funded ' + id }; },
-    setAllocation: function (s, f) { state.water.alloc[s] = f; say('setAllocation(' + s + ', ' + f.toFixed(2) + ')'); },
+    setAllocation: function (s, f) { if (s === 'power_rec') { state.water.alloc.hydro = f; state.water.alloc.recreation = f; } else state.water.alloc[s] = f; say('setAllocation(' + s + ', ' + f.toFixed(2) + ')'); },
+    getCoreProjects: function () { return ['streamgages', 'forest_thinning', 'prescribed_burn', 'home_hardening', 'wetland', 'irrigation', 'treatment', 'warning_system']; },
+    /* v2 tactical facade (mock): mutates the mock spec and pushes an update */
+    selectTactic: function (t) { say('selectTactic(' + t + ')'); if (tac.spec) { tac.spec.tools.forEach(function (x) { x.selected = !!t && x.type === t; }); WS.UI.updateTactical(tac.spec); } },
+    setPaused: function (b) { say('setPaused(' + b + ')'); if (tac.spec) { tac.spec.paused = !!b; WS.UI.updateTactical(tac.spec); } },
+    applyTacticToZone: function (t, z) { say('applyTacticToZone(' + t + ', ' + z + ')'); var name = (world.zoneById(z) || {}).name || ('zone ' + z); if (tac.spec) { var tool = tac.spec.tools.filter(function (x) { return x.type === t; })[0]; if (tool && tool.remaining != null) tool.remaining = Math.max(0, tool.remaining - 1); tac.spec.points.value = Math.max(0, tac.spec.points.value - (t === 'engine' ? 6 : 0)); WS.UI.updateTactical(tac.spec); } WS.UI.alert((t === 'evacuate' ? 'Evacuation ordered: ' : 'Engine crew stationed in ') + name, t === 'evacuate' ? 'warn' : 'good'); return { ok: true, text: (t === 'evacuate' ? 'Evacuated ' : 'Engine sent to ') + name }; },
+    applyTactic: function (t) { say('applyTactic(' + t + ')'); if (t === 'mutual_aid' && tac.spec) { var tool = tac.spec.tools.filter(function (x) { return x.type === t; })[0]; if (tool && tool.remaining === 0) return { ok: false, reason: 'Mutual aid already called' }; if (tool) tool.remaining = 0; tac.spec.points.value = Math.min(tac.spec.points.max, tac.spec.points.value + 10); WS.UI.updateTactical(tac.spec); WS.UI.alert('Mutual aid arriving: +10 crew points', 'good'); return { ok: true, text: 'Neighboring counties send crews (+10 pts, −$1.5M)' }; } if (t === 'spillway' && tac.spec) { var sp = tac.spec.tools.filter(function (x) { return x.type === t; })[0]; if (sp) { sp.remaining = 0; sp.disabled = true; sp.reason = 'Gates already open'; } WS.UI.updateTactical(tac.spec); WS.UI.alert('Emergency release: gates open', 'flood'); return { ok: true, text: 'Dam gates opened — 1,500 AF released' }; } return { ok: true }; },
     setRestriction: function (l) { state.water.restriction = l; say('setRestriction(' + l + ')'); },
     setFirePolicy: function (p) { state.fire.policy = p; say('setFirePolicy(' + p + ')'); },
     scheduleBurn: function (z) { state.projects.pendingBurn = { zoneId: z }; say('scheduleBurn(' + z + ')'); return { ok: true }; },
@@ -128,7 +134,12 @@
         { def: { id: 'prescribed_burn', name: 'Prescribed burn', icon: '🔥', category: 'fire', costM: 0.6, upkeepM: 0, maxLevel: 6, targetType: 'forest', summary: 'Burn a sector under controlled conditions.', detail: 'Reduces fuel ~60% for a fraction of thinning\'s cost. Windows are narrow: Spring and Fall only.', tradeoff: 'Smoke, and a small chance of escape.', seasonsAllowed: [1, 3] }, funded: false, level: 0, canFund: false, reason: 'Only in Spring/Fall', targets: forest.map(function (z) { return { zoneId: z.id, name: z.name, funded: false }; }) },
         { def: { id: 'home_hardening', name: 'Home hardening', icon: '🏠', category: 'community', costM: 2.2, upkeepM: 0, maxLevel: 4, targetType: 'neighborhood', summary: 'Ember-resistant vents, roofs and defensible space.', detail: 'Most homes ignite from embers, not flame fronts. Hardening cuts the loss rate from ~55% to ~15% in a burning neighbourhood.', tradeoff: 'Slow to roll out; needs homeowner buy-in.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: hoods.map(function (z) { return { zoneId: z.id, name: z.name, funded: false }; }) },
         { def: { id: 'reservoir_upgrade', name: 'Reservoir upgrade', icon: '🏗', category: 'water', costM: 6.5, upkeepM: 0.2, maxLevel: 2, targetType: 'global', summary: '+15% capacity, then a multi-level intake.', detail: 'A multi-level intake lets the plant draw from the cleanest layer when ash and algae stratify the pool.', tradeoff: 'Expensive; capacity is worthless in a dry year with nothing to store.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
-        { def: { id: 'wetland', name: 'Wetland restoration', icon: '🌿', category: 'flood', costM: 1.4, upkeepM: 0, maxLevel: 1, targetType: 'wetland', summary: 'Restore the floodplain wetland below the dam.', detail: 'Wetlands trap ~35% of sediment and shave ~30% off peak flows passing through them, while rebuilding elk and bird habitat.', tradeoff: 'Takes farmland out of production.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: false, reason: 'Needs $1.4M; budget short after upkeep', targets: [{ zoneId: 14, name: 'Bitterbrush Wetland', funded: false }] }
+        { def: { id: 'wetland', name: 'Wetland restoration', icon: '🌿', category: 'flood', costM: 1.4, upkeepM: 0, maxLevel: 1, targetType: 'wetland', summary: 'Restore the floodplain wetland below the dam.', detail: 'Wetlands trap ~35% of sediment and shave ~30% off peak flows passing through them, while rebuilding elk and bird habitat.', tradeoff: 'Takes farmland out of production.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: false, reason: 'Needs $1.4M; budget short after upkeep', targets: [{ zoneId: 14, name: 'Bitterbrush Wetland', funded: false }] },
+        { def: { id: 'irrigation', name: 'Irrigation efficiency', icon: '💧', category: 'water', costM: 2.0, upkeepM: 0, maxLevel: 3, targetType: 'global', summary: 'Pipe ditches and add drip: farms need ~20% less water per level.', detail: 'Lining or piping open ditches and moving to sprinklers/drip cuts seepage and evaporation losses.', tradeoff: 'Return flows that fed the river and neighbours shrink.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'treatment', name: 'Treatment upgrade', icon: '🏭', category: 'water', costM: 3.5, upkeepM: 0.15, maxLevel: 2, targetType: 'global', summary: 'Handle ash and turbidity without shutting the plant.', detail: 'Pre-sedimentation and activated carbon let the plant keep running through a post-fire slug.', tradeoff: 'Expensive standing capacity you hope never to need.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'warning_system', name: 'Flood warning system', icon: '🚨', category: 'community', costM: 0.9, upkeepM: 0.05, maxLevel: 1, targetType: 'global', summary: 'Sirens, rain gauges and reverse-911 for every neighborhood.', detail: 'Flash floods off burn scars arrive in minutes; warning time is what keeps people out of the water.', tradeoff: 'Does nothing for property.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'shelters', name: 'Smoke shelters', icon: '🏥', category: 'community', costM: 0.7, upkeepM: 0, maxLevel: 1, targetType: 'global', summary: 'Clean-air rooms at the school and clinic.', detail: 'Cuts the health impact of smoke days for vulnerable residents.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'outreach', name: 'Community outreach', icon: '🤝', category: 'community', costM: 0.3, upkeepM: 0, maxLevel: 3, targetType: 'global', summary: 'Meetings, drought education, rebates.', detail: 'Raises trust and makes restrictions land more softly.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] }
       ];
     },
     getAdvisors: function (topic) {
@@ -143,6 +154,7 @@
     },
     listZones: function (type) { return world.zonesOf(type); }
   };
+  var tac = { spec: null, timer: null };
   window.game = game;
   WS.UI.init(game);
   WS.UI.setPhase('plan');
@@ -179,6 +191,82 @@
     var origSel = game.selectPlacementTool;
     game.selectPlacementTool = function (t) { origSel(t); spec.selected = t; spec.placed[t] = (spec.placed[t] || 0) + 1; spec.emergencyBudget = Math.max(0, spec.emergencyBudget - WS.Flood.TOOLS[t].costM); WS.UI.updatePlacement(spec); };
   });
+  /* ---- v2: tactical HUD mocks ---- */
+  function fireSpec() {
+    return { mode: 'fire', title: 'WILDFIRE — 1,240 acres', subtitle: 'Kestrel Divide · lightning start · wind 14 mph from the SW', step: 6, maxSteps: 60, paused: false, speed: 1,
+      points: { label: 'Crew points', value: 14.2, max: 30, unit: 'pts' },
+      tools: [
+        { type: 'dozer', name: 'Dozer / hand line', icon: '🚜', desc: 'Scrape a fuel break. Cells become a firebreak after 2 steps; fire almost never crosses a finished line.', cost: '1 pt/cell', remaining: null, cooldown: null, selected: true, disabled: false },
+        { type: 'retardant', name: 'Air tanker drop', icon: '✈️', desc: 'Retardant coats a 5×5 patch: spread through it drops ~85% and slowly weakens.', cost: '5 pts', remaining: 4, cooldown: 0, selected: false, disabled: false },
+        { type: 'engine', name: 'Engine crew', icon: '🚒', desc: 'Station an engine in a neighborhood: fire entering it slows and only 15% of reached homes are lost.', cost: '6 pts', remaining: 2, cooldown: null, selected: false, disabled: false },
+        { type: 'evacuate', name: 'Evacuation order', icon: '📢', desc: 'Empty a neighborhood: no injuries if fire reaches it; trust dips if it never did.', cost: 'free', remaining: null, cooldown: null, selected: false, disabled: false },
+        { type: 'mutual_aid', name: 'Call mutual aid', icon: '📞', desc: 'Neighboring counties send crews: +10 crew points now, $1.5M from the budget.', cost: '$1.5M', remaining: 1, cooldown: null, selected: false, disabled: false }
+      ],
+      threat: { headline: 'Fire running NE at 14 mph — Marshall Heights 6 cells away', rows: [{ label: 'Acres', value: '1,240', bad: true }, { label: 'Intensity', value: 'Running', bad: true }, { label: 'Wind', value: '14 mph SW' }, { label: 'Homes at risk', value: '38', bad: true }, { label: 'Homes lost', value: '0' }, { label: 'Above reservoir', value: '410 ac', bad: true }],
+        threatened: [{ name: 'Marshall Heights', type: 'neighborhood', distance: 6, burning: false }, { name: 'Kestrel Divide', type: 'forest', distance: 0, burning: true }, { name: 'Lazy J Ranch', type: 'farm', distance: 9, burning: false }, { name: 'Old Mill', type: 'neighborhood', distance: 14, burning: false }] },
+      hint: 'Drag on the map to cut a line' };
+  }
+  function stormSpec() {
+    return { mode: 'storm', title: 'FLASH FLOOD — 2.2 in', subtitle: 'Rain on the Troublesome Bench scar · peak expected in 12 frames', step: 3, maxSteps: 40, paused: false, speed: 1,
+      points: { label: 'Emergency fund', value: 1.9, max: 2.5, unit: '$M' },
+      tools: [
+        { type: 'sandbag', name: 'Sandbag line', icon: '🧱', desc: 'Protects this cell and its 4 neighbours: flood threshold ×2.5. Placed before the water arrives = full effect; after = 40%.', cost: '$0.04M/cell', remaining: null, cooldown: null, selected: true, disabled: false },
+        { type: 'pump', name: 'Pump crew', icon: '🔧', desc: 'Clears a flooded street or basement: damage on this cell ×0.4.', cost: '$0.15M', remaining: 3, cooldown: null, selected: false, disabled: false },
+        { type: 'evacuate', name: 'Evacuate', icon: '📢', desc: 'Empty a neighborhood: injury risk there ×0.1; trust dips if no water ever arrived.', cost: 'free', remaining: null, cooldown: null, selected: false, disabled: false },
+        { type: 'spillway', name: 'Emergency release', icon: '🌊', desc: 'Open the dam gates early: the reservoir swallows the pulse (peak below dam ×0.6) but you dump 1,500 AF and farms downstream see a surge.', cost: 'free · once', remaining: 1, cooldown: null, selected: false, disabled: false }
+      ],
+      threat: { headline: 'Debris flow reaching Riverbend — 3 streets under water', rows: [{ label: 'Rain so far', value: '0.8 in' }, { label: 'Peak at town', value: '1,410 cfs', bad: true }, { label: 'Flooded cells', value: '42', bad: true }, { label: 'Homes flooded', value: '2', bad: true }, { label: 'Sediment', value: '2,100 t' }, { label: 'Reservoir', value: '61% turbid', bad: true }],
+        threatened: [{ name: 'Riverbend', type: 'neighborhood', distance: 0, burning: true }, { name: 'Two Rivers Farm', type: 'farm', distance: 3, burning: false }, { name: 'Old Mill', type: 'neighborhood', distance: 7, burning: false }] },
+      hint: 'Drag on the map to lay sandbags' };
+  }
+  function stopTac() { if (tac.timer) { clearInterval(tac.timer); tac.timer = null; } }
+  function runTac(spec) {
+    stopTac(); tac.spec = spec;
+    WS.UI.showTactical(spec);
+    WS.UI.alert(spec.mode === 'fire' ? 'WILDFIRE — Kestrel Divide is burning!' : 'FLASH FLOOD — rain on the burn scar!', spec.mode === 'fire' ? 'fire' : 'flood');
+    tac.timer = setInterval(function () {
+      var sp = tac.spec; if (!sp) return;
+      if (WS.UI.els.tactical.hidden) { stopTac(); return; }
+      if (sp.paused) return;
+      sp.step += sp.speed;
+      if (sp.mode === 'fire') {
+        var acres = 1240 + sp.step * 55; sp.title = 'WILDFIRE — ' + acres.toLocaleString() + ' acres';
+        sp.points.value = Math.min(sp.points.max, sp.points.value + 0.3 * sp.speed);
+        var rt = sp.tools[1]; if (rt.cooldown > 0) rt.cooldown = Math.max(0, rt.cooldown - sp.speed);
+        sp.threat.rows[0].value = acres.toLocaleString();
+        sp.threat.threatened.forEach(function (z) { if (!z.burning && z.distance > 0) z.distance = Math.max(0, z.distance - (sp.step % 3 === 0 ? 1 : 0)); if (z.distance === 0 && !z.burning) { z.burning = true; WS.UI.alert('Fire has reached ' + z.name + '!', 'bad'); } });
+        var mh = sp.threat.threatened[0]; sp.threat.headline = mh.burning ? 'Fire is inside Marshall Heights — engines holding' : 'Fire running NE at 14 mph — Marshall Heights ' + mh.distance + ' cells away';
+        if (sp.step === 12) WS.UI.alert('Dozer line holding on the west flank', 'good');
+      } else {
+        sp.threat.rows[2].value = String(42 + sp.step * 4);
+        if (sp.step === 9) WS.UI.alert('Sandbag line holding at Riverbend', 'good');
+      }
+      WS.UI.updateTactical(sp);
+      if (sp.step >= sp.maxSteps) { stopTac(); WS.UI.hideTactical(); WS.UI.setPhase('plan'); showAA(sp.mode); }
+    }, 500);
+  }
+  function showAA(mode) {
+    var rep = mode === 'storm' ? { mode: 'storm', title: 'The Riverbend flood', headline: 'A 2.2-inch storm on the Troublesome Bench scar ran 1,410 cfs through town. Your sandbags and pumps held the worst of it out of the houses.',
+        stats: [{ label: 'Damage', value: '$1.2M', bad: true }, { label: 'Homes flooded', value: '4', bad: true }, { label: 'Injury risk', value: 'Low' }, { label: 'Sediment to reservoir', value: '3,900 t', bad: true }],
+        actions: ['Laid 14 cells of sandbag line along Mill Street before the water arrived', 'Stationed 2 pump crews in Riverbend', 'Evacuated Riverbend (water did arrive — no injuries)'],
+        counterfactual: { without: [{ label: 'Damage', value: '$3.4M' }, { label: 'Homes flooded', value: '11' }, { label: 'Injury risk', value: 'High' }], with: [{ label: 'Damage', value: '$1.2M' }, { label: 'Homes flooded', value: '4' }, { label: 'Injury risk', value: 'Low' }], summary: 'Without your sandbags and pumps: $3.4M damage and 11 homes flooded. With them: $1.2M and 4 homes.' },
+        lessons: ['Sandbags placed before the water arrives are 2.5× as effective as ones placed after.', 'Evacuation costs nothing when the water comes — and a little trust when it does not.'] }
+      : { mode: 'fire', title: 'The Kestrel Divide fire', headline: 'A running crown fire pushed by 14 mph winds toward Marshall Heights. Your dozer line and two retardant drops turned it before it reached the subdivision.',
+        stats: [{ label: 'Burned', value: '1,900 acres', bad: true }, { label: 'Homes lost', value: '2', bad: true }, { label: 'Above reservoir', value: '640 acres', bad: true }, { label: 'Injuries', value: '0' }, { label: 'Crew points spent', value: '27' }],
+        actions: ['Cut 22 cells of dozer line on the NE flank (held)', 'Two air-tanker drops ahead of the head', 'Stationed an engine crew in Marshall Heights', 'Evacuated Marshall Heights (fire did reach it — no injuries)'],
+        counterfactual: { without: [{ label: 'Acres burned', value: '4,600' }, { label: 'Homes lost', value: '11' }, { label: 'Above reservoir', value: '1,900 acres' }], with: [{ label: 'Acres burned', value: '1,900' }, { label: 'Homes lost', value: '2' }, { label: 'Above reservoir', value: '640 acres' }], summary: 'Without your line and 2 drops: 4,600 acres and 11 homes. With them: 1,900 acres and 2 homes.' },
+        lessons: ['A finished dozer line stops almost everything; a half-dug one stops nothing — start early.', 'Every acre saved above the reservoir is sediment that never reaches the intake.'] };
+    WS.UI.showAfterAction(rep).then(function () { say('after-action closed'); });
+  }
+  btn('Tactical: fire', function () { runTac(fireSpec()); });
+  btn('Tactical: storm', function () { runTac(stormSpec()); });
+  btn('Hide tactical', function () { stopTac(); WS.UI.hideTactical(); WS.UI.setPhase('plan'); });
+  btn('Alert: fire', function () { WS.UI.alert('Fire has reached Marshall Heights!', 'fire'); });
+  btn('Alert: storm', function () { WS.UI.alert('FLASH FLOOD — 2.2 in on the burn scar', 'flood'); });
+  btn('Alert ×3', function () { WS.UI.alert('Dozer line holding', 'good'); WS.UI.alert('Air tanker inbound', 'info'); WS.UI.alert('Wind shift: gusting NE', 'warn'); });
+  btn('After-action: fire', function () { showAA('fire'); });
+  btn('After-action: storm', function () { showAA('storm'); });
+  btn('After-action: empty', function () { WS.UI.showAfterAction({}).then(function () { say('empty after-action closed'); }); });
   btn('Fire banner', function () { var on = WS.UI.els.fireBanner.hidden; WS.UI.showFireBanner(on ? { acres: 1240, zones: [0, 'Marshall Heights'], crewFocus: 'town' } : null); WS.UI.ticker(on ? 'Fire spreading in Cameron Ridge — 1,240 acres' : 'Fire contained.'); });
   btn('Toasts', function () { ['info', 'good', 'warn', 'bad', 'event'].forEach(function (k, i) { setTimeout(function () { WS.UI.toast('This is a ' + k + ' toast about the watershed.', k); }, i * 250); }); });
   btn('Flash', function () { WS.UI.flashOutcome('W'); WS.UI.flashOutcome('T'); });

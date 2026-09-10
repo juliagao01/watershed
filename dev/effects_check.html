@@ -40,7 +40,14 @@
   </fieldset>
   <fieldset><legend>Markers</legend>
     <button id="mkAll">Add all types</button><button id="mkClear">Clear</button><button id="hlToggle">Highlight zone</button>
-    <label>cursor <select id="curType"><option value="">off</option><option>mulch</option><option>barrier</option><option>debris_basin</option><option>bank_stab</option><option>intake_protect</option><option>sensor</option><option>warning</option><option>pin</option><option>fireStart</option></select></label>
+    <label>cursor <select id="curType"><option value="">off</option><option>mulch</option><option>barrier</option><option>debris_basin</option><option>bank_stab</option><option>intake_protect</option><option>sensor</option><option>warning</option><option>pin</option><option>fireStart</option>
+      <option>dozer</option><option>digging</option><option>retardant</option><option>engine</option><option>evac</option><option>sandbag</option><option>pump</option><option>spillway</option><option>tanker</option></select></label>
+  </fieldset>
+  <fieldset><legend>v2 tactical</legend>
+    <label>intensity <input id="fInt" type="range" min="0" max="1" step="0.05" value="0"></label>
+    <button id="dropBtn">Retardant drop</button>
+    <button id="floodOn">Flooded cells</button><button id="floodOff">Clear flood</button>
+    <button id="mkV2">Add v2 markers</button><button id="digDemo">digging → dozer</button>
   </fieldset>
 </div>
 <div id="stats">…</div>
@@ -230,6 +237,44 @@ window.__boot = function () {
   }
   document.getElementById('fireOn').onclick = function () { fireOn = true; fireR = 1; fireTimer = 0; fireStep(); };
   document.getElementById('fireOff').onclick = function () { fireOn = false; fx.setFire([], []); };
+  // v2: fire intensity (0 creeping … 1 extreme), retardant drop, flooded sheets, new markers
+  var fInt = document.getElementById('fInt');
+  fInt.oninput = function () { fx.setFireIntensity(+fInt.value); if (fireOn) fireStep(); };
+  document.getElementById('dropBtn').onclick = function () { fx.playRetardantDrop(fc.x + 4, fc.y + 1, 2); };
+  var floodCells = null, floodShown = 0, floodTimer = null;
+  function floodCandidates() {
+    var out = [], seen = new Uint8Array(NN), path = (world.river && world.river.path) || [];
+    var start = (world.river && world.river.damIndex >= 0) ? world.river.damIndex : Math.floor(path.length * 0.5);
+    for (var k = start; k < path.length; k++) {
+      for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
+        var qx = path[k].x + dx, qy = path[k].y + dy; if (!C.inBounds(qx, qy)) continue;
+        var qi = qy * N + qx, ld = world.land[qi];
+        if (seen[qi] || ld === L.RIVER || ld === L.RESERVOIR || ld === L.ALPINE) continue;
+        seen[qi] = 1; out.push(qi);
+      }
+    }
+    return out;
+  }
+  document.getElementById('floodOn').onclick = function () {
+    floodCells = floodCandidates(); floodShown = 0;
+    if (floodTimer) clearInterval(floodTimer);
+    floodTimer = setInterval(function () { // water spreads downstream at 8 fps like the storm playback
+      floodShown = Math.min(floodCells.length, floodShown + 40);
+      fx.setFlooded(floodCells.slice(0, floodShown));
+      if (floodShown >= floodCells.length) { clearInterval(floodTimer); floodTimer = null; }
+    }, 125);
+  };
+  document.getElementById('floodOff').onclick = function () { if (floodTimer) { clearInterval(floodTimer); floodTimer = null; } fx.setFlooded([]); };
+  var V2 = ['dozer', 'digging', 'retardant', 'engine', 'evac', 'sandbag', 'pump', 'tanker'];
+  document.getElementById('mkV2').onclick = function () {
+    V2.forEach(function (t, n) { fx.addMarker('v2_' + t, t, 66 + n * 3, 92); });
+    var dam = (world.reservoir && world.reservoir.dam) || { x: 62, y: 70 };
+    fx.addMarker('v2_spillway', 'spillway', dam.x, dam.y);
+  };
+  document.getElementById('digDemo').onclick = function () {
+    for (var q = 0; q < 6; q++) fx.addMarker('dig' + q, 'digging', 60 + q, 96);
+    setTimeout(function () { for (var q = 0; q < 6; q++) fx.addMarker('dig' + q, 'dozer', 60 + q, 96); }, 2500); // same id → replaced
+  };
 
   // weather
   var wInt = document.getElementById('wInt'), curWeather = 'clear';
@@ -301,7 +346,8 @@ window.__boot = function () {
     var s = fx.stats();
     stats.textContent = 'fps ' + fps + '  draw ' + renderer.info.render.calls + '  tris ' + renderer.info.render.triangles + '\nworld: ' + (usingStub ? 'inline stub' : 'WS.World') +
       '\nflames ' + s.flames + ' embers ' + s.embers + ' smoke ' + s.smoke + ' fireCells ' + s.fireCells + '\nrain ' + s.rain + ' snow ' + s.snow + ' fog ' + s.fog.toFixed(4) +
-      '\ndebris ' + s.debris + ' lines ' + s.lines + ' markers ' + s.markers + ' hl ' + s.highlight + '\noverlay rebuild ' + lastOverlayMs + ' ms';
+      '\ndebris ' + s.debris + ' lines ' + s.lines + ' markers ' + s.markers + ' hl ' + s.highlight + '\noverlay rebuild ' + lastOverlayMs + ' ms' +
+      '\nv2: level ' + s.fireLevel.toFixed(2) + ' flooded ' + s.flooded + ' spray ' + s.spray + ' drops ' + s.drops;
   }
   requestAnimationFrame(loop);
   window.fx = fx; window.world = world; window.renderer = renderer; window.scene = scene; window.camera = camera;

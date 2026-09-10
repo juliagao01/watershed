@@ -51,6 +51,12 @@
   }
 
   /* ================================================================== PROJECTS */
+  var CORE_PROJECTS = ['streamgages', 'forest_thinning', 'prescribed_burn', 'home_hardening', 'wetland', 'irrigation', 'treatment', 'warning_system'];
+  function coreProjectIds() {
+    var ids = null;
+    try { if (UI.game && typeof UI.game.getCoreProjects === 'function') ids = UI.game.getCoreProjects(); } catch (e) { ids = null; }
+    return (Array.isArray(ids) && ids.length) ? ids.map(String) : CORE_PROJECTS.slice();
+  }
   UI.renderProjects = function () {
     var box = UI.els.tabBody; if (!box) return;
     clear(box);
@@ -58,10 +64,26 @@
     var list = [];
     try { list = safeList(UI.game && UI.game.getProjectList && UI.game.getProjectList()); } catch (e) { console.error(e); list = []; }
     if (!list.length) { box.appendChild(h('p', { class: 'muted' }, 'No projects available yet.')); return; }
+    var showAll = UI.pref('allProjects') === true;
+    var coreIds = coreProjectIds();
+    var byId = {}; list.forEach(function (it) { var id = ((it || {}).def || {}).id; if (id != null) byId[String(id)] = it; });
+    var core = coreIds.map(function (id) { return byId[id]; }).filter(Boolean);
+    var extra = list.length - core.length;
+    if (!core.length) showAll = true;
+    var toggle = h('button', { class: 'ghost tiny proj-toggle', type: 'button', id: 'projects-toggle', 'aria-expanded': showAll ? 'true' : 'false', hidden: !core.length || extra <= 0 },
+      showAll ? 'Core projects only ▴' : 'Show all projects ▾ (' + extra + ' more)');
+    toggle.addEventListener('click', function () { UI.pref('allProjects', !showAll); UI.renderProjects(); });
     box.appendChild(h('div', { class: 'row between', style: { marginBottom: '6px' } }, [
       h('span', { class: 'label' }, 'Budget ' + money(s.budget)),
-      h('span', { class: 'small dim' }, seasonName(s.season) + ' · Year ' + fin(s.year, 1))
+      toggle
     ]));
+    if (!showAll) {
+      var g = h('div', { class: 'group core', 'data-category': 'core' }, h('div', { class: 'label' }, 'Core projects'));
+      core.forEach(function (it) { g.appendChild(projectCard(it, s)); });
+      box.appendChild(g);
+      box.appendChild(h('p', { class: 'small dim', style: { margin: '2px 0 0' } }, 'Eight projects cover most of what the watershed needs. Reservoir, storage, shelters and outreach are under "Show all".'));
+      return;
+    }
     var groups = {};
     list.forEach(function (it) { var cat = ((it || {}).def || {}).category || 'community'; (groups[cat] = groups[cat] || []).push(it); });
     var cats = CATEGORY_ORDER.filter(function (c) { return groups[c]; }).concat(Object.keys(groups).filter(function (c) { return CATEGORY_ORDER.indexOf(c) < 0; }));
@@ -141,30 +163,47 @@
   }
 
   /* ================================================================== WATER */
+  /* Five sliders; hydro+recreation move together as 'power_rec'. Tribal and downstream are fixed senior rows. */
+  var WATER_ROWS = [
+    { key: 'households', name: 'Households', sectors: ['households'], icon: '🏘', color: '#4aa3df', tip: 'Indoor and outdoor use for every home. Restrictions trim this demand.' },
+    { key: 'farms', name: 'Farms & Ranches', sectors: ['farms'], icon: '🌾', color: '#d4a24c', tip: 'Irrigation for hay, pasture and orchards. Short deliveries cut crop health and the farm economy.' },
+    { key: 'wildlife', name: 'River & Wildlife', sectors: ['wildlife'], icon: '🦌', color: '#6fbf73', nonc: true, tip: 'Instream flow below the dam keeps fish, the riparian corridor and elk habitat alive. Non-consumptive: the water keeps flowing downstream.' },
+    { key: 'power_rec', name: 'Power & Recreation', sectors: ['hydro', 'recreation'], readKey: 'hydro', icon: '⚡', color: '#a78bfa', nonc: true, tip: 'Hydropower releases and rafting/boating flows, moved together. Non-consumptive: the water returns to the river.' },
+    { key: 'fire', name: 'Fire Reserve', sectors: ['fire'], icon: '🚒', color: '#ff7a33', tip: 'Storage held back for firefighting and treatment-plant flushing. Cutting it saves water now and hurts when a fire comes.' }
+  ];
+  var SENIOR_ROWS = [
+    { key: 'tribal', name: 'Tribal Water Right', icon: '🪶', color: '#e9c46a', tip: 'Senior water right. Tribal reserved rights date to reservation creation (Winters doctrine, 1908) and are legally senior to most others in the basin. Always delivered.' },
+    { key: 'downstream', name: 'Colorado River Delivery', icon: '🏞', color: '#7dd3c0', tip: 'Legally senior: the 1922 Colorado River Compact obliges the Upper Basin to deliver water downstream. Always delivered.' }
+  ];
   UI.renderWater = function () {
     var box = UI.els.tabBody; if (!box) return;
     clear(box);
     var s = st(), w = s.water || {}, dem = w.demands || {}, alloc = w.alloc || {}, del = w.delivered || {};
     var available = fin(w.availableAF);
-    var totalReq = 0, totalAlloc = 0;
-    SECTORS.forEach(function (k) { totalReq += fin(dem[k]); totalAlloc += fin(dem[k]) * clamp(alloc[k] == null ? 1 : alloc[k], 0, 1); });
+    var sum = function (obj, keys) { var t = 0, any = false; keys.forEach(function (k) { if (obj[k] != null && isFinite(Number(obj[k]))) { t += Number(obj[k]); any = true; } }); return any ? t : null; };
+    var rows = WATER_ROWS.map(function (r) {
+      var a = clamp(alloc[r.readKey || r.key] == null ? 1 : alloc[r.readKey || r.key], 0, 1);
+      return { def: r, req: fin(sum(dem, r.sectors)), a: a, last: sum(del, r.sectors) };
+    });
+    var seniors = SENIOR_ROWS.map(function (r) { return { def: r, req: fin(sum(dem, [r.key])), a: 1, last: sum(del, [r.key]) }; });
+    var all = rows.concat(seniors);
+    var totalAlloc = 0; all.forEach(function (r) { totalAlloc += r.req * r.a; });
 
-    /* stacked bar: requested (allocated) by sector vs available */
+    /* stacked bar: requested (allocated) by row vs available */
     var scale = Math.max(available, totalAlloc, 1);
     var bar = h('div', { class: 'stackbar', role: 'img', 'aria-label': 'Requested ' + af(totalAlloc) + ' of ' + af(available) + ' available' });
-    SECTORS.forEach(function (k) {
-      var v = fin(dem[k]) * clamp(alloc[k] == null ? 1 : alloc[k], 0, 1);
-      if (v > 0) bar.appendChild(h('i', { style: { width: (v / scale * 100) + '%', background: UI.SECTOR_COLORS[k] || '#888' }, 'data-tip': sectorName(k) + ' ' + af(v) }));
+    all.forEach(function (r) {
+      var v = r.req * r.a;
+      if (v > 0) bar.appendChild(h('i', { style: { width: (v / scale * 100) + '%', background: r.def.color }, 'data-tip': r.def.name + ' ' + af(v) }));
     });
     bar.appendChild(h('span', { class: 'avail', style: { left: clamp(available / scale * 100, 0, 100) + '%' }, 'data-tip': 'Available this season: ' + af(available) }));
     var over = totalAlloc > available;
-    var summary = h('div', { style: { marginBottom: '8px' } }, [
-      h('div', { class: 'row between' }, [h('span', { class: 'label' }, 'Available vs requested'), UI.info('Available = this season\'s inflow plus storage above dead pool. Requested = each sector\'s need × your allocation. If requests exceed availability, lower-priority sectors go short.')]),
+    box.appendChild(h('div', { style: { marginBottom: '8px' } }, [
+      h('div', { class: 'row between' }, [h('span', { class: 'label' }, 'Available vs requested'), UI.info('Available = this season\'s inflow plus storage above dead pool. Requested = each use\'s need × your allocation. If requests exceed availability, lower-priority uses go short.')]),
       h('div', { class: 'row between small', style: { margin: '4px 0' } }, [h('span', {}, ['Available ', h('b', { class: 'num' }, af(available))]), h('span', { style: { color: over ? '#ffb3ba' : '' } }, ['Requested ', h('b', { class: 'num' }, af(totalAlloc)), over ? ' ⚠ over' : ''])]),
       bar,
-      h('div', { class: 'legend-dots' }, SECTORS.map(function (k) { return h('span', { style: { '--c': UI.SECTOR_COLORS[k] } }, sectorName(k).split(' ')[0]); }))
-    ]);
-    box.appendChild(summary);
+      h('div', { class: 'legend-dots' }, all.map(function (r) { return h('span', { style: { '--c': r.def.color } }, r.def.name.split(' ')[0]); }))
+    ]));
     box.appendChild(h('div', { class: 'small dim', style: { margin: '0 0 6px' } }, 'Inflow ' + af(w.inflowAF) + ' · storage ' + af((s.reservoir || {}).storageAF) + ' · ' + (fin((s.climate || {}).uncertainty, 0.15) > 0.1 ? 'estimates ±' + Math.round(fin((s.climate || {}).uncertainty, 0.15) * 100) + '%' : 'gauged')));
 
     /* restriction */
@@ -175,33 +214,37 @@
     box.appendChild(h('div', { class: 'row', style: { marginBottom: '6px' } }, [h('span', { class: 'label', style: { flex: '0 0 auto' } }, 'Restrictions'), UI.info('Restrictions cut household demand (voluntary ≈ 5–10%, Stage 1 ≈ 15–20%, Stage 2 ≈ 30%+) at a cost to trust and lawns. Front Range cities used staged restrictions in 2002 and 2013.'), restr]));
     box.appendChild(h('hr', { class: 'rule' }));
 
-    /* sectors */
-    SECTORS.forEach(function (k) {
-      var req = fin(dem[k]), a = clamp(alloc[k] == null ? 1 : alloc[k], 0, 1);
-      var est = req * a;
-      var row = h('div', { class: 'sector', 'data-sector': k });
+    /* sliders */
+    rows.forEach(function (r) {
+      var d = r.def, req = r.req, a = r.a, est = req * a;
+      var row = h('div', { class: 'sector', 'data-sector': d.key });
       var tags = [];
-      if (SENIOR[k]) tags.push(h('span', { class: 'chip senior', 'data-tip': k === 'tribal' ? 'Senior water right. Tribal reserved rights date to reservation creation (Winters doctrine, 1908) and are legally senior to most others in the basin — the sim delivers this even if you cut it, at a cost to trust.' : 'Legally senior: the 1922 Colorado River Compact obliges the Upper Basin to deliver water downstream. Under-allocating triggers a compact call — delivered anyway from storage, at a cost to trust.' }, 'senior right'));
-      if (NONCONS[k]) tags.push(h('span', { class: 'chip nonc', 'data-tip': 'Non-consumptive: water released for this use keeps flowing downstream, so it also helps meet the downstream delivery and minimum-flow needs.' }, 'non-consumptive'));
+      if (d.nonc) tags.push(h('span', { class: 'chip nonc', 'data-tip': 'Non-consumptive: water released for this use keeps flowing downstream, so it also helps meet the downstream delivery and minimum-flow needs.' }, 'non-consumptive'));
       var pctEl = h('span', { class: 'pct num' }, Math.round(a * 100) + '%');
-      row.appendChild(h('div', { class: 't' }, [h('span', { 'aria-hidden': 'true' }, UI.SECTOR_ICONS[k] || ''), h('span', { class: 'name' }, sectorName(k))].concat(tags).concat([pctEl])));
-      var slider = h('input', { type: 'range', min: 0, max: 100, step: 5, value: Math.round(a * 100), 'aria-label': 'Allocation for ' + sectorName(k) });
+      row.appendChild(h('div', { class: 't' }, [h('span', { 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name' }, d.name), UI.info(d.tip)].concat(tags).concat([pctEl])));
+      var slider = h('input', { type: 'range', min: 0, max: 100, step: 5, value: Math.round(a * 100), 'aria-label': 'Allocation for ' + d.name });
       var delEl = h('span', { class: 'del' }, 'deliver ≈ ' + af(est));
-      var warnEl = h('div', { class: 'warn', hidden: !(SENIOR[k] && a < 0.999) }, SENIOR[k] ? '⚠ Senior right — delivered regardless; cutting it costs trust.' : '');
       slider.addEventListener('input', function () {
         var v = clamp(Number(slider.value), 0, 100);
         pctEl.textContent = v + '%'; delEl.textContent = 'deliver ≈ ' + af(req * v / 100);
-        warnEl.hidden = !(SENIOR[k] && v < 100);
         row.classList.toggle('short', v < 100);
       });
-      slider.addEventListener('change', function () { call('setAllocation', [k, clamp(Number(slider.value), 0, 100) / 100]); });
+      slider.addEventListener('change', function () { call('setAllocation', [d.key, clamp(Number(slider.value), 0, 100) / 100]); });
       row.appendChild(slider);
-      row.appendChild(h('div', { class: 'nums' }, [h('span', {}, 'request ' + af(req)), delEl, del[k] != null ? h('span', { 'data-tip': 'Delivered last season' }, 'last ' + af(del[k])) : null]));
-      row.appendChild(warnEl);
+      row.appendChild(h('div', { class: 'nums' }, [h('span', {}, 'request ' + af(req)), delEl, r.last != null ? h('span', { 'data-tip': 'Delivered last season' }, 'last ' + af(r.last)) : null]));
       if (a < 0.999) row.classList.add('short');
       box.appendChild(row);
     });
-    box.appendChild(h('div', { class: 'note' }, 'Deliveries are resolved in priority order when the season runs: households, then the senior tribal and downstream rights, then farms, wildlife, fire reserve, hydro and recreation. Non-consumptive releases return to the river.'));
+    /* fixed senior rows */
+    seniors.forEach(function (r) {
+      var d = r.def;
+      var row = h('div', { class: 'sector senior', 'data-sector': d.key }, [
+        h('div', { class: 't' }, [h('span', { 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name' }, d.name), h('span', { class: 'chip senior', 'data-tip': d.tip }, 'senior right — always delivered')]),
+        h('div', { class: 'nums' }, [h('span', {}, 'request ' + af(r.req)), h('span', { class: 'del' }, 'delivered in full'), r.last != null ? h('span', { 'data-tip': 'Delivered last season' }, 'last ' + af(r.last)) : null])
+      ]);
+      box.appendChild(row);
+    });
+    box.appendChild(h('div', { class: 'note' }, 'Deliveries are resolved in priority order when the season runs: households, then the senior tribal and downstream rights, then farms, river & wildlife, fire reserve, power & recreation. Non-consumptive releases return to the river.'));
   };
 
   /* ================================================================== FIRE */
@@ -305,6 +348,7 @@
         body.appendChild(h('div', { class: 'intro-narrative' }, [
           h('p', {}, ['Colorado\'s most destructive fires revealed that ', h('b', {}, 'wildfire and water conservation are not separate challenges'), '. When the 2020 Cameron Peak and East Troublesome fires burned the forests above Front Range reservoirs, the next summer\'s storms sent ash, mud and debris straight into the water supply — years after the flames were out.']),
           h('p', {}, ['You manage the Bitterbrush Creek watershed: a snow-fed tributary of the Colorado River, a reservoir, a mountain town, four farms, forests that have not burned in a century, and neighbours with senior water rights. Each season you will fund projects, allocate a shrinking supply, decide how to live with fire — and then watch what the watershed does with your choices.']),
+          h('p', { class: 'live-line' }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), h('b', {}, 'When a fire or flood hits, you fight it live.')]),
           h('p', { class: 'small dim' }, 'No decision is free. The advisors disagree for good reasons. The score rewards resilience, not perfection.')
         ]));
         var years = 6, mode = 'simulated', tutorial = true;
@@ -424,26 +468,46 @@
     return UI.modal({
       icon: ['❄', '🌱', '☀', '🍂'][fin(report.season != null ? report.season : s.season) & 3], eyebrow: 'Season report', title: seasonLabel + ', Year ' + fin(year, 1), className: 'wide report', critical: true,
       render: function (body, close) {
-        /* headline */
+        /* headline stat tiles (water + any crisis) */
         var cap = fin((s.reservoir || {}).capacityAF, 42000);
         var storagePct = isFinite(Number(hy.storagePct)) ? Number(hy.storagePct) * (Number(hy.storagePct) <= 1.5 ? 100 : 1) : (fin(hy.endStorageAF) / Math.max(cap, 1) * 100);
-        var kv = h('div', { class: 'kv' }, [
+        var sh = hy.shortages || {}, shortTotal = 0; SECTORS.forEach(function (k) { shortTotal += fin(sh[k]); });
+        body.appendChild(h('div', { class: 'kv' }, [
           stat('Inflow', af(hy.inflowAF)),
-          stat('Delivered', af(hy.outflowAF)),
           stat('Reservoir', af(hy.endStorageAF), Math.round(storagePct) + '%', storagePct < 35 ? 'bad' : ''),
-          hy.spillAF > 0 ? stat('Spilled', af(hy.spillAF)) : null,
+          stat('Shortages', shortTotal > 1 ? af(shortTotal) : 'None', null, shortTotal > 1 ? 'bad' : 'good'),
           stat('Min. flow', hy.minFlowMet === false ? 'Missed' : 'Met', null, hy.minFlowMet === false ? 'bad' : 'good'),
-          isFinite(Number(hy.cropHealthAvg)) ? stat('Crop health', Math.round(clamp(hy.cropHealthAvg, 0, 1) * 100) + '%') : null,
-          isFinite(Number(hy.hydroMWh)) ? stat('Hydropower', Math.round(fin(hy.hydroMWh)).toLocaleString(), 'MWh') : null
-        ]);
-        body.appendChild(kv);
+          fire ? stat('Wildfire', Math.round(fin(fire.acres)).toLocaleString(), 'acres', 'bad') : null,
+          fire && fin(fire.structuresLost) > 0 ? stat('Homes lost', Math.round(fin(fire.structuresLost)), null, 'bad') : null,
+          flood ? stat('Flood damage', money(flood.damageM), null, fin(flood.damageM) > 0.5 ? 'bad' : '') : null,
+          flood && fin(flood.sedimentToReservoir) > 0 ? stat('Sediment in', Math.round(fin(flood.sedimentToReservoir)).toLocaleString(), 't', fin(flood.sedimentToReservoir) > 2000 ? 'bad' : '') : null,
+          burn ? stat('Prescribed burn', burn.escaped ? 'Escaped' : (burn.success === false ? 'Called off' : 'Done'), null, burn.escaped ? 'bad' : 'good') : null
+        ]));
         if (hy.legalOverride) body.appendChild(h('div', { class: 'note bad' }, '⚖ Senior rights were under-allocated — the tribal right and Colorado River delivery were served from storage anyway. Trust took a hit.'));
 
-        var cols = h('div', { class: 'report-cols', style: { marginTop: '12px' } });
-        /* deliveries */
+        /* cause and effect first */
+        body.appendChild(h('h3', {}, 'Cause and effect'));
+        var tl = safeList(report.timeline);
+        if (!tl.length) body.appendChild(h('p', { class: 'muted small' }, 'A quiet season. Nothing to explain — yet.'));
+        else body.appendChild(h('ul', { class: 'timeline' }, tl.map(function (e) {
+          var text = typeof e === 'string' ? e : (e && e.text) || ''; var kind = (e && e.kind) || 'info';
+          return h('li', { class: kind }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, String(text))]);
+        })));
+
+        /* outcomes */
+        body.appendChild(h('h3', {}, 'Outcomes'));
+        var after = oc.after || s.outcomes || {}, before = oc.before || {}, delta = oc.delta || {};
+        body.appendChild(h('div', { class: 'outcome-deltas' }, OUT_KEYS.map(function (k) {
+          var a = clamp(after[k], 0, 100), d = isFinite(Number(delta[k])) ? Number(delta[k]) : (isFinite(Number(before[k])) ? a - Number(before[k]) : 0);
+          return h('div', { class: 'od', 'data-key': k }, [h('span', { class: 'k' }, OUT_NAMES[k] || k), h('div', { class: 'n' }, Math.round(a)), deltaNode(d, 1), h('div', { class: 'meter thin' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: a + '%' } }))]);
+        })));
+
+        /* details (collapsed): deliveries table, fire/flood/burn detail, outcome reasons */
+        var details = h('div', { class: 'report-details', id: 'report-details', hidden: true });
+        var cols = h('div', { class: 'report-cols' });
         var left = h('div');
         left.appendChild(h('h3', {}, 'Deliveries'));
-        var dl = hy.deliveries || {}, sh = hy.shortages || {}, sp = hy.shortagePct || {};
+        var dl = hy.deliveries || {}, sp = hy.shortagePct || {};
         var rows = SECTORS.filter(function (k) { return dl[k] != null || sh[k] != null; });
         if (!rows.length) left.appendChild(h('p', { class: 'muted small' }, 'No delivery data this season.'));
         else {
@@ -459,10 +523,15 @@
           });
           tbl.appendChild(tb); left.appendChild(h('div', { class: 'tbl-wrap' }, tbl));
         }
+        left.appendChild(h('div', { class: 'kv', style: { marginTop: '8px' } }, [
+          stat('Delivered', af(hy.outflowAF)),
+          hy.spillAF > 0 ? stat('Spilled', af(hy.spillAF)) : null,
+          isFinite(Number(hy.cropHealthAvg)) ? stat('Crop health', Math.round(clamp(hy.cropHealthAvg, 0, 1) * 100) + '%') : null,
+          isFinite(Number(hy.hydroMWh)) ? stat('Hydropower', Math.round(fin(hy.hydroMWh)).toLocaleString(), 'MWh') : null
+        ]));
         if (safeList(hy.notes).length) left.appendChild(h('ul', { class: 'small muted', style: { marginTop: '8px' } }, safeList(hy.notes).map(function (n) { return h('li', {}, String(n)); })));
         cols.appendChild(left);
 
-        /* fire / flood / burn */
         var right = h('div');
         if (burn) {
           right.appendChild(h('h3', {}, 'Prescribed burn'));
@@ -480,6 +549,8 @@
           ]));
           var zn = safeList(fire.zoneNames || fire.zoneIds).map(function (z) { return UI.zoneName(z); }).filter(Boolean);
           if (zn.length) right.appendChild(h('p', { class: 'small muted' }, 'Sectors touched: ' + zn.join(', ')));
+          var ft = fire.tactics;
+          if (ft && typeof ft === 'object' && (isFinite(Number(ft.acresSaved)) || isFinite(Number(ft.structuresSaved)))) right.appendChild(h('p', { class: 'small muted' }, 'Your response saved about ' + Math.round(fin(ft.acresSaved)).toLocaleString() + ' acres and ' + Math.round(fin(ft.structuresSaved)) + ' homes versus letting it run.'));
         }
         if (flood) {
           right.appendChild(h('h3', {}, 'Post-fire storm'));
@@ -500,27 +571,14 @@
           if (attrib.length) right.appendChild(h('ul', { class: 'small muted' }, attrib.map(function (a) { return h('li', {}, String(a.label || a.type || 'Measure') + ': prevented ' + money(a.preventedDamageM) + ' and ' + Math.round(fin(a.preventedSedimentTons)).toLocaleString() + ' t'); })));
         }
         if (!burn && !fire && !flood) { right.appendChild(h('h3', {}, 'Fire & flood')); right.appendChild(h('p', { class: 'muted small' }, 'No wildfire or damaging storm this season.')); }
-        cols.appendChild(right);
-        body.appendChild(cols);
-
-        /* outcomes */
-        body.appendChild(h('h3', {}, 'Outcomes'));
-        var after = oc.after || s.outcomes || {}, before = oc.before || {}, delta = oc.delta || {};
-        body.appendChild(h('div', { class: 'outcome-deltas' }, OUT_KEYS.map(function (k) {
-          var a = clamp(after[k], 0, 100), d = isFinite(Number(delta[k])) ? Number(delta[k]) : (isFinite(Number(before[k])) ? a - Number(before[k]) : 0);
-          return h('div', { class: 'od', 'data-key': k }, [h('span', { class: 'k' }, OUT_NAMES[k] || k), h('div', { class: 'n' }, Math.round(a)), deltaNode(d, 1), h('div', { class: 'meter thin' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: a + '%' } }))]);
-        })));
         var reasons = safeList(oc.reasons);
-        if (reasons.length) body.appendChild(h('ul', { class: 'small muted', style: { marginTop: '8px' } }, reasons.slice(0, 8).map(function (r) { return h('li', {}, [String(r.text || ''), ' ', r.delta != null ? deltaNode(r.delta, 1) : null]); })));
-
-        /* timeline */
-        body.appendChild(h('h3', {}, 'Cause and effect'));
-        var tl = safeList(report.timeline);
-        if (!tl.length) body.appendChild(h('p', { class: 'muted small' }, 'A quiet season. Nothing to explain — yet.'));
-        else body.appendChild(h('ul', { class: 'timeline' }, tl.map(function (e) {
-          var text = typeof e === 'string' ? e : (e && e.text) || ''; var kind = (e && e.kind) || 'info';
-          return h('li', { class: kind }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, String(text))]);
-        })));
+        if (reasons.length) { right.appendChild(h('h3', {}, 'Why the outcomes moved')); right.appendChild(h('ul', { class: 'small muted' }, reasons.slice(0, 8).map(function (r) { return h('li', {}, [String(r.text || ''), ' ', r.delta != null ? deltaNode(r.delta, 1) : null]); }))); }
+        cols.appendChild(right);
+        details.appendChild(cols);
+        var detBtn = h('button', { class: 'ghost tiny', type: 'button', id: 'report-details-btn', 'aria-expanded': 'false', 'aria-controls': 'report-details', style: { marginTop: '10px' } }, 'Details ▾ (deliveries, fire & flood, outcome reasons)');
+        detBtn.addEventListener('click', function () { var open = details.hidden; details.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Hide details ▴' : 'Details ▾ (deliveries, fire & flood, outcome reasons)'; });
+        body.appendChild(detBtn);
+        body.appendChild(details);
 
         /* case studies */
         var unlocked = safeList(report.unlocked);
@@ -625,6 +683,47 @@
     });
   };
 
+  /* ================================================================== AFTER-ACTION CARD (live crisis) */
+  /** report: { mode:'fire'|'storm', title, headline, stats:[{label,value,bad}], actions:[string], counterfactual:{without:[{label,value}], with:[{label,value}], summary}, lessons:[string] } */
+  UI.showAfterAction = function (report) {
+    report = (report && typeof report === 'object') ? report : {};
+    var mode = report.mode === 'storm' ? 'storm' : 'fire';
+    var stats = safeList(report.stats), actions = safeList(report.actions), lessons = safeList(report.lessons);
+    var cf = (report.counterfactual && typeof report.counterfactual === 'object') ? report.counterfactual : {};
+    var without = safeList(cf.without), withL = safeList(cf['with']);
+    function cfCol(title, items, cls) {
+      return h('div', { class: 'col ' + cls }, [h('div', { class: 'label' }, title)].concat(items.length ? items.map(function (it) {
+        it = (it && typeof it === 'object') ? it : { label: String(it) };
+        return h('div', { class: 'li' }, [h('span', {}, String(it.label == null ? '' : it.label)), h('b', { class: 'num' }, String(it.value == null ? '—' : it.value))]);
+      }) : [h('div', { class: 'li dim' }, 'No numbers available')]));
+    }
+    return UI.modal({
+      icon: mode === 'storm' ? '🌊' : '🔥', eyebrow: 'After-action report', title: report.title || (mode === 'storm' ? 'Storm defense' : 'Fire response'), className: 'wide afteraction ' + mode, critical: true,
+      render: function (body) {
+        if (report.headline) body.appendChild(h('p', { class: 'lead' }, String(report.headline)));
+        if (stats.length) body.appendChild(h('div', { class: 'kv' }, stats.map(function (x) {
+          x = (x && typeof x === 'object') ? x : { label: String(x) };
+          return stat(String(x.label == null ? '' : x.label), String(x.value == null ? '—' : x.value), x.unit ? String(x.unit) : null, x.bad ? 'bad' : (x.good ? 'good' : ''));
+        })));
+        var cols = h('div', { class: 'aa-cols' });
+        cols.appendChild(h('div', {}, [h('h3', {}, 'What you did'), actions.length ? h('ul', { class: 'aa-actions' }, actions.map(function (a) { return h('li', {}, String(a && typeof a === 'object' ? (a.text || a.label || '') : a)); })) : h('p', { class: 'muted small' }, 'No tactical actions were taken — the crisis ran its course.')]));
+        if (without.length || withL.length || cf.summary) {
+          cols.appendChild(h('div', {}, [
+            h('h3', {}, 'What your response changed'),
+            h('div', { class: 'cf' }, [cfCol('Without your response', without, 'without'), cfCol('With your response', withL, 'with')]),
+            cf.summary ? h('p', { class: 'cf-summary' }, String(cf.summary)) : null
+          ]));
+        }
+        body.appendChild(cols);
+        if (lessons.length) { body.appendChild(h('h3', {}, 'Lessons')); body.appendChild(h('ul', { class: 'aa-lessons' }, lessons.map(function (l) { return h('li', {}, String(l)); }))); }
+      },
+      foot: function (foot, close) {
+        foot.appendChild(h('span', { class: 'left' }, mode === 'storm' ? 'The season continues once the water recedes.' : 'The season continues once the fire is out.'));
+        foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Continue ▶'));
+      }
+    });
+  };
+
   /* ================================================================== HELP */
   UI.showHelp = function () {
     return UI.modal({
@@ -637,13 +736,15 @@
             h('li', {}, [h('b', {}, 'Conditions'), ' — read the snowpack, storage, fire danger and drought on the left. Uncertain readings show ranges until you fund streamgages.']),
             h('li', {}, [h('b', {}, 'Events'), ' — cards may interrupt with a choice. Some consequences arrive turns later.']),
             h('li', {}, [h('b', {}, 'Plan'), ' — fund projects, allocate water and set fire policy on the right. Open the Evidence Board to hear advisors argue with data.']),
-            h('li', {}, [h('b', {}, 'End Season'), ' — the watershed runs: deliveries, maybe a fire, maybe a storm over a burn scar (you place emergency measures first), then a report explaining cause and effect.'])
+            h('li', {}, [h('b', {}, 'End Season'), ' — the watershed runs: deliveries, maybe a fire, maybe a storm over a burn scar, then a report explaining cause and effect.']),
+            h('li', {}, [h('b', {}, 'Crisis'), ' — when a fire ignites or a storm hits the scar, you fight it live: cut dozer lines, call air tankers, station engines, evacuate, sandbag, pump, open the spillway. An after-action card shows what your response changed.'])
           ]),
           h('h3', {}, 'Controls'),
           h('ul', {}, [
             h('li', {}, [h('kbd', {}, 'Drag'), ' pan · ', h('kbd', {}, 'Right-drag'), ' / ', h('kbd', {}, 'Ctrl-drag'), ' orbit · ', h('kbd', {}, 'Wheel'), ' zoom']),
             h('li', {}, [h('kbd', {}, 'W A S D'), ' / arrows pan · ', h('kbd', {}, 'Q'), ' ', h('kbd', {}, 'E'), ' rotate']),
-            h('li', {}, [h('kbd', {}, 'Space'), ' end season · ', h('kbd', {}, '1'), '–', h('kbd', {}, '4'), ' speed · ', h('kbd', {}, 'V'), ' overlay · ', h('kbd', {}, 'Esc'), ' close'])
+            h('li', {}, [h('kbd', {}, 'Space'), ' end season · ', h('kbd', {}, '1'), '–', h('kbd', {}, '4'), ' speed · ', h('kbd', {}, 'V'), ' overlay · ', h('kbd', {}, 'Esc'), ' close']),
+            h('li', {}, [h('b', {}, 'During a fire or storm: '), h('kbd', {}, '1'), '–', h('kbd', {}, '5'), ' pick a tool · ', h('kbd', {}, 'Drag'), ' paints lines / sandbags · ', h('kbd', {}, 'Space'), ' pause · ', h('kbd', {}, 'Esc'), ' deselect'])
           ])
         ]));
         grid.appendChild(h('div', {}, [

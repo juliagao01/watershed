@@ -54,6 +54,22 @@
         <button id="clearFire">Clear fire</button>
         <button id="clouds" class="on">Cloud shadows</button>
       </div>
+      <h3>Tactical (v2)</h3>
+      <div class="row">
+        <button id="tactical">Tactical mode</button>
+        <button id="paintClear">Clear paint</button>
+        <select id="paintAs"><option value="dozer">paint: dozer</option><option value="digging">paint: digging</option><option value="sandbag">paint: sandbag</option><option value="">paint: none</option></select>
+      </div>
+      <div class="row">
+        <button id="floodBtn">Flood demo</button>
+        <button id="dropBtn">Retardant drop</button>
+        <button id="pulseBtn">Pulse zone</button>
+        <button id="mkV2">v2 markers</button>
+      </div>
+      <label>fire intensity <input id="fInt" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>placement cursor
+        <select id="curType"><option value="">off</option><option>dozer</option><option>digging</option><option>retardant</option><option>engine</option><option>evac</option><option>sandbag</option><option>pump</option><option>spillway</option><option>tanker</option><option>mulch</option><option>sensor</option><option>pin</option></select>
+      </label>
       <h3>Input guards</h3>
       <label><input id="modal" type="checkbox"> body.modal-open (keys ignored)</label>
       <label>focus test: <input id="txt" type="text" placeholder="type WASD here — camera must not move" size="26"></label>
@@ -61,6 +77,7 @@
     <div id="stats" class="panel"></div>
     <div id="help" class="panel">
       <b>Controls</b> — left-drag pan · right-drag / ctrl+drag orbit · wheel zoom to cursor · WASD/arrows pan · Q/E rotate · touch: 1 finger pan, 2 fingers pinch/twist. Click a cell to log it.
+      <br><b>Tactical mode</b> — left-drag paints cells (logged to console as onCellPaint events); orbit/zoom/keys unchanged.
     </div>
   </div>
 </div>
@@ -397,8 +414,49 @@
     cloudBtn.onclick = function () { cloudsOn = !cloudsOn; cloudBtn.classList.toggle('on', cloudsOn); if (WS.Renderer._ctx) WS.Renderer._ctx.setCloudShadows(cloudsOn); };
     document.getElementById('modal').addEventListener('change', function (e) { document.body.classList.toggle('modal-open', e.target.checked); });
 
-    var lastClick = '—', hover = '—';
-    WS.Renderer.onCellClick(function (c) { lastClick = c.x + ',' + c.y + ' (' + C.LAND_NAMES[world.land[c.i]] + ', ' + Math.round(world.elev[c.i]) + ' m)'; });
+    var lastClick = '—', hover = '—', lastCell = { x: 66, y: 68 };
+    WS.Renderer.onCellClick(function (c) { lastCell = c; lastClick = c.x + ',' + c.y + ' (' + C.LAND_NAMES[world.land[c.i]] + ', ' + Math.round(world.elev[c.i]) + ' m)'; });
+
+    /* ---------- v2 tactical ---------- */
+    var tacBtn = document.getElementById('tactical'), tacOn = false, paintEvents = 0, paintCells = 0, paintLast = '—', paintIds = 0;
+    var paintAs = document.getElementById('paintAs');
+    tacBtn.onclick = function () { tacOn = !tacOn; tacBtn.classList.toggle('on', tacOn); WS.Renderer.setTacticalMode(tacOn); };
+    WS.Renderer.onCellPaint(function (ev) {
+      paintEvents++; paintCells += ev.cells.length;
+      paintLast = (ev.done ? 'done' : ev.cells.length + ' cells') + ' @' + Math.round(performance.now());
+      console.log('[onCellPaint]', JSON.stringify({ cells: ev.cells, done: ev.done }));
+      var t = paintAs.value; if (!t) return;
+      for (var k = 0; k < ev.cells.length; k++) { var i = ev.cells[k]; WS.Renderer.addMarker('paint_' + i, t, i % C.N, (i / C.N) | 0); paintIds++; }
+    });
+    document.getElementById('paintClear').onclick = function () { WS.Renderer.clearMarkers(); paintEvents = paintCells = 0; paintLast = '—'; };
+    var floodOn = false, floodTimer = null;
+    function floodCells() {
+      var out = [], seen = new Uint8Array(C.N * C.N), path = (world.river && world.river.path) || [], L = C.LAND;
+      var start = (world.river && world.river.damIndex >= 0) ? world.river.damIndex : Math.floor(path.length / 2);
+      for (var k = start; k < path.length; k++) for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
+        var qx = path[k].x + dx, qy = path[k].y + dy; if (!C.inBounds(qx, qy)) continue;
+        var qi = qy * C.N + qx, ld = world.land[qi];
+        if (seen[qi] || ld === L.RIVER || ld === L.RESERVOIR) continue; seen[qi] = 1; out.push(qi);
+      }
+      return out;
+    }
+    document.getElementById('floodBtn').onclick = function () {
+      floodOn = !floodOn; if (floodTimer) { clearInterval(floodTimer); floodTimer = null; }
+      if (!floodOn) { WS.Renderer.setFlooded([]); return; }
+      var cells = floodCells(), shown = 0;
+      floodTimer = setInterval(function () { shown = Math.min(cells.length, shown + 40); WS.Renderer.setFlooded(cells.slice(0, shown)); if (shown >= cells.length) { clearInterval(floodTimer); floodTimer = null; } }, 125);
+    };
+    document.getElementById('dropBtn').onclick = function () { WS.Renderer.playRetardantDrop(lastCell.x, lastCell.y, 2); };
+    document.getElementById('pulseBtn').onclick = function () { WS.Renderer.pulseZone(parseInt(zsel.value, 10), 0xffd24a); };
+    document.getElementById('mkV2').onclick = function () {
+      ['dozer', 'digging', 'retardant', 'engine', 'evac', 'sandbag', 'pump', 'tanker'].forEach(function (t, n) { WS.Renderer.addMarker('v2_' + t, t, 66 + n * 3, 88); });
+      var dam = (world.reservoir && world.reservoir.dam) || { x: 63, y: 71 };
+      WS.Renderer.addMarker('v2_spillway', 'spillway', dam.x, dam.y);
+    };
+    var fInt = document.getElementById('fInt');
+    fInt.oninput = function () { WS.Renderer.setFireIntensity(parseFloat(fInt.value)); };
+    var curType = document.getElementById('curType');
+    curType.onchange = function () { WS.Renderer.setPlacementCursor(curType.value || null); };
     WS.Renderer.onCellHover(function (c) { hover = c ? (c.x + ',' + c.y) : '—'; });
     var statsEl = document.getElementById('stats');
     setInterval(function () {
@@ -406,7 +464,8 @@
       statsEl.textContent = 'fps ' + s.fps + '  draws ' + s.drawCalls + '  tris ' + s.triangles.toLocaleString() +
         (cam ? '\ncam az ' + (cam.az * 180 / Math.PI).toFixed(0) + '°  pitch ' + (cam.pitch * 180 / Math.PI).toFixed(0) + '°  dist ' + cam.dist.toFixed(0) +
         '\ntarget ' + cam.target.x.toFixed(1) + ', ' + cam.target.z.toFixed(1) : '') +
-        '\nhover ' + hover + '\nclick ' + lastClick;
+        '\nhover ' + hover + '\nclick ' + lastClick +
+        '\ntactical ' + (tacOn ? 'ON' : 'off') + '  paint events ' + paintEvents + '  cells ' + paintCells + '  last ' + paintLast;
     }, 250);
   }
 

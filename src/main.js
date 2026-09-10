@@ -48,7 +48,7 @@
     if (Array.isArray(obj)) return obj.slice(0, 64).map(function (v) { return stripTyped(v, depth + 1); });
     var out = {};
     Object.keys(obj).forEach(function (k) {
-      if (k === 'frames' || k === 'cellsBurned' || k === 'floodedCells' || k === 'placeable' || k === 'scarCells' || k === 'sim') return;
+      if (k === 'frames' || k === 'cellsBurned' || k === 'floodedCells' || k === 'placeable' || k === 'scarCells' || k === 'sim' || k === 'floodTimeline' || k === 'arrivalFrame' || k === 'floodedByFrame' || k === 'report') return;
       var v = stripTyped(obj[k], depth + 1);
       if (v !== undefined) out[k] = v;
     });
@@ -75,7 +75,9 @@
   /* ------------------------------------------------------------------ adapters */
   // Renderer adapter: every method is a guarded call into WS.Renderer (or a no-op when headless / missing).
   var RENDER_FNS = ['init', 'setSeason', 'refreshWorld', 'setReservoir', 'setRiverFlow', 'setFire', 'setWeather', 'setWind', 'showDebris', 'clearDebris',
-    'setOverlay', 'setHighlight', 'addMarker', 'removeMarker', 'clearMarkers', 'setPlacementCursor', 'flyTo', 'flyToZone', 'setTimeOfDay', 'onCellClick', 'onCellHover', 'getStats', 'dispose'];
+    'setOverlay', 'setHighlight', 'addMarker', 'removeMarker', 'clearMarkers', 'setPlacementCursor', 'flyTo', 'flyToZone', 'setTimeOfDay', 'onCellClick', 'onCellHover', 'getStats', 'dispose',
+    // SPEC2 §C tactical APIs (guarded: a v1 renderer simply ignores them)
+    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone'];
   function makeRenderer(real) {
     var r = { real: !!real };
     RENDER_FNS.forEach(function (fn) {
@@ -85,7 +87,9 @@
   }
   // UI adapter: every method returns a Promise. Headless: `decide` callbacks answer cards; everything else is a no-op.
   var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showEnd', 'showHelp', 'toast', 'ticker',
-    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal'];
+    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
+    // SPEC2 §D tactical HUD / after-action (guarded: missing fns resolve immediately, so crisis loops never stall)
+    'showTactical', 'updateTactical', 'hideTactical', 'alert', 'showAfterAction'];
   function makeUI(real, decide) {
     var u = { real: !!real, decide: decide || {} };
     UI_FNS.forEach(function (fn) {
@@ -115,6 +119,8 @@
     var game = { formatters: C.fmt, headless: headless, ui: ui, renderer: renderer };
     var state = null, world = null, rng = null, speed = 1, ended = false, begun = false, running = false;
     var placement = null;      // active flood-prep placement session
+    var crisis = null;         // active real-time crisis (SPEC2 §E): { mode:'fire'|'storm', paused, selected, ... }
+    var paintUnsub = null, clickUnsub = null;   // renderer subscriptions (made once per renderer init, released on dispose/restart)
     var turnNotes = null;      // per-turn scratch used by the timeline builder
     var stats = { fires: 0, floods: 0, storms: 0, burns: 0, cards: 0, turns: 0 };
     var overlayModes = ['none', 'watershed', 'fire', 'moisture', 'burn'];
@@ -178,6 +184,7 @@
       if (!state.stats) state.stats = {};
       state.tutorial = !!o.tutorial;
       rng = WS.RNG.create(seed);
+      endCrisis();
       ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false;
       game.state = state; game.world = world;
       if (world && world.reservoir && state.reservoir && !state.reservoir.capacityAF) state.reservoir.capacityAF = world.reservoir.capacityAF;
@@ -204,7 +211,7 @@
       ended = !!blob.ended; begun = !!blob.begun;
       state.fire = state.fire || {}; state.fire.activeFire = null;
       turnNotes = freshNotes();
-      if (state.phase === PH.LIVE || state.phase === PH.FLOOD || state.phase === PH.FLOOD_PREP || state.phase === PH.REPORT) state.phase = PH.PLAN;
+      if (state.phase === PH.LIVE || state.phase === PH.FLOOD || state.phase === PH.FLOOD_PREP || state.phase === PH.FIRE || state.phase === PH.STORM || state.phase === PH.REPORT) state.phase = PH.PLAN;
     };
 
     /* ---------------------------------------------------- evidence board / tutorial */
@@ -223,12 +230,11 @@
     async function runTutorial() {
       if (headless || tutorialDone || !state.tutorial) return;
       tutorialDone = true;
+      // SPEC2 §D: three coach marks max — conditions → End Season → "when a fire starts you fight it live".
       var steps = [
-        ['Welcome to Bitterbrush Creek. The Conditions panel shows this season\'s measurements — snowpack, reservoir storage, streamflow, fire danger and drought. Hover ⓘ on any gauge to learn what it means.', '#conditions'],
-        ['Projects cost money from your ' + fmtM(state.budget) + ' annual budget. Thinning a forest sector, restoring the wetland or funding streamgages changes how fire, floods and drought play out in later seasons.', '#panel-right'],
-        ['Each Spring and Summer you decide how much of every sector\'s water request to deliver. Tribal senior rights and Colorado River deliveries are legal obligations; under-deliver and they are taken from storage anyway.', '[data-tab="water"]'],
+        ['Welcome to Bitterbrush Creek. The Conditions panel shows this season\'s measurements — snowpack, reservoir storage, streamflow, fire danger and drought. Projects on the right cost money from your ' + fmtM(state.budget) + ' budget and change how fire, floods and drought play out later.', '#conditions'],
         ['When you are ready, press End Season ▶ (or Space). The season then plays out live: runoff fills or drains the reservoir, fires may ignite, and storms may hit burn scars.', '#primary-btn'],
-        ['The Overlay button (or V) shows the watershed: where every cell drains, which slopes feed the reservoir, and where fuel is dangerous. After each season, the report explains cause and effect with real numbers.', '#btn-overlay']
+        ['When a fire starts you fight it live: drag on the map to cut dozer lines, click to drop retardant, station engines and evacuate neighborhoods with a crew-point budget. Space pauses, 1–5 pick tools. Storms over a burn scar work the same way with sandbags, pumps and the spillway.', '#primary-btn']
       ];
       for (var i = 0; i < steps.length; i++) {
         try { var r = await ui.tutorialStep(steps[i][0], steps[i][1]); if (r === false || (r && r.skip)) break; } catch (e) { break; }
@@ -305,8 +311,8 @@
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
-      if (state.season === SEASON.WINTER) await autoEvidence('budget', 'budget:' + state.year, 'A new budget year begins. Your advisors weigh in on where ' + fmtM(state.budget) + ' would do the most good.');
-      if (state.season === SEASON.SPRING) await autoEvidence('allocation', 'allocation:' + state.year, 'Runoff season: decide how much of each request to deliver. Snowpack is ' + Math.round(num(state.climate.snowpackPct, 100)) + '% of average.');
+      // SPEC2 §D: the Evidence Board never auto-opens in Winter/Spring (the UI shows a pulsing "Advisors" button instead);
+      // it still auto-opens before a prescribed burn and before a storm (see runPrescribedBurn / runFloodPrep).
       refresh();
     }
     function freshNotes() {
@@ -354,6 +360,276 @@
       for (var i = 0; i < cells.length; i++) { var z = world.zone[cells[i]]; if (z >= 0 && !seen[z]) { seen[z] = true; out.push(z); } }
       return out;
     }
+    /* ---------------------------------------------------- real-time crises (SPEC2 §E) */
+    var INTENSITY = { creeping: 0.25, active: 0.5, running: 0.8, extreme: 1 };
+    var FIRE_TOOL_ORDER = ['dozer', 'retardant', 'engine', 'evacuate', 'mutual_aid'];
+    var STORM_TOOL_ORDER = ['sandbag', 'pump', 'evacuate', 'spillway'];
+    var STORM_MARKER = { sandbag: 'sandbag', pump: 'pump', evacuate: 'evac', spillway: 'spillway' };
+    var CORE_PROJECTS = ['streamgages', 'forest_thinning', 'prescribed_burn', 'home_hardening', 'wetland', 'irrigation', 'treatment', 'warning_system'];
+    function fireTacticsAvailable() { return has('Fire', 'startTactics') && has('Fire', 'applyTactic'); }
+    function liveToolsAvailable() { var T = WS.Flood && WS.Flood.TOOLS; return has('Flood', 'simulate') && !!(T && T.sandbag && T.sandbag.live); }
+    // Pause = a promise the resume path resolves; nothing spins while paused (or while the tab is hidden and paused).
+    function waitWhilePaused() {
+      if (!crisis || !crisis.paused || headless) return Promise.resolve();
+      return new Promise(function (res) { crisis.resume = res; });
+    }
+    function resumeCrisis() { if (crisis && crisis.resume) { var r = crisis.resume; crisis.resume = null; r(); } }
+    function endCrisis() {
+      if (!crisis) return;
+      crisis.paused = false; resumeCrisis();
+      crisis = null;
+      renderer.setTacticalMode(false);
+      renderer.setPlacementCursor(null);
+      renderer.setHighlight(null, null);
+      ui.hideTactical();
+    }
+    function currentSpec() { return !crisis ? null : (crisis.mode === 'fire' ? fireSpec() : stormSpec()); }
+    function pushTactical() { if (crisis) ui.updateTactical(currentSpec()); }
+    function alertOnce(key, text, kind, zoneId, color) {
+      if (!crisis || crisis.alerted[key]) return;
+      crisis.alerted[key] = true;
+      ui.alert(text, kind || 'warn');
+      if (zoneId != null && zoneId >= 0) renderer.pulseZone(zoneId, color || 0xff5a3c);
+      log(text, kind === 'good' ? 'good' : (kind === 'info' ? 'info' : 'bad'));
+    }
+    function numWord(n) { n = Math.round(num(n)); var w = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']; return (n >= 0 && n < w.length) ? w[n] : fmtN(n); }
+    function plural(n, one, many) { return Math.round(num(n)) === 1 ? one : (many || one + 's'); }
+    function joinList(parts) { if (!parts.length) return ''; if (parts.length === 1) return parts[0]; return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]; }
+    function compass(deg) { if (!isFinite(deg)) return ''; var n = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']; return n[Math.round((((deg % 360) + 360) % 360) / 45) % 8]; }
+    function zoneCenterCell(zoneId) {
+      var z = (world && typeof world.zoneById === 'function') ? world.zoneById(zoneId) : null;
+      if (!z || !z.center) return -1;
+      return C.idx(clamp(num(z.center.x) | 0, 0, C.N - 1), clamp(num(z.center.y) | 0, 0, C.N - 1));
+    }
+    function isNeighborhood(zoneId) { var z = (world && typeof world.zoneById === 'function') ? world.zoneById(zoneId) : null; return !!(z && z.type === 'neighborhood'); }
+    function neighborhoodList() { return zonesOf(world, 'neighborhood').map(function (z) { return { id: z.id, name: z.name }; }); }
+    function round2(v) { return Math.round(num(v) * 100) / 100; }
+
+    /* ---- fire: threat / HUD spec / tactic application ---- */
+    function fallbackThreat(fireSim, burningArr, prevAcres) {
+      var acres = num(fireSim.acres), growth = acres - num(prevAcres, acres);
+      var thr = threatenedZones(burningArr).map(function (z) { var zz = (world && world.zoneById) ? world.zoneById(z) : null; return { zoneId: z, name: zoneName(world, z), type: zz ? zz.type : 'forest', distanceCells: 0, burningInside: true }; }).slice(0, 6);
+      return { acres: acres, perimeterCells: num(fireSim.perimeterCells), headingDeg: Math.round((num(fireSim.windDir, 0.8) * 180 / Math.PI + 360) % 360), windMph: num(fireSim.windSpeed, 8), windDirRad: num(fireSim.windDir, 0.8),
+               threatened: thr, structuresLost: 0, structuresAtRisk: 0, upstreamAcres: 0, intensity: growth > 60 ? 'extreme' : growth > 30 ? 'running' : growth > 10 ? 'active' : 'creeping' };
+    }
+    function fireToolSpec() {
+      var T = (WS.Fire && WS.Fire.TACTICS) || {}, cr = crisis, tac = cr.tactics || {};
+      var pts = num(tac.crewPts), engines = Object.keys(tac.engines || {}).length;
+      return FIRE_TOOL_ORDER.filter(function (t) { return T[t]; }).map(function (type) {
+        var d = T[type], remaining = null, cooldown = null, disabled = false, reason = '', cost = '';
+        if (type === 'dozer') { cost = num(d.costPts, 1) + ' pt/cell'; if (pts < num(d.costPts, 1)) { disabled = true; reason = 'No crew points left'; } }
+        else if (type === 'retardant') {
+          cost = num(d.costPts, 5) + ' pts'; remaining = Math.max(0, num(d.maxUses, 4) - num(tac.drops)); cooldown = num(tac.dropCooldown) > 0 ? Math.ceil(num(tac.dropCooldown)) : null;
+          if (!remaining) { disabled = true; reason = 'No tanker sorties left'; } else if (cooldown) { disabled = true; reason = 'Tanker reloading (' + cooldown + ' steps)'; } else if (pts < num(d.costPts, 5)) { disabled = true; reason = 'Need ' + num(d.costPts, 5) + ' crew points'; }
+        } else if (type === 'engine') {
+          cost = num(d.costPts, 6) + ' pts'; remaining = Math.max(0, num(d.max, 2) - engines);
+          if (!remaining) { disabled = true; reason = 'Every engine is deployed'; } else if (pts < num(d.costPts, 6)) { disabled = true; reason = 'Need ' + num(d.costPts, 6) + ' crew points'; }
+        } else if (type === 'evacuate') { cost = 'free'; }
+        else if (type === 'mutual_aid') {
+          cost = fmtM(num(d.costM, 1.5)); remaining = tac.mutualAidUsed ? 0 : 1;
+          if (tac.mutualAidUsed) { disabled = true; reason = 'Already called'; } else if (num(state.budget) + num(state.emergencyFund) < num(d.costM, 1.5)) { disabled = true; reason = 'Cannot afford ' + fmtM(num(d.costM, 1.5)); }
+        }
+        var out = { type: type, name: d.name || type, icon: d.icon || '', desc: d.desc || '', cost: cost, remaining: remaining, cooldown: cooldown, selected: cr.selected === type, disabled: disabled, reason: reason };
+        if (type === 'engine' || type === 'evacuate') { out.zone = 'neighborhood'; out.zones = neighborhoodList(); }
+        return out;
+      });
+    }
+    function fireSpec() {
+      var cr = crisis, th = cr.threat || {}, tac = cr.tactics || {};
+      var dir = compass(th.headingDeg), first = (th.threatened || [])[0];
+      var headline = 'Fire ' + (th.intensity || 'active') + ((th.intensity === 'running' || th.intensity === 'extreme') && dir ? ' ' + dir : '') + ' in ' + Math.round(num(th.windMph, 8)) + ' mph wind' +
+        (first ? ' — ' + first.name + (first.burningInside ? ' burning' : ' ' + fmtN(first.distanceCells) + ' cells away') : '');
+      var hint = { dozer: 'Drag on the map to cut a line', retardant: 'Click the map to drop retardant', engine: 'Pick a neighborhood for the engine', evacuate: 'Pick a neighborhood to evacuate', mutual_aid: 'Calls neighboring counties (+10 crew points)' }[cr.selected] || 'Pick a tool (1–5); Space pauses';
+      return {
+        mode: 'fire', title: 'WILDFIRE — ' + fmtN(th.acres) + ' acres', subtitle: cr.startName, step: cr.step, maxSteps: cr.maxSteps, paused: !!cr.paused, speed: speed,
+        points: { label: 'Crew points', value: Math.round(num(tac.crewPts) * 10) / 10, max: num(tac.crewMax, 30), unit: 'pts' },
+        tools: fireToolSpec(),
+        threat: {
+          headline: headline,
+          rows: [
+            { label: 'Acres', value: fmtN(th.acres), bad: num(th.acres) > 500 },
+            { label: 'Homes at risk', value: fmtN(th.structuresAtRisk), bad: num(th.structuresAtRisk) > 0 },
+            { label: 'Homes lost', value: fmtN(th.structuresLost), bad: num(th.structuresLost) > 0 },
+            { label: 'Above reservoir', value: fmtN(th.upstreamAcres) + ' ac', bad: num(th.upstreamAcres) > 100 },
+            { label: 'Wind', value: Math.round(num(th.windMph, 8)) + ' mph' + (dir ? ' → ' + dir : ''), bad: num(th.windMph) > 20 }
+          ],
+          threatened: (th.threatened || []).map(function (t) { return { name: t.name, type: t.type, distance: num(t.distanceCells), burning: !!t.burningInside }; })
+        },
+        hint: hint, zones: neighborhoodList()
+      };
+    }
+    function applyFireTactic(type, target) {
+      if (!crisis || crisis.mode !== 'fire') return { ok: false, reason: 'No fire to fight.' };
+      var fs = crisis.fireSim, NN = C.N * C.N;
+      if (type === 'dozer') target = (Array.isArray(target) ? target : (target != null ? [target] : [])).map(function (c) { return c | 0; }).filter(function (c) { return c >= 0 && c < NN; });
+      if (type === 'retardant' && target != null && typeof target === 'object') target = C.idx(target.x | 0, target.y | 0);
+      if ((type === 'engine' || type === 'evacuate') && (target == null || !isNeighborhood(+target))) return { ok: false, reason: 'Pick a neighborhood for ' + type + '.' };
+      if (type === 'mutual_aid') target = null;
+      var res = call('Fire', 'applyTactic', fs, state, world, type, target);
+      if (!res) return { ok: false, reason: 'Tactics unavailable.' };
+      if (res.ok) {
+        var cells = res.cells || [];
+        crisis.tactics = fs.tactics || crisis.tactics;
+        if (type === 'dozer') {
+          cells.forEach(function (i) { if (crisis.dig[i]) return; var p = C.xy(i); var id = 'dz-' + i; crisis.dig[i] = id; renderer.addMarker(id, 'digging', p.x, p.y); });
+        } else if (type === 'retardant') {
+          var p2 = C.xy(num(target, 0) | 0);   // the renderer's drop animation leaves the persistent 'retardant' tint marker itself
+          renderer.playRetardantDrop(p2.x, p2.y, num(((WS.Fire.TACTICS || {}).retardant || {}).radius, 2));
+        } else if (type === 'engine' || type === 'evacuate') {
+          var zc = zoneCenterCell(+target);
+          if (zc >= 0) { var p3 = C.xy(zc); renderer.addMarker(type + '-' + target, type === 'engine' ? 'engine' : 'evac', p3.x, p3.y); }
+          renderer.pulseZone(+target, type === 'engine' ? 0xff3b30 : 0xffd166);
+        } else if (type === 'mutual_aid') { ui.alert('Mutual aid is rolling — +10 crew points', 'good'); }
+        if (res.text) { ui.ticker(res.text); log(res.text, 'info'); }
+        crisis.actions.push({ type: type, step: crisis.step, cost: num(res.cost), cells: cells.length, target: (type === 'dozer') ? null : target, text: res.text || '' });
+      }
+      pushTactical();
+      return res;
+    }
+    function lineHolding(tac, burning) {
+      // a finished break cell with a burning 8-neighbour that itself has not ignited → "line holding"
+      if (!tac || !tac.breaks || !crisis) return false;
+      var keys = Object.keys(crisis.dig), N = C.N;
+      for (var k = 0; k < keys.length; k++) {
+        var i = +keys[k]; if (tac.breaks[i] !== 2 || burning[i]) continue;
+        var x = i % N, y = (i / N) | 0;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue; var nx = x + dx, ny = y + dy;
+          if (C.inBounds(nx, ny) && burning[ny * N + nx]) return true;
+        }
+      }
+      return false;
+    }
+    function describeFireTactics(t) {
+      var parts = [];
+      if (num(t.cellsBroken) > 0) parts.push('dozer line');
+      if (num(t.drops) > 0) parts.push(numWord(t.drops) + ' ' + plural(t.drops, 'drop'));
+      if ((t.engines || []).length) parts.push(plural(t.engines.length, 'engine crew'));
+      if ((t.evacuated || []).length) parts.push(plural(t.evacuated.length, 'evacuation'));
+      if (t.mutualAid) parts.push('mutual aid');
+      return joinList(parts);
+    }
+    function fallbackFireTactics(report) {
+      // Used only when Fire.finalize did not attach `tactics` (older sim): built from what the player did + replayWithoutTactics.
+      var tac = (crisis && crisis.tactics) || {}, used = {}, cellsBroken = 0, i;
+      (crisis ? crisis.actions : []).forEach(function (a) { used[a.type] = (used[a.type] || 0) + 1; if (a.type === 'dozer') cellsBroken += a.cells; });
+      if (tac.breaks) { cellsBroken = 0; for (i = 0; i < tac.breaks.length; i++) if (tac.breaks[i]) cellsBroken++; }
+      var cf = call('Fire', 'replayWithoutTactics', crisis.fireSim, state, world) || null;
+      var cfo = { acres: num(cf && cf.acres, num(report.acres)), structuresLost: num(cf && cf.structuresLost, num(report.structuresLost)), upstreamAcres: num(cf && cf.upstreamAcres, num(report.upstreamAcres)) };
+      return { used: used, cellsBroken: cellsBroken, drops: num(tac.drops, used.retardant || 0), engines: Object.keys(tac.engines || {}).map(function (z) { return zoneName(world, +z); }), evacuated: Object.keys(tac.evacuated || {}).map(function (z) { return zoneName(world, +z); }),
+               mutualAid: !!tac.mutualAidUsed, counterfactual: cfo, acresSaved: Math.max(0, cfo.acres - num(report.acres)), structuresSaved: Math.max(0, cfo.structuresLost - num(report.structuresLost)), injuries: 0, unnecessaryEvacs: 0, fallback: true };
+    }
+    function fireAfterAction(report) {
+      var t = report.tactics || {}, cf = t.counterfactual || {};
+      var did = [];
+      if (num(t.cellsBroken) > 0) did.push('Cut ' + fmtN(t.cellsBroken) + ' cell' + (num(t.cellsBroken) === 1 ? '' : 's') + ' of dozer / hand line');
+      if (num(t.drops) > 0) did.push(fmtN(t.drops) + ' air-tanker ' + plural(t.drops, 'drop'));
+      (t.engines || []).forEach(function (n) { did.push('Engine crew stationed in ' + n); });
+      (t.evacuated || []).forEach(function (n) { did.push('Evacuated ' + n); });
+      if (t.mutualAid) did.push('Called mutual aid (+10 crew points)');
+      if (!did.length) did.push('No tactics used — the fire ran unopposed');
+      var what = describeFireTactics(t) || 'tactics';
+      var summary = 'Without your ' + what + ': ' + fmtN(cf.acres) + ' acres and ' + fmtN(cf.structuresLost) + ' ' + plural(cf.structuresLost, 'home') + '. With them: ' + fmtN(report.acres) + ' acres and ' + fmtN(report.structuresLost) + ' ' + plural(report.structuresLost, 'home') + '.';
+      return {
+        mode: 'fire', kind: 'fire', title: 'After-action report — ' + (report.startZoneName || 'wildfire'), headline: fmtN(report.acres) + ' acres burned, ' + fmtN(report.structuresLost) + ' ' + plural(report.structuresLost, 'structure') + ' lost',
+        acres: num(report.acres), structuresLost: num(report.structuresLost), upstreamAcres: num(report.upstreamAcres), injuries: num(t.injuries), unnecessaryEvacs: num(t.unnecessaryEvacs),
+        stats: [
+          { label: 'Acres burned', value: fmtN(report.acres), counterfactual: fmtN(cf.acres), good: num(cf.acres) > num(report.acres) },
+          { label: 'Structures lost', value: fmtN(report.structuresLost), counterfactual: fmtN(cf.structuresLost), good: num(cf.structuresLost) > num(report.structuresLost) },
+          { label: 'Acres above the reservoir', value: fmtN(report.upstreamAcres), counterfactual: fmtN(cf.upstreamAcres), good: num(cf.upstreamAcres) > num(report.upstreamAcres) }
+        ],
+        actions: did,
+        // numeric counterfactual + the {label,value} columns / summary the after-action card renders
+        counterfactual: {
+          acres: num(cf.acres), structuresLost: num(cf.structuresLost), upstreamAcres: num(cf.upstreamAcres), summary: summary,
+          without: [{ label: 'Acres burned', value: fmtN(cf.acres) }, { label: 'Homes lost', value: fmtN(cf.structuresLost) }, { label: 'Acres above the reservoir', value: fmtN(cf.upstreamAcres) }],
+          'with': [{ label: 'Acres burned', value: fmtN(report.acres) }, { label: 'Homes lost', value: fmtN(report.structuresLost) }, { label: 'Acres above the reservoir', value: fmtN(report.upstreamAcres) }]
+        },
+        saved: { acres: num(t.acresSaved), structures: num(t.structuresSaved) }, summary: summary, tactics: t,
+        lessons: [].concat(
+          num(t.unnecessaryEvacs) > 0 ? ['Evacuating ' + numWord(t.unnecessaryEvacs) + ' ' + plural(t.unnecessaryEvacs, 'neighborhood') + ' the fire never reached cost public trust.'] : [],
+          num(t.injuries) > 0 ? ['Fire reached homes that had not been evacuated — order evacuations before the front arrives.'] : [],
+          num(report.upstreamAcres) > 100 ? [fmtN(report.upstreamAcres) + ' burned acres drain to the reservoir: expect a debris-flow storm within two seasons.'] : [])
+      };
+    }
+    async function runFireTactical(fireSim, turnRng, origin, start, startName, zoneStart, initial) {
+      var tac = call('Fire', 'startTactics', fireSim, state, world);
+      tac = fireSim.tactics || tac;
+      if (!tac || !tac.breaks) return null;          // sim could not start tactics → caller runs the watch-only fire
+      var burning = {}, burned = {}, burningArr = [], burnedArr = [], acres = 0, steps = 0, prevAcres = 0;
+      var maxSteps = Math.max(10, num(fireSim.maxSteps, 60)) + 5;
+      var fireRng = turnRng.fork('firesteps');
+      initial.forEach(function (i) { burning[i] = true; });
+      burningArr = initial.slice();
+      crisis = { mode: 'fire', fireSim: fireSim, tactics: tac, paused: false, selected: headless ? null : 'dozer', step: 0, maxSteps: Math.max(1, num(fireSim.maxSteps, 60)), threat: null,
+                 alerted: {}, dig: {}, actions: [], startName: startName, lastPaintCell: null, holdStep: -99, resume: null };
+      setPhase(PH.FIRE, { crisis: 'fire', acres: 0, name: startName, origin: origin });
+      renderer.setTacticalMode(true);
+      renderer.setFire(burningArr, []);
+      crisis.threat = call('Fire', 'threat', fireSim, state, world) || fallbackThreat(fireSim, burningArr, 0);
+      renderer.setFireIntensity(INTENSITY[crisis.threat.intensity] != null ? INTENSITY[crisis.threat.intensity] : 0.5);
+      ui.showTactical(fireSpec());
+      ui.alert('WILDFIRE — ' + startName + (origin === 'escape' ? ' (escaped burn)' : ''), 'fire');
+      while (steps < maxSteps && crisis) {
+        await waitWhilePaused();
+        if (!crisis) break;
+        if (headless && typeof decide.tactics === 'function') {
+          try { (decide.tactics(fireSim, crisis.threat, steps) || []).forEach(function (a) { if (a && a.type) applyFireTactic(a.type, a.target); }); } catch (e) { fail('decide.tactics', e); }
+          if (!crisis) break;
+        }
+        var r = call('Fire', 'step', fireSim, state, world, fireRng);
+        steps++; crisis.step = steps;
+        if (!r) break;
+        (r.newlyBurning || []).forEach(function (i) { burning[i] = true; });
+        (r.extinguished || []).forEach(function (i) { delete burning[i]; burned[i] = true; });
+        burningArr = Object.keys(burning).map(Number); burnedArr = Object.keys(burned).map(Number);
+        acres = num(r.acres, acres);
+        state.fire.seasonAcres = acres;
+        // digging → finished dozer line markers
+        tac = fireSim.tactics || tac; crisis.tactics = tac;
+        Object.keys(crisis.dig).forEach(function (k) {
+          var i = +k, st = crisis.dig[k]; if (st === 'done' || st === 'lost' || !tac.breaks) return;
+          if (tac.breaks[i] === 2) { var p = C.xy(i); renderer.removeMarker(st); renderer.addMarker('dzd-' + i, 'dozer', p.x, p.y); crisis.dig[k] = 'done'; }
+          else if (tac.breaks[i] === 0) { renderer.removeMarker(st); crisis.dig[k] = 'lost'; }   // the fire overran the crew before the line was finished
+        });
+        var th = call('Fire', 'threat', fireSim, state, world) || fallbackThreat(fireSim, burningArr, prevAcres);
+        crisis.threat = th;
+        renderer.setFire(burningArr, burnedArr);
+        renderer.setFireIntensity(INTENSITY[th.intensity] != null ? INTENSITY[th.intensity] : 0.5);
+        (th.threatened || []).forEach(function (t) {
+          if (!t || !t.burningInside || t.zoneId == null) return;
+          if (t.type === 'neighborhood' || t.type === 'farm' || t.type === 'civic') alertOnce('zone:' + t.zoneId, 'Fire has reached ' + t.name + '!', 'bad', t.zoneId);
+        });
+        if (num(th.upstreamAcres) > 0) alertOnce('upstream', 'Fire is burning above the reservoir — ' + fmtN(th.upstreamAcres) + ' acres drain to your water supply', 'bad');
+        if (steps - crisis.holdStep > 12 && lineHolding(tac, burning)) { crisis.holdStep = steps; ui.alert('Dozer line holding', 'good'); log('The dozer line is holding the fire.', 'good'); }
+        if (!has('UI', 'showTactical')) ui.showFireBanner({ acres: Math.round(acres), threatened: (th.threatened || []).map(function (t) { return t.name; }), step: steps, perimeter: num(r.perimeterCells) });
+        pushTactical();
+        ui.ticker('Fire ' + (th.intensity || 'active') + ' — ' + fmtN(acres) + ' acres, ' + Math.round(num(tac.crewPts)) + ' crew pts');
+        prevAcres = acres;
+        if (r.done) break;
+        await sleep(520 / speed);
+      }
+      var report = call('Fire', 'finalize', fireSim, state, world) || { acres: acres, upstreamAcres: 0, structuresLost: 0, zoneIds: threatenedZones(burnedArr), severityAvg: 0, smokeDays: 0, cellsBurned: new Int32Array(burnedArr), startCell: start };
+      if (!report.tactics && crisis) { try { report.tactics = fallbackFireTactics(report); } catch (e) { warn('fallback tactics failed', e); } }
+      report.startCell = report.startCell != null ? report.startCell : start;
+      report.startZoneId = zoneStart; report.startZoneName = startName; report.origin = origin || 'ignition';
+      report.actions = crisis ? crisis.actions.slice() : [];
+      endCrisis();
+      state.fire.activeFire = null;
+      state.fire.seasonAcres = num(report.acres, acres);
+      if (!has('Fire', 'finalize')) { state.fire.totalAcres = num(state.fire.totalAcres) + num(report.acres); state.fire.structuresLost = num(state.fire.structuresLost) + num(report.structuresLost); state.fire.smokeDays = num(state.fire.smokeDays) + num(report.smokeDays); }
+      renderer.setFire([], burnedArr);
+      renderer.setFireIntensity(0);
+      renderer.refreshWorld();
+      ui.showFireBanner(null);
+      ui.ticker('Fire contained: ' + fmtN(report.acres) + ' acres burned' + (num(report.structuresLost) ? ', ' + fmtN(report.structuresLost) + ' structures lost' : ''));
+      log('Fire contained at ' + fmtN(report.acres) + ' acres (' + fmtN(report.upstreamAcres) + ' above the reservoir); ' + fmtN(report.structuresLost) + ' structures lost.', 'bad');
+      renderer.removeMarker('fire-start');
+      report.afterAction = fireAfterAction(report);
+      try { await ui.showAfterAction(report.afterAction); } catch (e) { fail('after-action report', e); }
+      return report;
+    }
+
     async function runFire(fireSim, turnRng, origin) {
       stats.fires++;
       state.fire.activeFire = fireSim;
@@ -368,9 +644,22 @@
         : (world && world.land && start != null ? 'the ' + (C.LAND_NAMES[world.land[start]] || 'open').toLowerCase() + ' country' + (world.isUpstreamOfReservoir && world.isUpstreamOfReservoir(start) ? ' above the reservoir' : ' below the dam') : 'the foothills');
       ui.ticker('Wildfire reported in ' + startName + (origin === 'escape' ? ' — the prescribed burn escaped!' : '!'));
       log('Wildfire ignited in ' + startName + (origin === 'escape' ? ' (escaped prescribed burn).' : '.'), 'bad');
-      // fire response card
+      // fire response card: v1 only. The browser flow skips it when tactics exist (the player fights the fire live);
+      // headless keeps it so decide.card / card counts behave as in v1.
+      var tactical = fireTacticsAvailable();
       var card = call('Events', 'fireResponseCard', state, world, fireSim);
-      if (card) await playCard(card, turnRng.fork('fireresp'));
+      if (card && (headless || !tactical)) await playCard(card, turnRng.fork('fireresp'));
+      if (tactical) {
+        var tr = null;
+        try { tr = await runFireTactical(fireSim, turnRng, origin, start, startName, zoneStart, initial); } catch (e) { fail('fire tactics', e); endCrisis(); tr = null; }
+        if (tr) return tr;
+        if (fireSim.done) { // tactics loop failed after the sim ran out: finalize what we have rather than re-running it
+          var rep0 = call('Fire', 'finalize', fireSim, state, world) || { acres: num(fireSim.acres), upstreamAcres: 0, structuresLost: 0, zoneIds: [], severityAvg: 0, smokeDays: 0, cellsBurned: new Int32Array(0), startCell: start };
+          rep0.startCell = start; rep0.startZoneId = zoneStart; rep0.startZoneName = startName; rep0.origin = origin || 'ignition';
+          state.fire.activeFire = null; renderer.setFire([], []); renderer.refreshWorld(); ui.showFireBanner(null); renderer.removeMarker('fire-start');
+          return rep0;
+        }
+      }
       var burning = {}, burned = {}, burningArr = [], burnedArr = [], acres = 0, steps = 0;
       var maxSteps = Math.max(10, num(fireSim.maxSteps, 60)) + 5;
       var fireRng = turnRng.fork('firesteps');
@@ -417,7 +706,8 @@
     function toolList(prep) {
       var T = (WS.Flood && WS.Flood.TOOLS) || {};
       var eff = effects(), free = num(eff.stockpileBonus, 0);
-      return Object.keys(T).map(function (type) {
+      // live (during-storm) tools belong to the STORM phase toolbar, not the pre-storm placement one
+      return Object.keys(T).filter(function (type) { return !(T[type] && T[type].live); }).map(function (type) {
         var d = T[type] || {};
         var sites = prep && prep.placeable && prep.placeable[type] ? prep.placeable[type].length : 0;
         return { type: type, name: d.name || type, desc: d.desc || '', costM: num(d.costM, 0.3), max: d.max || null, sites: sites, count: 0, free: (type === 'mulch' || type === 'barrier') ? free : 0 };
@@ -493,36 +783,205 @@
       placement = null;
       return state.mitigations.slice();
     }
+    /* ---- storm: live tools / HUD spec ---- */
+    function damCell() {
+      if (has('Flood', 'placeableLive') && crisis) { var pl = call('Flood', 'placeableLive', crisis.prep, world, 'spillway'); if (pl && pl.length) return pl[0] | 0; }
+      if (world && world.reservoir && world.reservoir.dam) return C.idx(world.reservoir.dam.x | 0, world.reservoir.dam.y | 0);
+      return -1;
+    }
+    function liveCount(type) { return crisis ? crisis.live.filter(function (m) { return m.type === type; }).length : 0; }
+    function placeLive(type, x, y, zoneId) {
+      if (!crisis || crisis.mode !== 'storm') return { ok: false, reason: 'No storm under way.' };
+      var T = (WS.Flood && WS.Flood.TOOLS) || {}, d = T[type];
+      if (!d || !d.live) return { ok: false, reason: 'Unknown live tool ' + type + '.' };
+      var name = d.name || type, i = -1, isZone = (type === 'evacuate' || !!d.zone), isOnce = (type === 'spillway' || !!d.once);
+      if (isZone) {
+        if (zoneId == null && x != null && y != null && world && world.zone && C.inBounds(x | 0, y | 0)) zoneId = world.zone[C.idx(x | 0, y | 0)];
+        zoneId = (zoneId == null) ? -1 : +zoneId;
+        if (!isNeighborhood(zoneId)) return { ok: false, reason: 'Pick a neighborhood to evacuate.' };
+        if (crisis.evacuated[zoneId]) return { ok: false, reason: zoneName(world, zoneId) + ' is already evacuated.' };
+        i = zoneCenterCell(zoneId);
+      } else if (isOnce) {
+        if (liveCount(type) > 0) return { ok: false, reason: name + ' can only be used once.' };
+        i = damCell();
+      } else {
+        x = x | 0; y = y | 0;
+        if (!C.inBounds(x, y)) return { ok: false, reason: 'Outside the map.' };
+        i = C.idx(x, y);
+      }
+      if (i < 0) return { ok: false, reason: 'No place for ' + name + '.' };
+      var p = C.xy(i); x = p.x; y = p.y;
+      if (has('Flood', 'canPlace') && !call('Flood', 'canPlace', crisis.prep, type, i)) return { ok: false, reason: name + ' cannot go there.' };
+      if (crisis.live.some(function (m) { return m.type === type && m.i === i; })) return { ok: false, reason: 'Already placed here.' };
+      if (d.max && liveCount(type) >= d.max) return { ok: false, reason: 'Only ' + d.max + ' ' + plural(d.max, name) + ' available.' };
+      var cost = Math.max(0, num(d.costM, 0));
+      if (cost > num(state.emergencyFund) + 1e-9) return { ok: false, reason: 'Emergency fund exhausted (' + fmtM(state.emergencyFund) + ' left).' };
+      state.emergencyFund = round2(num(state.emergencyFund) - cost);
+      var m = { type: type, x: x, y: y, i: i, costM: cost, atFrame: crisis.frame, live: true };
+      if (isZone) m.zoneId = zoneId;
+      crisis.live.push(m); state.mitigations.push(m);
+      renderer.addMarker('live-' + type + '-' + i + '-' + crisis.live.length, STORM_MARKER[type] || type, x, y);
+      if (isZone) { crisis.evacuated[zoneId] = true; renderer.pulseZone(zoneId, 0xffd166); ui.alert('Evacuating ' + zoneName(world, zoneId), 'warn'); log('Evacuation ordered for ' + zoneName(world, zoneId) + '.', 'warn'); }
+      else if (isOnce) { ui.alert('Emergency release — the dam gates are open', 'warn'); log('Emergency spillway release ordered at frame ' + (crisis.frame + 1) + '.', 'warn'); }
+      pushTactical();
+      return { ok: true, mitigation: m };
+    }
+    function stormToolSpec() {
+      var T = (WS.Flood && WS.Flood.TOOLS) || {}, cr = crisis, fund = num(state.emergencyFund);
+      return STORM_TOOL_ORDER.filter(function (t) { return T[t] && T[t].live; }).map(function (type) {
+        var d = T[type], cost = num(d.costM, 0), remaining = null, disabled = false, reason = '';
+        var costStr = cost > 0 ? ((cost < 0.1 ? '$' + Math.round(cost * 1000) + 'k' : fmtM(cost)) + (type === 'sandbag' ? '/cell' : '')) : 'free';
+        if (d.max) { remaining = Math.max(0, d.max - liveCount(type)); if (!remaining) { disabled = true; reason = 'All ' + plural(d.max, d.name || type) + ' deployed'; } }
+        if (type === 'spillway' || d.once) { remaining = liveCount(type) ? 0 : 1; if (!remaining) { disabled = true; reason = 'Gates already open'; } }
+        if (!disabled && cost > fund + 1e-9) { disabled = true; reason = 'Emergency fund exhausted'; }
+        var out = { type: type, name: d.name || type, icon: d.icon || '', desc: d.desc || '', cost: costStr, remaining: remaining, cooldown: null, selected: cr.selected === type, disabled: disabled, reason: reason };
+        if (type === 'evacuate' || d.zone) { out.zone = 'neighborhood'; out.zones = neighborhoodList(); }
+        return out;
+      });
+    }
+    function stormSpec() {
+      var cr = crisis, st = cr.storm || {}, prep = cr.prep || {}, first = cr.first || {};
+      var nF = Math.max(1, cr.nFrames), f = cr.frame;
+      var fbf = first.floodedByFrame, floodedNow = (fbf && fbf.length) ? num(fbf[Math.min(f, fbf.length - 1)], cr.flooded.length) : cr.flooded.length;
+      var atRisk = (prep.atRiskZones || []).map(function (z) { return { id: z, name: zoneName(world, z), type: (world && world.zoneById && world.zoneById(z)) ? world.zoneById(z).type : 'neighborhood' }; });
+      var wet = cr.lastZoneName;
+      var headline = 'Flash flood — ' + num(st.intensityIn).toFixed(1) + ' in on the scar; ' + (wet ? 'water in ' + wet : (atRisk[0] ? 'water heading for ' + atRisk[0].name : 'water heading for town'));
+      var hint = { sandbag: 'Drag along a street to lay sandbags', pump: 'Click a flooded street to pump it out', evacuate: 'Pick a neighborhood to evacuate', spillway: 'Opens the dam gates early (once)' }[cr.selected] || 'Pick a tool (1–4); Space pauses';
+      return {
+        mode: 'storm', title: 'FLASH FLOOD — ' + num(st.intensityIn).toFixed(1) + ' in', subtitle: fmtN(prep.scarAcres) + '-acre burn scar', step: Math.min(f + 1, nF), maxSteps: nF, paused: !!cr.paused, speed: speed,
+        points: { label: 'Emergency fund', value: round2(state.emergencyFund), max: round2(cr.fundStart), unit: '$M' },
+        tools: stormToolSpec(),
+        threat: {
+          headline: headline,
+          rows: [
+            { label: 'Rain', value: num(st.intensityIn).toFixed(1) + ' in / ' + num(st.durationHr, 2).toFixed(1) + ' h', bad: num(st.intensityIn) > 1.5 },
+            { label: 'Peak through town', value: fmtN(first.peakCfsTown != null ? first.peakCfsTown : prep.predictedPeakCfsTown) + ' cfs', bad: num(first.peakCfsTown, prep.predictedPeakCfsTown) > 300 },
+            { label: 'Flooded cells', value: fmtN(floodedNow), bad: floodedNow > 0 },
+            { label: 'Damage (forecast)', value: fmtM(first.damageM != null ? first.damageM : prep.predictedDamageM), bad: num(first.damageM, prep.predictedDamageM) > 0.5 },
+            { label: 'Sediment to reservoir', value: fmtN(first.sedimentToReservoir != null ? first.sedimentToReservoir : prep.predictedSedimentTons) + ' t', bad: num(first.sedimentToReservoir, prep.predictedSedimentTons) > 500 }
+          ],
+          threatened: atRisk.map(function (z) { return { name: z.name, type: z.type, distance: null, burning: !!cr.wetZones[z.id], flooded: !!cr.wetZones[z.id] }; })
+        },
+        hint: hint, zones: neighborhoodList()
+      };
+    }
+    function describeStormTactics(t) {
+      var parts = [];
+      if (num(t.sandbagCells) > 0) parts.push('sandbag line');
+      if (num(t.pumps) > 0) parts.push(numWord(t.pumps) + ' ' + plural(t.pumps, 'pump crew'));
+      if ((t.evacuated || []).length) parts.push(plural(t.evacuated.length, 'evacuation'));
+      if (t.spillwayUsed) parts.push('emergency release');
+      return joinList(parts);
+    }
+    function fallbackStormTactics(first, final, live) {
+      // Used only when Flood.simulate did not attach `tactics` (older sim). `first` = same storm, same pre-storm mitigations, no live tools.
+      var ev = [], sb = 0, pumps = 0, spill = false;
+      live.forEach(function (m) { if (m.type === 'sandbag') sb++; else if (m.type === 'pump') pumps++; else if (m.type === 'evacuate') ev.push(zoneName(world, m.zoneId)); else if (m.type === 'spillway') spill = true; });
+      var cf = { damageM: num(first.damageM), floodedHouses: num(first.floodedHouses), injuriesRisk: num(first.injuriesRisk) };
+      return { sandbagCells: sb, pumps: pumps, evacuated: ev, spillwayUsed: spill, counterfactual: cf, damageSaved: Math.max(0, cf.damageM - num(final.damageM)), housesSaved: Math.max(0, cf.floodedHouses - num(final.floodedHouses)), unnecessaryEvacs: 0, fallback: true };
+    }
+    function stormAfterAction(result, first) {
+      var t = result.tactics || {}, cf = t.counterfactual || { damageM: num(first.damageM), floodedHouses: num(first.floodedHouses), injuriesRisk: num(first.injuriesRisk) };
+      var did = [];
+      if (num(t.sandbagCells) > 0) did.push('Sandbag line: ' + fmtN(t.sandbagCells) + ' cells');
+      if (num(t.pumps) > 0) did.push(fmtN(t.pumps) + ' pump ' + plural(t.pumps, 'crew'));
+      (t.evacuated || []).forEach(function (n) { did.push('Evacuated ' + n); });
+      if (t.spillwayUsed) did.push('Emergency spillway release (' + fmtAF(num(result.releasedAF, 1500)) + ')');
+      if (!did.length) did.push('No live measures — the water ran its course');
+      var what = describeStormTactics(t) || 'live measures';
+      var summary = 'Without your ' + what + ': ' + fmtM(cf.damageM) + ' and ' + fmtN(cf.floodedHouses) + ' ' + plural(cf.floodedHouses, 'home') + '. With them: ' + fmtM(result.damageM) + ' and ' + fmtN(result.floodedHouses) + ' ' + plural(result.floodedHouses, 'home') + '.';
+      return {
+        mode: 'storm', kind: 'storm', title: 'After-action report — burn-scar storm', headline: fmtM(result.damageM) + ' of flood damage, ' + fmtN(result.floodedHouses) + ' ' + plural(result.floodedHouses, 'home') + ' flooded',
+        damageM: num(result.damageM), floodedHouses: num(result.floodedHouses), injuriesRisk: num(result.injuriesRisk), sedimentToReservoir: num(result.sedimentToReservoir), unnecessaryEvacs: num(t.unnecessaryEvacs, num(result.unnecessaryEvacs)),
+        stats: [
+          { label: 'Flood damage', value: fmtM(result.damageM), counterfactual: fmtM(cf.damageM), good: num(cf.damageM) > num(result.damageM) + 0.005 },
+          { label: 'Homes flooded', value: fmtN(result.floodedHouses), counterfactual: fmtN(cf.floodedHouses), good: num(cf.floodedHouses) > num(result.floodedHouses) },
+          { label: 'Injury risk', value: Math.round(num(result.injuriesRisk) * 100) + '%', counterfactual: Math.round(num(cf.injuriesRisk) * 100) + '%', good: num(cf.injuriesRisk) > num(result.injuriesRisk) + 0.005 }
+        ],
+        actions: did,
+        counterfactual: {
+          damageM: num(cf.damageM), floodedHouses: num(cf.floodedHouses), injuriesRisk: num(cf.injuriesRisk), summary: summary,
+          without: [{ label: 'Flood damage', value: fmtM(cf.damageM) }, { label: 'Homes flooded', value: fmtN(cf.floodedHouses) }, { label: 'Injury risk', value: Math.round(num(cf.injuriesRisk) * 100) + '%' }],
+          'with': [{ label: 'Flood damage', value: fmtM(result.damageM) }, { label: 'Homes flooded', value: fmtN(result.floodedHouses) }, { label: 'Injury risk', value: Math.round(num(result.injuriesRisk) * 100) + '%' }]
+        },
+        saved: { damageM: num(t.damageSaved), houses: num(t.housesSaved) }, summary: summary, tactics: t,
+        lessons: [].concat(
+          (num(t.sandbagCells) > 0 && num(t.damageSaved) < 0.05) ? ['Sandbags laid after the water arrives work at 40% — lay them ahead of the flow next time.'] : [],
+          t.spillwayUsed ? ['The emergency release blunted the pulse but cost ' + fmtAF(num(result.releasedAF, 1500)) + ' of storage and surged the downstream farms.'] : [],
+          num(t.unnecessaryEvacs, num(result.unnecessaryEvacs)) > 0 ? ['A neighborhood was evacuated that never flooded — trust dips.'] : [],
+          num(result.sedimentToReservoir) > 500 ? [fmtN(result.sedimentToReservoir) + ' t of sediment reached the reservoir; pre-storm mulch and debris basins are what stop that.'] : [])
+      };
+    }
     async function runFlood(storm, prep, mitigations) {
       stats.floods++;
-      setPhase(PH.FLOOD, { storm: storm });
+      var pre = (mitigations || []).slice(), live = [];
+      var tactical = liveToolsAvailable();
+      setPhase(tactical ? PH.STORM : PH.FLOOD, { storm: storm, crisis: tactical ? 'storm' : null });
       renderer.setWeather('storm', 1);
       ui.ticker('Storm over the burn scar — ' + num(storm.intensityIn).toFixed(1) + ' in of rain');
-      var result = call('Flood', 'simulate', state, world, storm, mitigations) || null;
-      var cf = call('Flood', 'counterfactual', state, world, storm) || null;
-      var attrib = call('Flood', 'attribute', state, world, storm, mitigations) || [];
-      if (result) {
-        var frames = result.frames || [], turb0 = num(state.reservoir.turbidity), dT = num(result.contamination && result.contamination.turbidityDelta, 0), cap = Math.max(1, capacity());
-        var nF = frames.length;
-        for (var f = 0; f < nF; f++) {
-          renderer.showDebris(frames[f]);
-          var t = (f + 1) / nF;
-          var turb = (frames[f] && isFinite(frames[f].reservoirTurbidity)) ? frames[f].reservoirTurbidity : (turb0 + dT * t);
-          renderer.setReservoir(clamp(num(state.reservoir.storageAF) / cap, 0, 1.2), clamp(turb, 0, 1), num(state.reservoir.ashContam));
-          if (f === Math.floor(nF / 2) && world && world.reservoir && world.reservoir.center) renderer.flyTo(world.reservoir.center.x, world.reservoir.center.y, 60);
-          await sleep(1000 / (8 * speed));
-        }
-        var preBudget = num(state.budget), preFund = num(state.emergencyFund);
-        call('Flood', 'applyResult', state, world, result);
-        result.paidM = Math.max(0, (preBudget + preFund) - (num(state.budget) + num(state.emergencyFund)));
-        log('Storm: peak ' + fmtN(result.peakCfsReservoir) + ' cfs at the reservoir, ' + fmtN(result.sedimentToReservoir) + ' t of sediment reached the water, ' + fmtN(result.floodedHouses) + ' homes flooded, ' + fmtM(result.damageM) + ' damage.', 'bad');
+      // 1. first pass: the storm with only the pre-storm measures — its frames/floodTimeline are what the player watches and fights
+      var first = call('Flood', 'simulate', state, world, storm, pre) || null;
+      var result = first, cf = null, attrib = [], aa = null;
+      if (first && tactical) {
+        crisis = { mode: 'storm', storm: storm, prep: prep, first: first, frame: 0, nFrames: Math.max((first.frames || []).length, (first.floodTimeline || []).length), live: live, evacuated: {}, wetZones: {}, lastZoneName: null,
+                   paused: false, selected: headless ? null : 'sandbag', alerted: {}, flooded: [], floodedSet: new Uint8Array(C.N * C.N), resume: null, fundStart: num(state.emergencyFund), lastPaintCell: null };
+        renderer.setTacticalMode(true);
+        ui.showTactical(stormSpec());
+        ui.alert('FLASH FLOOD — ' + num(storm.intensityIn).toFixed(1) + ' in on the burn scar', 'flood');
       }
+      try {
+        if (first) {
+          var frames = first.frames || [], timeline = first.floodTimeline || [], turb0 = num(state.reservoir.turbidity), dT = num(first.contamination && first.contamination.turbidityDelta, 0), cap = Math.max(1, capacity());
+          var nF = Math.max(frames.length, timeline.length), flooded = crisis ? crisis.flooded : [], floodedSet = crisis ? crisis.floodedSet : new Uint8Array(C.N * C.N);
+          for (var f = 0; f < nF; f++) {
+            if (crisis) {
+              await waitWhilePaused();
+              if (!crisis) break;
+              crisis.frame = f;
+              if (headless && typeof decide.liveTools === 'function') {
+                try { (decide.liveTools(first, f, { prep: prep, storm: storm, world: world, live: live }) || []).forEach(function (a) { if (a && a.type) placeLive(a.type, a.x, a.y, a.zoneId); }); } catch (e) { fail('decide.liveTools', e); }
+                if (!crisis) break;
+              }
+            }
+            if (frames[f]) renderer.showDebris(frames[f]);
+            var tl = timeline[f];
+            if (tl && tl.length) {
+              var newZones = [];
+              for (var k = 0; k < tl.length; k++) { var ci = tl[k]; if (ci >= 0 && ci < floodedSet.length && !floodedSet[ci]) { floodedSet[ci] = 1; flooded.push(ci); var z = world && world.zone ? world.zone[ci] : -1; if (crisis && z >= 0 && !crisis.wetZones[z]) { crisis.wetZones[z] = true; newZones.push(z); } } }
+              renderer.setFlooded(flooded);
+              newZones.forEach(function (z) { var zz = (world && world.zoneById) ? world.zoneById(z) : null; if (crisis && zz && (zz.type === 'neighborhood' || zz.type === 'farm' || zz.type === 'civic')) { crisis.lastZoneName = zz.name; alertOnce('wet:' + z, 'Water has reached ' + zz.name + '!', 'bad', z, 0x4fa3ff); } });
+            }
+            var t = (f + 1) / nF;
+            var turb = (frames[f] && isFinite(frames[f].reservoirTurbidity)) ? frames[f].reservoirTurbidity : (turb0 + dT * t);
+            renderer.setReservoir(clamp(num(state.reservoir.storageAF) / cap, 0, 1.2), clamp(turb, 0, 1), num(state.reservoir.ashContam));
+            if (!crisis && f === Math.floor(nF / 2) && world && world.reservoir && world.reservoir.center) renderer.flyTo(world.reservoir.center.x, world.reservoir.center.y, 60);
+            if (crisis) { pushTactical(); ui.ticker('Flood water spreading — ' + fmtN(flooded.length) + ' cells under water, ' + fmtM(state.emergencyFund) + ' left'); }
+            await sleep(1000 / (8 * speed));
+          }
+          // 2. final numbers: pre-storm + live measures (the live tools' atFrame decides their effectiveness)
+          var all = pre.concat(live);
+          if (live.length) result = call('Flood', 'simulate', state, world, storm, all) || first;
+          cf = call('Flood', 'counterfactual', state, world, storm) || null;
+          attrib = call('Flood', 'attribute', state, world, storm, all) || [];
+          if (tactical && result && !result.tactics) result.tactics = fallbackStormTactics(first, result, live);
+          var preBudget = num(state.budget), preFund = num(state.emergencyFund), preAF = num(state.reservoir.storageAF);
+          call('Flood', 'applyResult', state, world, result);
+          // spillway release: Flood.applyResult deducts result.releasedAF from storage; guard in case an older applyResult does not
+          if (result.spillwayUsed && num(result.releasedAF) > 0 && Math.abs(num(state.reservoir.storageAF) - preAF) < 1) state.reservoir.storageAF = Math.max(0, preAF - num(result.releasedAF));
+          result.paidM = Math.max(0, (preBudget + preFund) - (num(state.budget) + num(state.emergencyFund)));
+          log('Storm: peak ' + fmtN(result.peakCfsReservoir) + ' cfs at the reservoir, ' + fmtN(result.sedimentToReservoir) + ' t of sediment reached the water, ' + fmtN(result.floodedHouses) + ' homes flooded, ' + fmtM(result.damageM) + ' damage.', 'bad');
+          if (tactical) aa = stormAfterAction(result, first);
+        }
+      } catch (e) { fail('storm', e); }
+      endCrisis();
+      renderer.setFlooded([]);
       renderer.clearDebris();
       renderer.refreshWorld();
       pushReservoirVisual();
       renderer.setWeather('rain', 0.3);
+      if (aa) { result.afterAction = aa; try { await ui.showAfterAction(aa); } catch (e) { fail('after-action report', e); } }
       await sleep(400);
-      return { result: result, counterfactual: cf, attribution: attrib };
+      return { result: result, counterfactual: cf, attribution: attrib, first: first, live: live };
     }
     function stormThisSeason(turnRng) {
       var ps = state.pendingStorm;
@@ -607,6 +1066,16 @@
       var fr = ctx.fireReport, fuelStats = call('Fire', 'fuelStats', world) || {};
       if (fr) {
         add((fr.origin === 'escape' ? 'The escaped burn' : 'A wildfire') + ' in ' + fr.startZoneName + ' burned ' + fmtN(fr.acres) + ' acres' + (num(fr.upstreamAcres) > 0 ? ' — ' + fmtN(fr.upstreamAcres) + ' of them draining to the reservoir' : '') + (num(fr.structuresLost) > 0 ? ' — and destroyed ' + fmtN(fr.structuresLost) + ' structures' : '') + ' under ' + (cl.fireDangerLabel || 'unknown') + ' danger and ' + Math.round(num(cl.windMph, 8)) + ' mph winds.', 'bad', { P: -2, E: -1 });
+        // SPEC2 §E: tactical counterfactual ("Your dozer line and two drops held the fire to 1,900 acres; without them it would have run 4,600 acres and taken 11 homes.")
+        var ft = fr.tactics, fcf = ft && ft.counterfactual;
+        if (ft && fcf) {
+          var whatF = describeFireTactics(ft), fSaved = num(ft.acresSaved, num(fcf.acres) - num(fr.acres)), hSaved = num(ft.structuresSaved, num(fcf.structuresLost) - num(fr.structuresLost));
+          if (whatF && (fSaved >= 25 || hSaved >= 1)) add('Your ' + whatF + ' held the fire to ' + fmtN(fr.acres) + ' acres; without ' + (whatF.indexOf(' and ') >= 0 || whatF.indexOf(',') >= 0 ? 'them' : 'it') + ' it would have run ' + fmtN(fcf.acres) + ' acres' + (num(fcf.structuresLost) > num(fr.structuresLost) ? ' and taken ' + fmtN(fcf.structuresLost) + ' ' + plural(fcf.structuresLost, 'home') + ' instead of ' + fmtN(fr.structuresLost) : '') + '.', 'good', { P: 1 });
+          else if (whatF) add('Your ' + whatF + ' did not change the outcome much: ' + fmtN(fr.acres) + ' acres burned versus ' + fmtN(fcf.acres) + ' had you done nothing' + (num(fcf.structuresLost) !== num(fr.structuresLost) ? ' (' + fmtN(fr.structuresLost) + ' vs ' + fmtN(fcf.structuresLost) + ' homes)' : '') + '.', 'info');
+          else add('No tactics were used against this fire; it ran its full ' + fmtN(fr.acres) + ' acres unopposed.', 'warn');
+          if (num(ft.unnecessaryEvacs) > 0) add('You evacuated ' + numWord(ft.unnecessaryEvacs) + ' ' + plural(ft.unnecessaryEvacs, 'neighborhood') + ' the fire never reached — residents grumble about the false alarm.', 'warn', { T: -1 });
+          if (num(ft.injuries) > 0) add('Fire reached ' + (ft.injuries === 1 ? 'a neighborhood' : 'neighborhoods') + ' that had not been evacuated — ' + fmtN(ft.injuries) + ' ' + plural(ft.injuries, 'injury', 'injuries') + ' reported.', 'bad', { P: -1 });
+        }
         var cmp = thinnedComparison(fr);
         if (cmp) add('Thinning paid off: the fire burned ' + cmp.thinnedPct + '% of thinned ' + cmp.tName + ' but ' + cmp.unthinnedPct + '% of untreated ' + cmp.uName + ' (' + fmtN(cmp.thinnedAcres) + ' vs ' + fmtN(cmp.unthinnedAcres) + ' acres).', cmp.thinnedPct < cmp.unthinnedPct ? 'good' : 'info');
         else if (Object.keys(effects().thinnedZones || {}).length === 0) add('No sector had been thinned; every burned stand carried its full fuel load (watershed average fuel ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%).', 'warn');
@@ -645,6 +1114,15 @@
         } else {
           add('With no mitigation on the scar, ' + num(ctx.storm.intensityIn).toFixed(1) + ' in of rain sent ' + fmtN(res.sedimentToReservoir) + ' t of sediment and ash into the reservoir (turbidity ' + turbNow.toFixed(2) + (outage > 0 ? ', treatment plant shut ' + fmtN(outage) + ' days' : '') + ') and caused ' + fmtM(res.damageM) + ' of flood damage.', 'bad', { W: -2, P: -1 });
         }
+        // SPEC2 §E: live-tool counterfactual (same storm, same pre-storm measures, no live tools)
+        var stt = res.tactics, scf = stt && stt.counterfactual;
+        if (stt && scf) {
+          var whatS = describeStormTactics(stt), dSaved = num(scf.damageM) - num(res.damageM), hS = num(scf.floodedHouses) - num(res.floodedHouses);
+          if (whatS && (dSaved >= 0.05 || hS >= 1)) add('Your ' + whatS + ' held flood damage to ' + fmtM(res.damageM) + ' (' + fmtN(res.floodedHouses) + ' homes); without ' + (whatS.indexOf(' and ') >= 0 || whatS.indexOf(',') >= 0 ? 'them' : 'it') + ' it would have been ' + fmtM(scf.damageM) + ' and ' + fmtN(scf.floodedHouses) + ' homes.', 'good', { P: 1 });
+          else if (whatS) add('Your ' + whatS + ' barely moved the needle: ' + fmtM(res.damageM) + ' of damage versus ' + fmtM(scf.damageM) + ' without them — sandbags laid after the water arrives work at 40%.', 'info');
+          if (stt.spillwayUsed) add('Opening the spillway early swallowed the pulse below the dam but dumped ' + fmtAF(num(res.releasedAF, 1500)) + ' of storage and sent a surge through the downstream farms.', 'warn', { W: -1 });
+          if (num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs)) > 0) add('You evacuated ' + numWord(num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs))) + ' ' + plural(num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs)), 'neighborhood') + ' the water never reached — trust dips.', 'warn', { T: -1 });
+        }
         var top = at.filter(function (a) { return a && (num(a.preventedDamageM) > 0.05 || num(a.preventedSedimentTons) > 20); }).sort(function (a, b) { return num(b.preventedDamageM) + num(b.preventedSedimentTons) / 1000 - num(a.preventedDamageM) - num(a.preventedSedimentTons) / 1000; })[0];
         if (top) {
           var gains = [];
@@ -675,7 +1153,7 @@
         add('Budget stands at ' + fmtM(state.budget) + '; ' + Object.keys((state.projects && state.projects.funded) || {}).length + ' projects funded so far, population ' + fmtN(state.population) + '.', 'info');
         if (out.length < 3) add('Water quality: turbidity ' + num(state.reservoir.turbidity).toFixed(2) + ', ash ' + num(state.reservoir.ashContam).toFixed(2) + '; fuel in the forest averages ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%.', 'info');
       }
-      return out.slice(0, 7);
+      return out.slice(0, 8);
     }
 
     /* ---------------------------------------------------- endSeason */
@@ -741,7 +1219,10 @@
       var report = {
         turn: state.turn, year: state.year, season: state.season, seasonName: seasonName(state.season),
         hydro: ctx.hydro, fire: ctx.fireReport, storm: ctx.storm, flood: ctx.flood && ctx.flood.result, counterfactual: ctx.flood && ctx.flood.counterfactual, attribution: ctx.flood && ctx.flood.attribution,
-        burnResult: ctx.burnResult, mitigations: ctx.mitigations, cards: turnNotes.cards, scheduled: turnNotes.scheduled,
+        burnResult: ctx.burnResult, mitigations: ctx.mitigations, liveMitigations: (ctx.flood && ctx.flood.live) || [], cards: turnNotes.cards, scheduled: turnNotes.scheduled,
+        // SPEC2 §E: the after-action card of the season's latest crisis (a storm follows a fire), plus both when the season had both
+        afterAction: (ctx.flood && ctx.flood.result && ctx.flood.result.afterAction) || (ctx.fireReport && ctx.fireReport.afterAction) || null,
+        afterActions: [ctx.fireReport && ctx.fireReport.afterAction, ctx.flood && ctx.flood.result && ctx.flood.result.afterAction].filter(function (a) { return !!a; }),
         outcomes: { before: ctx.scoring.before || before, after: ctx.scoring.after || Object.assign({}, state.outcomes), delta: ctx.scoring.delta || {} }, reasons: ctx.scoring.reasons || [],
         resilience: state.resilience, grade: call('Scoring', 'grade', state.resilience) || null, timeline: entries, unlocked: ctx.unlocked, budget: state.budget
       };
@@ -759,6 +1240,8 @@
       }
       renderer.clearMarkers();
       renderer.setFire([], []);
+      renderer.setFireIntensity(0);
+      renderer.setFlooded([]);
       state.turn++;
       if (state.turn >= num(state.years, C.YEARS_DEFAULT) * 4) {
         ended = true;
@@ -793,11 +1276,102 @@
       return res;
     });
     game.setAllocation = guardSync('setAllocation', function (sector, frac) {
-      if (!state || !state.water) return; if (C.SECTORS.indexOf(sector) < 0) return;
-      state.water.alloc[sector] = clamp(num(frac, 1), 0, 1);
+      if (!state || !state.water) return;
+      var v = clamp(num(frac, 1), 0, 1);
+      if (sector === 'power_rec') { state.water.alloc.hydro = v; state.water.alloc.recreation = v; ui.renderWater(); return v; }   // SPEC2 §D combined slider
+      if (C.SECTORS.indexOf(sector) < 0) return;
+      state.water.alloc[sector] = v;
       ui.renderWater();
       return state.water.alloc[sector];
     });
+    game.getCoreProjects = function () { return CORE_PROJECTS.slice(); };
+
+    /* ---- crisis facade (SPEC2 §E) ---- */
+    game.selectTactic = guardSync('selectTactic', function (type) {
+      if (!crisis) return null;
+      var order = crisis.mode === 'fire' ? FIRE_TOOL_ORDER : STORM_TOOL_ORDER;
+      crisis.selected = (type && order.indexOf(type) >= 0) ? type : null;
+      var sel = crisis.selected;
+      if (crisis.mode === 'storm' && sel && has('Flood', 'placeableLive')) { var pl = call('Flood', 'placeableLive', crisis.prep, world, sel); renderer.setHighlight(pl && pl.length ? Array.prototype.slice.call(pl) : null, 0x7fd4ff); }
+      else renderer.setHighlight(null, null);
+      renderer.setPlacementCursor((sel === 'dozer' || sel === 'retardant' || sel === 'sandbag' || sel === 'pump') ? sel : null);
+      pushTactical();
+      return sel;
+    });
+    game.setPaused = function (b) {
+      if (!crisis) return false;
+      crisis.paused = !!b;
+      if (!crisis.paused) resumeCrisis();
+      pushTactical();
+      ui.ticker(crisis.paused ? 'Paused — Space resumes' : 'Resumed');
+      return crisis.paused;
+    };
+    game.isPaused = function () { return !!(crisis && crisis.paused); };
+    game.getCrisis = function () { return currentSpec(); };
+    game.applyTactic = guardSync('applyTactic', function (type, target) {
+      if (!crisis) return { ok: false, reason: 'No crisis under way.' };
+      var r;
+      if (crisis.mode === 'fire') r = applyFireTactic(type, target === undefined ? null : target);
+      else if (Array.isArray(target)) {           // list of cell indices (or {x,y}) for map tools such as sandbags
+        var okN = 0, lastR = { ok: false, reason: 'No cells given.' };
+        for (var ti = 0; ti < target.length; ti++) {
+          var tc = (target[ti] && typeof target[ti] === 'object') ? target[ti] : C.xy(target[ti] | 0);
+          lastR = placeLive(type, tc.x, tc.y, tc.zoneId); if (lastR.ok) okN++;
+        }
+        r = okN ? { ok: true, placed: okN } : lastR;
+      }
+      else if (typeof target === 'number' && crisis.mode !== 'fire') { var tcell = C.xy(target | 0); r = placeLive(type, tcell.x, tcell.y, null); }
+      else if (target && typeof target === 'object') r = placeLive(type, target.x, target.y, target.zoneId);
+      else if (type === 'evacuate') r = placeLive(type, null, null, target);
+      else r = placeLive(type, null, null, null);
+      if (!r.ok && !headless) toast(r.reason || 'Cannot do that now.', 'warn');
+      return r;
+    });
+    game.applyTacticToZone = guardSync('applyTacticToZone', function (type, zoneId) {
+      if (!crisis) return { ok: false, reason: 'No crisis under way.' };
+      zoneId = (zoneId == null || zoneId === '') ? -1 : +zoneId;
+      var r = crisis.mode === 'fire' ? applyFireTactic(type, zoneId) : placeLive(type, null, null, zoneId);
+      if (!r.ok && !headless) toast(r.reason || 'Cannot do that now.', 'warn');
+      return r;
+    });
+    // Renderer paint stream (tactical mode): { cells:number[] new since last emit, done:boolean }; a click arrives as a single-cell paint.
+    function onPaint(ev) {
+      if (!crisis || !ev) return;
+      var cells = (ev.cells || []).map(function (c) { return (c && typeof c === 'object') ? C.idx(c.x | 0, c.y | 0) : (c | 0); }).filter(function (c) { return c >= 0 && c < C.N * C.N; });
+      var done = !!ev.done, sel = crisis.selected;
+      if (cells.length) crisis.lastPaintCell = cells[cells.length - 1];
+      var last = crisis.lastPaintCell;
+      if (!sel) { if (done && !headless) toast('Pick a tool first (1–' + (crisis.mode === 'fire' ? 5 : 4) + ').', 'warn'); return; }
+      var r = null;
+      try {
+        if (crisis.mode === 'fire') {
+          if (sel === 'dozer') { if (cells.length) { r = applyFireTactic('dozer', cells); if (!r.ok && done && !headless) toast(r.reason, 'warn'); } }
+          else if (sel === 'retardant') { if (done && last != null) { r = applyFireTactic('retardant', last); if (!r.ok && !headless) toast(r.reason, 'warn'); } }
+          else if (sel === 'engine' || sel === 'evacuate') { if (done && last != null) { var z = world && world.zone ? world.zone[last] : -1; r = game.applyTacticToZone(sel, z); } }
+          else if (sel === 'mutual_aid') { if (done) r = game.applyTactic('mutual_aid'); }
+        } else {
+          if (sel === 'sandbag') { var firstFail = null; cells.forEach(function (c) { var p = C.xy(c); var rr = placeLive('sandbag', p.x, p.y); if (!rr.ok && !firstFail) firstFail = rr.reason; }); if (firstFail && done && !headless) toast(firstFail, 'warn'); }
+          else if (sel === 'pump') { if (done && last != null) { var pp = C.xy(last); r = placeLive('pump', pp.x, pp.y); if (!r.ok && !headless) toast(r.reason, 'warn'); } }
+          else if (sel === 'evacuate') { if (done && last != null) { var z2 = world && world.zone ? world.zone[last] : -1; r = game.applyTacticToZone('evacuate', z2); } }
+          else if (sel === 'spillway') { if (done) r = game.applyTactic('spillway'); }
+        }
+      } catch (e) { fail('paint', e); }
+      if (done) crisis.lastPaintCell = null;
+    }
+    game.initRenderer = function (host) {
+      if (host) game.container = host;
+      if (paintUnsub) { try { paintUnsub(); } catch (e) { } paintUnsub = null; }
+      if (clickUnsub) { try { clickUnsub(); } catch (e) { } clickUnsub = null; }
+      renderer.init(game.container, world, state);
+      var cu = renderer.onCellClick(game.handleCellClick); clickUnsub = (typeof cu === 'function') ? cu : null;
+      if (has('Renderer', 'onCellPaint')) { var pu = renderer.onCellPaint(onPaint); paintUnsub = (typeof pu === 'function') ? pu : function () { }; }
+    };
+    game.dispose = function () {
+      endCrisis();
+      if (paintUnsub) { try { paintUnsub(); } catch (e) { } paintUnsub = null; }
+      if (clickUnsub) { try { clickUnsub(); } catch (e) { } clickUnsub = null; }
+      renderer.dispose();
+    };
     game.setRestriction = guardSync('setRestriction', function (level) {
       if (!state) return; if (['none', 'voluntary', 'stage1', 'stage2'].indexOf(level) < 0) return;
       state.water.restriction = level;
@@ -828,7 +1402,7 @@
         return report;
       })();
     };
-    game.setSpeed = function (n) { speed = clamp(num(n, 1), 1, 8); return speed; };
+    game.setSpeed = function (n) { speed = clamp(num(n, 1), 1, 8); pushTactical(); return speed; };
     game.getSpeed = function () { return speed; };
     game.setOverlay = function (mode) { overlayMode = overlayModes.indexOf(mode) >= 0 ? mode : 'none'; renderer.setOverlay(overlayMode); return overlayMode; };
     game.cycleOverlay = function () { return game.setOverlay(overlayModes[(overlayModes.indexOf(overlayMode) + 1) % overlayModes.length]); };
@@ -872,7 +1446,7 @@
         if (!str) { if (!headless) toast('No saved game found.', 'warn'); return false; }
         game.deserialize(str);
         if (!headless) {
-          renderer.init(game.container, world, state);
+          game.initRenderer();
           renderer.setSeason(state.season, state.climate);
           pushReservoirVisual(); applyWeather();
           ui.init(game); refresh(); setPhase(state.phase, {});
@@ -885,7 +1459,7 @@
       o = o || {};
       var seed = o.seed != null ? o.seed : (state ? state.seed : 1);
       build({ seed: seed, years: o.years || (state && state.years) || C.YEARS_DEFAULT, mode: o.mode || (state && state.mode) || 'simulated', tutorial: o.tutorial != null ? o.tutorial : false });
-      if (!headless) { renderer.init(game.container, world, state); ui.init(game); }
+      if (!headless) { game.initRenderer(); ui.init(game); }
       return game.start();
     };
     game.start = function () {
@@ -903,6 +1477,8 @@
     game.build = function (o) { build(o); return game; };
     game.handleCellClick = function (c) {
       if (!c || !state) return;
+      // During a crisis the renderer's paint stream carries clicks too (single-cell paint); only fall back to clicks when no paint stream exists.
+      if (crisis) { if (!paintUnsub) onPaint({ cells: [c.i != null ? c.i : C.idx(c.x | 0, c.y | 0)], done: true }); return; }
       if (placement && placement.selected && state.phase === PH.FLOOD_PREP) { game.placeTool(placement.selected, c.x, c.y); return; }
       if (world && world.zone && world.zone[c.i] >= 0 && state.phase === PH.PLAN) { game.highlightZone(world.zone[c.i]); }
     };
@@ -911,6 +1487,11 @@
       var tag = (ev.target && ev.target.tagName) || '';
       if (/INPUT|TEXTAREA|SELECT/.test(tag)) return false;
       var k = ev.key;
+      if (crisis) {   // SPEC2 §E: Space = pause/resume, 1–5 = tools, Esc = deselect
+        if (k === ' ' || k === 'Spacebar') { game.setPaused(!crisis.paused); return true; }
+        if (/^[1-5]$/.test(k)) { var order = crisis.mode === 'fire' ? FIRE_TOOL_ORDER : STORM_TOOL_ORDER; if (order[+k - 1]) game.selectTactic(order[+k - 1]); return true; }
+        if (k === 'Escape' || k === 'Esc') { if (crisis.selected) { game.selectTactic(null); return true; } return false; }
+      }
       if (k === ' ' || k === 'Spacebar') { if (state.phase === PH.PLAN && !running) { game.endSeason(); return true; } return false; }
       if (k === '1' || k === '2' || k === '3' || k === '4') { game.setSpeed([1, 2, 4, 8][+k - 1]); ui.ticker('Speed ' + speed + '×'); return true; }
       if (k === 'v' || k === 'V') { game.cycleOverlay(); ui.ticker('Overlay: ' + overlayMode); return true; }
@@ -971,15 +1552,14 @@
       window.game = game; WS.game = game;
       (async function () {
         try {
-          game.renderer.init(host, game.world, game.state);
+          game.initRenderer(host);
           await game.ui.init(game);
           var intro = null;
           try { intro = await game.ui.showIntro(); } catch (e) { intro = null; }
           intro = intro || {};
           var seed = (intro.seed === '' || intro.seed == null) ? Math.floor(Math.random() * 1e6) : (isFinite(+intro.seed) ? +intro.seed : intro.seed);
           game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false });
-          game.renderer.init(host, game.world, game.state);
-          game.renderer.onCellClick(game.handleCellClick);
+          game.initRenderer(host);   // re-inits the renderer for the real world and (re)subscribes cell click + paint exactly once
           await game.ui.init(game);
           game.ui.refresh();
           await game.start();

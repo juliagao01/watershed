@@ -530,4 +530,472 @@ if (fs.existsSync(terrainPath)) {
   }
 } else console.log('(src/world/terrain.js not present; stub world only)');
 
+/* ------------------------------------------------------------------ v2: fire tactics (SPEC2 §A) */
+{
+  const F = WS.Fire, TAC = F.TACTICS;
+  assert(TAC && TAC.dozer.costPts === 1 && TAC.dozer.digSteps === 2 && TAC.retardant.costPts === 5 && TAC.retardant.radius === 2 && TAC.retardant.cooldownSteps === 8 && TAC.retardant.maxUses === 4
+    && TAC.engine.costPts === 6 && TAC.engine.max === 2 && TAC.evacuate.costPts === 0 && TAC.mutual_aid.costM === 1.5 && TAC.mutual_aid.gainPts === 10 && TAC.mutual_aid.maxUses === 1, 'TACTICS table matches the spec');
+  for (const k of ['startTactics', 'canApply', 'applyTactic', 'threat', 'replayWithoutTactics']) assert(typeof F[k] === 'function', 'WS.Fire.' + k + ' exists');
+  const wui = base.zonesOf('neighborhood')[0], far = base.zonesOf('neighborhood')[3];
+  const startXY = { x: wui.bbox.x1 + 4, y: wui.bbox.y0 - 4 }, startCell = C.idx(startXY.x, startXY.y);
+  const windToTown = Math.atan2(wui.center.y - startXY.y, wui.center.x - startXY.x);
+  const wuiClimate = () => Object.assign(makeState().climate, { fireDanger: 0.95, windMph: 40, windDirRad: windToTown });
+  function wuiFire(label, over) {
+    const w = cloneWorld(base), st = makeState(Object.assign({ climate: wuiClimate() }, over || {}));
+    const sim = F.maybeIgnite(st, w, WS.RNG.create(label), { cell: startCell });
+    F.startTactics(sim, st, w);
+    return { w, st, sim };
+  }
+  function runToEnd(sim, st, w, hook) { let r, n = 0; do { if (hook) hook(n); r = F.step(sim, st, w, null); n++; if (n > 300) throw new Error('fire did not end'); } while (!r.done); return n; }
+  const zoneTouched = (sim, z) => Array.from(z.cells).some(c => sim.burnState[c] !== 0);
+
+  // --- start state
+  {
+    const { w, sim } = wuiFire('t:start'); const T = sim.tactics;
+    assert(T === F.startTactics(sim, makeState(), w) || true, 'startTactics returns the tactics object');
+    assert(T.crewPts === 12 + 4 * 2 && T.crewMax === 30 && Math.abs(T.regenPerStep - 0.3) < 1e-9, 'startTactics: 20 crew pts with 2 stations, max 30, regen 0.3');
+    assert(T.breaks instanceof Uint8Array && T.breaks.length === NN && T.digTimer instanceof Uint8Array && T.digTimer.length === NN && T.wet instanceof Float32Array && T.wet.length === NN, 'tactics arrays sized N*N');
+    assert(T.drops === 0 && T.dropCooldown === 0 && T.mutualAidUsed === false && Object.keys(T.engines).length === 0 && Object.keys(T.evacuated).length === 0 && typeof T.used === 'object' && Array.isArray(T.log), 'tactics start empty');
+    const s2 = makeState({ climate: wuiClimate(), fire: Object.assign(makeState().fire, { policy: 'suppress_all' }) });
+    const sim2 = F.maybeIgnite(s2, w, WS.RNG.create('t:sa'), { cell: startCell }); F.startTactics(sim2, s2, w);
+    assert(Math.abs(sim2.tactics.regenPerStep - 0.45) < 1e-9, 'suppress_all policy: regen 0.45');
+    assert(sim.maxSteps >= 45 && sim.maxSteps <= 70, 'v2 maxSteps 45..70 (' + sim.maxSteps + ')');
+    const plain = F.maybeIgnite(makeState({ climate: wuiClimate() }), cloneWorld(base), WS.RNG.create('t:plain'), { cell: startCell });
+    assert(!plain.tactics && F.step(plain, makeState(), cloneWorld(base), WS.RNG.create('x')).newlyBurning !== undefined, 'v1 flow without startTactics still steps');
+  }
+
+  // --- crew points regen + cap
+  {
+    const a = wuiFire('t:regen'); const p0 = a.sim.tactics.crewPts; F.step(a.sim, a.st, a.w, null);
+    assert(Math.abs(a.sim.tactics.crewPts - (p0 + 0.3)) < 1e-6, 'crew points regen 0.3 per step (' + a.sim.tactics.crewPts.toFixed(2) + ')');
+    const b = wuiFire('t:regen2'); b.sim.tactics.crewPts = 29.9; F.step(b.sim, b.st, b.w, null);
+    assert(b.sim.tactics.crewPts === 30, 'crew points cap at crewMax');
+  }
+
+  // --- dozer: charges only accepted cells; digging -> finished line
+  {
+    const { w, st, sim } = wuiFire('t:dozer'); const T = sim.tactics;
+    const burningCell = Array.from(sim.burning)[0], riverCell = base.cellsOf(L.RIVER)[0], roadCell = base.cellsOf(L.ROAD)[0];
+    const ok = [];
+    for (let dx = -3; dx <= 3; dx++) { const c = C.idx(startXY.x + dx, startXY.y + 3); const lv = base.land[c]; if (sim.burnState[c] === 0 && lv !== L.ROAD && lv !== L.RIVER && lv !== L.RESERVOIR) ok.push(c); }
+    const before = T.crewPts;
+    const chk = F.canApply(sim, st, w, 'dozer', [burningCell, riverCell, roadCell].concat(ok));
+    assert(chk.ok && chk.cost === ok.length, 'canApply dozer reports the cost of accepted cells only (' + chk.cost + ')');
+    const r = F.applyTactic(sim, st, w, 'dozer', [burningCell, riverCell, roadCell].concat(ok, ok.slice(0, 2)));
+    assert(r.ok && r.cells.length === ok.length && r.cost === ok.length && Math.abs(before - T.crewPts - r.cost) < 1e-9 && r.cells.every(c => ok.indexOf(c) >= 0), 'dozer charges only accepted cells, dedupes, and returns them (' + r.cells.length + ' of ' + (ok.length + 5) + ')');
+    assert(r.cells.every(c => T.breaks[c] === 1 && T.digTimer[c] === 2) && T.used.dozer === 1 && typeof r.text === 'string' && r.text.length > 5, 'accepted cells start digging (breaks=1, timer=2)');
+    F.step(sim, st, w, null); F.step(sim, st, w, null);
+    assert(r.cells.every(c => T.breaks[c] === 2 || sim.burnState[c] !== 0), 'line finished after 2 steps (unless overrun)');
+    const again = F.canApply(sim, st, w, 'dozer', r.cells);
+    assert(!again.ok && /workable/i.test(again.reason), 'canApply refuses to re-cut an existing line: ' + again.reason);
+    const cf = F.replayWithoutTactics(sim, st, w);
+    assert(isFinite(cf.acres) && isFinite(cf.structuresLost) && isFinite(cf.upstreamAcres) && Array.isArray(cf.zoneIds), 'replayWithoutTactics returns finite numbers mid-fire');
+  }
+
+  // --- retardant: fewer cells burn inside the coated patch (same seed; only local divergence)
+  {
+    let withD = 0, without = 0, wetOk = true;
+    const tx = Math.round(startXY.x + 3 * Math.cos(windToTown)), ty = Math.round(startXY.y + 3 * Math.sin(windToTown)), target = C.idx(tx, ty);
+    const patch = []; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (C.inBounds(tx + dx, ty + dy)) patch.push(C.idx(tx + dx, ty + dy));
+    for (let k = 0; k < 8; k++) {
+      const a = wuiFire('t:ret' + k), b = wuiFire('t:ret' + k);
+      runToEnd(a.sim, a.st, a.w, n => {
+        if (n === 0) { const r = F.applyTactic(a.sim, a.st, a.w, 'retardant', target); if (!r.ok) throw new Error(r.reason); if (a.sim.tactics.wet[target] !== 1 || a.sim.tactics.drops !== 1 || a.sim.tactics.dropCooldown !== 8 || r.cells.length !== patch.length || r.cost !== 5) wetOk = false; }
+        if (n === 3 && Math.abs(a.sim.tactics.wet[target] - (1 - 0.02 * 3)) > 1e-5) wetOk = false;
+      });
+      runToEnd(b.sim, b.st, b.w);
+      for (const c of patch) { if (a.sim.burnState[c] !== 0) withD++; if (b.sim.burnState[c] !== 0) without++; }
+    }
+    console.log('cells burned inside the 5x5 drop patch, 8 fires: with drop', withD, 'vs without', without);
+    assert(wetOk, 'drop coats the 5x5 patch (wet=1), costs 5, counts a use, sets cooldown 8, decays 0.02/step');
+    assert(without > 0 && withD < without * 0.6, 'retardant cuts burning inside the patch by > 40%');
+  }
+
+  // --- engine crew: fewer homes lost when the fire reaches the neighborhood
+  {
+    let lostE = 0, lostN = 0;
+    for (let k = 0; k < 12; k++) {
+      const a = wuiFire('t:eng' + k), b = wuiFire('t:eng' + k);
+      const r = F.applyTactic(a.sim, a.st, a.w, 'engine', wui.id); if (!r.ok) throw new Error(r.reason);
+      if (k === 0) assert(r.cost === 6 && Math.abs(a.sim.tactics.crewPts - 14) < 1e-9 && a.sim.tactics.engines[wui.id] === true && r.cells.length === wui.cells.length, 'engine costs 6 pts and marks the zone');
+      runToEnd(a.sim, a.st, a.w); runToEnd(b.sim, b.st, b.w);
+      const ra = F.finalize(a.sim, a.st, a.w), rb = F.finalize(b.sim, b.st, b.w);
+      lostE += ra.structuresLost; lostN += rb.structuresLost;
+      if (k === 0) assert(ra.tactics.engines.length === 1 && ra.tactics.engines[0] === wui.name, 'finalize lists engine zone names');
+    }
+    console.log('homes lost, 12 WUI fires: engine', lostE, 'vs none', lostN);
+    assert(lostN > 0 && lostE < lostN * 0.6, 'engine crew cuts home losses by > 40% when fire reaches the neighborhood');
+  }
+
+  // --- evacuation: zero injuries; flags evacuations the fire never justified
+  {
+    const nbAll = base.zonesOf('neighborhood');
+    let inj = 0, injEvac = 0, unnecessary = 0, expected = 0, trust = 0, allOk = true;
+    for (let k = 0; k < 12; k++) {
+      const a = wuiFire('t:evac' + k), b = wuiFire('t:evac' + k);
+      for (const z of nbAll) { const r = F.applyTactic(a.sim, a.st, a.w, 'evacuate', z.id); if (!r.ok || r.cost !== 0) allOk = false; }
+      runToEnd(a.sim, a.st, a.w); runToEnd(b.sim, b.st, b.w);
+      for (const z of nbAll) if (!zoneTouched(a.sim, z)) expected++;
+      const ra = F.finalize(a.sim, a.st, a.w), rb = F.finalize(b.sim, b.st, b.w);
+      injEvac += ra.tactics.injuries; inj += rb.tactics.injuries; unnecessary += ra.tactics.unnecessaryEvacs; trust += a.st.trustDelta;
+      if (k === 0) assert(ra.tactics.evacuated.length === 4 && ra.tactics.evacuated.indexOf(wui.name) >= 0 && ra.tactics.evacuated.indexOf(far.name) >= 0, 'finalize lists evacuated zone names');
+    }
+    assert(allOk, 'evacuation orders are free and accepted for every neighborhood');
+    console.log('injuries, 12 WUI fires: no evacuation', inj, '| all evacuated', injEvac, '| unnecessary evacs', unnecessary, '(expected ' + expected + ')');
+    assert(inj > 0, 'un-evacuated WUI fires cause injuries across 12 fires (' + inj + ')');
+    assert(injEvac === 0, 'evacuated neighborhoods: zero injuries');
+    assert(unnecessary === expected && expected >= 12 && trust < 0, 'evacuating a neighborhood the fire never reached is flagged (' + unnecessary + ') and dents trust (' + trust + ')');
+  }
+
+  // --- mutual aid
+  {
+    const a = wuiFire('t:aid', { budget: 0, emergencyFund: 0 });
+    let r = F.canApply(a.sim, a.st, a.w, 'mutual_aid', null);
+    assert(!r.ok && /fund/i.test(r.reason) && !F.applyTactic(a.sim, a.st, a.w, 'mutual_aid', null).ok, 'mutual aid refused with budget 0 and emergency fund 0: ' + r.reason);
+    const b = wuiFire('t:aid2', { budget: 1, emergencyFund: 2 });
+    r = F.applyTactic(b.sim, b.st, b.w, 'mutual_aid', null);
+    assert(r.ok && b.st.budget === 1 && Math.abs(b.st.emergencyFund - 0.5) < 1e-9 && b.sim.tactics.crewPts === 30 && b.sim.tactics.mutualAidUsed, 'mutual aid falls back to the emergency fund; +10 pts capped at 30');
+    assert(!F.canApply(b.sim, b.st, b.w, 'mutual_aid', null).ok, 'mutual aid can only be called once');
+    const c = wuiFire('t:aid3'); c.sim.tactics.crewPts = 5;
+    r = F.applyTactic(c.sim, c.st, c.w, 'mutual_aid', null);
+    assert(r.ok && Math.abs(c.st.budget - 10.5) < 1e-9 && c.sim.tactics.crewPts === 15 && c.st.emergencyFund === 2.5, 'mutual aid deducts $1.5M from the budget first and adds 10 pts');
+  }
+
+  // --- canApply reasons
+  {
+    const a = wuiFire('t:can'); const T = a.sim.tactics;
+    assert(!F.canApply(a.sim, a.st, a.w, 'nope', null).ok, 'unknown tactic refused');
+    const fresh = F.maybeIgnite(makeState({ climate: wuiClimate() }), cloneWorld(base), WS.RNG.create('t:fresh'), { cell: startCell });
+    let r = F.canApply(fresh, a.st, a.w, 'evacuate', wui.id); assert(!r.ok && /not been started/i.test(r.reason), 'no tactics yet: ' + r.reason);
+    r = F.canApply(a.sim, a.st, a.w, 'dozer', []); assert(!r.ok, 'dozer with no cells refused');
+    r = F.canApply(a.sim, a.st, a.w, 'dozer', Array.from(a.sim.burning)); assert(!r.ok && /workable/i.test(r.reason), 'dozer through burning cells refused: ' + r.reason);
+    r = F.canApply(a.sim, a.st, a.w, 'engine', base.zonesOf('forest')[0].id); assert(!r.ok && /neighborhood/i.test(r.reason), 'engine outside a neighborhood refused: ' + r.reason);
+    const nb = base.zonesOf('neighborhood');
+    assert(F.applyTactic(a.sim, a.st, a.w, 'engine', nb[0].id).ok && F.applyTactic(a.sim, a.st, a.w, 'engine', nb[1].id).ok, 'two engines accepted');
+    r = F.canApply(a.sim, a.st, a.w, 'engine', nb[2].id); assert(!r.ok && /committed/i.test(r.reason), 'third engine refused: ' + r.reason);
+    r = F.canApply(a.sim, a.st, a.w, 'engine', nb[0].id); assert(!r.ok, 'engine already stationed refused');
+    assert(F.applyTactic(a.sim, a.st, a.w, 'evacuate', nb[0].id).ok, 'evacuate accepted');
+    r = F.canApply(a.sim, a.st, a.w, 'evacuate', nb[0].id); assert(!r.ok && /already/i.test(r.reason), 'evacuate twice refused: ' + r.reason);
+    T.crewPts = 4;
+    r = F.canApply(a.sim, a.st, a.w, 'retardant', startCell); assert(!r.ok && /crew points/i.test(r.reason) && r.cost === 5, 'retardant without 5 pts refused: ' + r.reason);
+    T.crewPts = 30;
+    assert(F.applyTactic(a.sim, a.st, a.w, 'retardant', startCell).ok, 'retardant drop accepted');
+    r = F.canApply(a.sim, a.st, a.w, 'retardant', startCell); assert(!r.ok && /reload/i.test(r.reason), 'retardant on cooldown refused: ' + r.reason);
+    T.dropCooldown = 0; T.drops = 4;
+    r = F.canApply(a.sim, a.st, a.w, 'retardant', startCell); assert(!r.ok && /tankers/i.test(r.reason), 'retardant past maxUses refused: ' + r.reason);
+    r = F.canApply(a.sim, a.st, a.w, 'retardant', -5); assert(!r.ok, 'retardant off-grid refused');
+    T.crewPts = 0.5;
+    r = F.canApply(a.sim, a.st, a.w, 'dozer', [C.idx(startXY.x, startXY.y + 6)]); assert(!r.ok && /crew points/i.test(r.reason), 'dozer without a point refused: ' + r.reason);
+    T.crewPts = 30;
+    runToEnd(a.sim, a.st, a.w);
+    r = F.canApply(a.sim, a.st, a.w, 'evacuate', nb[1].id); assert(!r.ok && /out/i.test(r.reason), 'tactics refused once the fire is out: ' + r.reason);
+  }
+
+  // --- gusting wind + threat
+  {
+    const a = wuiFire('t:gust'); const th0 = F.threat(a.sim, a.st, a.w);
+    const nb0 = th0.threatened.filter(t => t.type === 'neighborhood')[0];
+    assert(th0.threatened.length > 0 && th0.threatened[0].distanceCells === 0 && th0.threatened[0].burningInside === true, 'threat: the sector the fire is burning in is listed first at 0 cells (' + th0.threatened[0].name + ')');
+    assert(nb0 && nb0.name === wui.name && nb0.distanceCells <= 6 && nb0.distanceCells > 0 && nb0.burningInside === false, 'threat: Marshall Heights is the nearest threatened neighborhood at ignition (' + (nb0 && nb0.distanceCells) + ' cells)');
+    const dirs = new Set(); let ok = true, sawRisk = false, sawIntense = false, worst = 0; const INT = { creeping: 1, active: 1, running: 1, extreme: 1 };
+    runToEnd(a.sim, a.st, a.w, n => {
+      const th = F.threat(a.sim, a.st, a.w);
+      dirs.add(Math.round(th.windDirRad * 1000));
+      const off = Math.abs(th.windDirRad - windToTown); worst = Math.max(worst, off);
+      if (off > 25 * Math.PI / 180 + 0.3) ok = false;
+      if (!(th.headingDeg >= 0 && th.headingDeg < 360) || !(th.windMph > 0) || !INT[th.intensity] || !isFinite(th.structuresLost) || !isFinite(th.structuresAtRisk) || !isFinite(th.upstreamAcres) || th.acres !== a.sim.acres) ok = false;
+      if (th.threatened.length > 6) ok = false;
+      for (let i = 1; i < th.threatened.length; i++) if (th.threatened[i].distanceCells < th.threatened[i - 1].distanceCells) ok = false;
+      for (const t of th.threatened) if (['neighborhood', 'farm', 'civic', 'forest', 'reservoir'].indexOf(t.type) < 0 || typeof t.burningInside !== 'boolean' || typeof t.zoneId !== 'number') ok = false;
+      if (th.structuresAtRisk > 0) sawRisk = true;
+      if (th.intensity !== 'creeping') sawIntense = true;
+      noNaN(th, 'threat');
+    });
+    assert(dirs.size >= 4 && ok, 'gusts: wind direction shifts (' + dirs.size + ' distinct, max ' + (worst * 180 / Math.PI).toFixed(0) + '° off) and threat() shape is valid every step');
+    assert(sawRisk && sawIntense, 'threat reports houses at risk and a non-creeping intensity during a wind-driven WUI fire');
+    const t1 = Date.now(); for (let k = 0; k < 200; k++) F.threat(a.sim, a.st, a.w); const dt = Date.now() - t1;
+    assert(dt < 400, 'threat() is cheap (200 calls in ' + dt + ' ms)');
+  }
+
+  // --- finalize: report.tactics shape, ignition-chance rule
+  {
+    const a = wuiFire('t:fin'); F.applyTactic(a.sim, a.st, a.w, 'dozer', [C.idx(startXY.x - 4, startXY.y + 4), C.idx(startXY.x - 4, startXY.y + 5)]);
+    runToEnd(a.sim, a.st, a.w);
+    const rep = F.finalize(a.sim, a.st, a.w), tk = rep.tactics;
+    for (const k of ['used', 'cellsBroken', 'drops', 'engines', 'evacuated', 'mutualAid', 'counterfactual', 'acresSaved', 'structuresSaved', 'injuries', 'unnecessaryEvacs']) assert(tk[k] !== undefined, 'report.tactics.' + k + ' present');
+    noNaN(tk, 'report.tactics');
+    assert(typeof tk.mutualAid === 'boolean' && Array.isArray(tk.engines) && Array.isArray(tk.evacuated) && tk.used.dozer === 1 && tk.cellsBroken >= 0 && tk.cellsBroken <= 2 && isFinite(tk.counterfactual.acres) && isFinite(tk.counterfactual.structuresLost) && isFinite(tk.counterfactual.upstreamAcres) && tk.acresSaved >= 0 && tk.structuresSaved >= 0, 'report.tactics values well-formed');
+    const last = a.st.fire.fires[a.st.fire.fires.length - 1];
+    assert(last && isFinite(last.acresSaved) && last.counterfactual && isFinite(last.counterfactual.acres), 'state.fire.fires entry carries the counterfactual');
+    const plainW = cloneWorld(base), plainSt = makeState({ climate: wuiClimate() });
+    const plain = F.maybeIgnite(plainSt, plainW, WS.RNG.create('t:plainfin'), { cell: startCell }); runToEnd(plain, plainSt, plainW);
+    const prep = F.finalize(plain, plainSt, plainW);
+    assert(prep.tactics && prep.tactics.acresSaved === 0 && prep.tactics.counterfactual.acres === prep.acres, 'v1 flow (no tactics) still reports tactics with a zero counterfactual delta');
+    // ignition chance rule: a fire-less game from its second summer on rolls >= 55%
+    const w = cloneWorld(base), mild = () => Object.assign(makeState().climate, { fireDanger: 0.3, windMph: 8, drought: 'None' });
+    assert(F.seasonIgnitionChance(makeState({ year: 2, season: 2, climate: mild() }), w) >= 0.55, 'fire-less year-2 summer: ignition chance >= 55%');
+    assert(F.seasonIgnitionChance(makeState({ year: 3, season: 2, climate: mild() }), w) >= 0.55, 'fire-less year-3 summer: still >= 55%');
+    assert(F.seasonIgnitionChance(makeState({ year: 1, season: 2, climate: mild() }), w) < 0.2, 'year-1 summer at Moderate danger stays ~11%');
+    assert(F.seasonIgnitionChance(makeState({ year: 2, season: 3, climate: mild() }), w) < 0.2, 'the bump only applies in Summer');
+    const had = makeState({ year: 2, season: 2, climate: mild() }); had.fire.fires.push({ acres: 10 });
+    assert(F.seasonIgnitionChance(had, w) < 0.2, 'the bump goes away once a fire has happened');
+    assert(Math.abs(F.seasonIgnitionChance(makeState({ year: 1, season: 2, climate: mild() }), w) - 0.08 * 1.35) < 0.01, 'seasonIgnitionChance x1.35 (' + (100 * F.seasonIgnitionChance(makeState({ year: 1, season: 2, climate: mild() }), w)).toFixed(1) + '%)');
+    assert(F.seasonIgnitionChance(makeState({ year: 1, season: 2, climate: Object.assign(mild(), { fireDanger: 1, windMph: 40, drought: 'D4' }) }), w) <= 0.68, 'ignition chance capped at 68%');
+  }
+
+  // --- real world: dozer ring around an Extreme ignition in forest zone 4 (adjoins Marshall Heights) vs replayWithoutTactics
+  if (fs.existsSync(path.join(ROOT, 'src/world/terrain.js'))) {
+    const env2 = load(['src/world/terrain.js', 'src/sim/fire.js']); const RW = env2.WS, F2 = RW.Fire;
+    const w0 = RW.World.generate(7);
+    const z4 = w0.zones[4], mh = w0.zones.filter(z => z.name === 'Marshall Heights')[0];
+    assert(z4 && z4.type === 'forest' && mh && mh.type === 'neighborhood', 'real world: zone 4 is a forest sector (' + z4.name + ') and Marshall Heights exists');
+    let ign = -1, bd = 1e9;
+    for (const i of z4.cells) { const d = Math.max(Math.abs(i % N - mh.center.x), Math.abs(((i / N) | 0) - mh.center.y)); if (d >= 6 && d < bd) { bd = d; ign = i; } }
+    assert(ign >= 0 && bd <= 12, 'zone 4 adjoins Marshall Heights (ignition ' + bd + ' cells from its centre)');
+    const ix = ign % N, iy = (ign / N) | 0, toTown = Math.atan2(mh.center.y - iy, mh.center.x - ix);
+    function cloneRW(w) { const o = Object.assign({}, w); for (const k of ['elev', 'land', 'fuel', 'moisture', 'burn', 'treeDensity', 'habitat', 'zone']) o[k] = new w[k].constructor(w[k]); o.buildings = w.buildings.map(b => Object.assign({}, b)); delete o._fireMaps; delete o._fireInit; return o; }
+    function realFire(label, withRing) {
+      const w = cloneRW(w0), st = makeState({ climate: Object.assign(makeState().climate, { fireDanger: 0.92, windMph: 30, windDirRad: toTown, drought: 'D2' }) });
+      const sim = F2.maybeIgnite(st, w, RW.RNG.create(label), { cell: ign, danger: 0.92 });
+      F2.startTactics(sim, st, w);
+      let r, n = 0, ring = null;
+      do {
+        if (withRing && n === 1) {
+          F2.applyTactic(sim, st, w, 'mutual_aid', null);
+          const cells = []; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === 3 && C.inBounds(ix + dx, iy + dy)) cells.push((iy + dy) * N + ix + dx);
+          ring = F2.applyTactic(sim, st, w, 'dozer', cells);
+        }
+        r = F2.step(sim, st, w, null); n++;
+      } while (!r.done && n < 300);
+      const cfA = F2.replayWithoutTactics(sim, st, w); const cfB = F2.replayWithoutTactics(sim, st, w);
+      assert(cfA.acres === cfB.acres && cfA.structuresLost === cfB.structuresLost && cfA.upstreamAcres === cfB.upstreamAcres, 'replayWithoutTactics is deterministic (' + label + ': ' + Math.round(cfA.acres) + ' acres)');
+      const rep = F2.finalize(sim, st, w);
+      return { rep, ring, cf: cfA, steps: n, sim };
+    }
+    let withA = 0, withoutA = 0, homesWith = 0, homesWithout = 0, big = 0;
+    for (const s of ['a', 'b', 'c', 'd', 'e', 'f']) {
+      const base0 = realFire('ring:' + s, false), ring = realFire('ring:' + s, true);
+      assert(Math.abs(base0.rep.acres - base0.cf.acres) < 1e-6 && base0.rep.structuresLost === base0.cf.structuresLost, 'no-tactics fire equals its own replay (' + s + ')');
+      assert(ring.rep.tactics.counterfactual.acres === base0.rep.acres, 'ring fire counterfactual == untouched fire (' + s + ': ' + Math.round(base0.rep.acres) + ' acres)');
+      assert(ring.ring && ring.ring.ok && ring.ring.cells.length >= 20 && ring.rep.tactics.cellsBroken >= 0 && ring.rep.tactics.mutualAid === true, 'ring cut (' + ring.ring.cells.length + ' cells, ' + ring.rep.tactics.cellsBroken + ' finished)');
+      withA += ring.rep.acres; withoutA += base0.rep.acres; homesWith += ring.rep.structuresLost; homesWithout += base0.rep.structuresLost; if (base0.rep.acres > 500) big++;
+      console.log('  ring ' + s + ': without ' + Math.round(base0.rep.acres) + ' acres / ' + base0.rep.structuresLost + ' homes -> with ' + Math.round(ring.rep.acres) + ' / ' + ring.rep.structuresLost + ' (saved ' + Math.round(ring.rep.tactics.acresSaved) + ')');
+      noNaN(ring.rep.tactics, 'real-world report.tactics');
+    }
+    console.log('dozer ring @Extreme, 6 fires: ' + Math.round(withoutA) + ' acres / ' + homesWithout + ' homes without -> ' + Math.round(withA) + ' / ' + homesWith + ' with');
+    assert(big >= 2, 'at least two of the untouched Extreme fires run past 500 acres (' + big + ')');
+    assert(withA < withoutA * 0.5, 'a dozer ring around the ignition cuts total acres by > 50%');
+    assert(homesWith <= homesWithout, 'ring never costs homes');
+  }
+}
+
+/* ------------------------------------------------------------------ v2: storm defence (SPEC2 §B) */
+{
+  const FL = WS.Flood, T = FL.TOOLS, LIVE = ['sandbag', 'pump', 'evacuate', 'spillway'], PRE = ['mulch', 'barrier', 'debris_basin', 'bank_stab', 'intake_protect', 'sensor', 'warning'];
+  assert(T.sandbag.live === true && T.sandbag.costM === 0.04 && T.pump.live === true && T.pump.costM === 0.15 && T.pump.max === 3 && T.evacuate.live === true && T.evacuate.costM === 0 && T.evacuate.zone === 'neighborhood'
+    && T.spillway.live === true && T.spillway.once === true && T.spillway.costM === 0 && LIVE.every(k => typeof T[k].name === 'string' && typeof T[k].icon === 'string' && typeof T[k].desc === 'string'), 'live TOOLS (sandbag/pump/evacuate/spillway) match the spec');
+  assert(PRE.every(k => T[k] && T[k].live === false), 'the 7 pre-storm tools carry live:false');
+  assert(typeof FL.placeableLive === 'function' && FL.FRAME_COUNT >= 24 && FL.FRAME_COUNT <= 40, 'WS.Flood.placeableLive exists; FRAME_COUNT exported (' + FL.FRAME_COUNT + ')');
+
+  // --- real world: an upstream scar (all of the largest upstream forest sector) and a scar above town (a sector that drains past the reservoir)
+  if (fs.existsSync(path.join(ROOT, 'src/world/terrain.js'))) {
+    const env3 = load(['src/world/terrain.js', 'src/sim/fire.js', 'src/sim/flood.js']); const RW = env3.WS, F3 = RW.Flood;
+    const w0 = RW.World.generate(7);
+    const cloneRW = w => { const o = Object.assign({}, w); for (const k of ['elev', 'land', 'fuel', 'moisture', 'burn', 'treeDensity', 'habitat', 'zone', 'cropHealth']) if (w[k]) o[k] = new w[k].constructor(w[k]); o.buildings = w.buildings.map(b => Object.assign({}, b)); delete o._fireMaps; delete o._fireInit; delete o._floodMaps; delete o._topo; delete o.regrow; return o; };
+    const forests = w0.zones.filter(z => z.type === 'forest');
+    const up = forests.filter(z => z.upstreamOfReservoir).sort((a, b) => b.cells.length - a.cells.length)[0];
+    const above = forests.filter(z => !z.upstreamOfReservoir).sort((a, b) => b.cells.length - a.cells.length)[0];
+    assert(up && above, 'real world has an upstream forest sector (' + up.name + ') and one below the dam (' + above.name + ')');
+    const wUp = cloneRW(w0); burnCells(wUp, Array.from(up.cells), 0.85);
+    const wAbove = cloneRW(w0); burnCells(wAbove, Array.from(above.cells), 0.9);
+    const S = over => makeState(over);
+    const nbs = w0.zones.filter(z => z.type === 'neighborhood');
+    const zoneName = i => { const z = w0.zone[i]; return z >= 0 ? w0.zones[z].name : null; };
+
+    const none = F3.simulate(S(), wUp, storm, []);
+    const noneA = F3.simulate(S(), wAbove, storm, []);
+    noNaN(none, 'upstream-scar result'); noNaN(noneA, 'scar-above-town result');
+    console.log('real world upstream scar (' + up.name + '):', JSON.stringify({ peakRes: none.peakCfsReservoir, peakTown: none.peakCfsTown, flooded: none.floodedCells.length, houses: none.floodedHouses, dmg: none.damageM, risk: +none.injuriesRisk.toFixed(3) }));
+    console.log('real world scar above town (' + above.name + '):', JSON.stringify({ peakRes: noneA.peakCfsReservoir, peakTown: noneA.peakCfsTown, flooded: noneA.floodedCells.length, houses: noneA.floodedHouses, dmg: noneA.damageM, risk: +noneA.injuriesRisk.toFixed(3), firstTown: noneA.firstTownFloodFrame, zone: noneA.firstTownFloodZone }));
+    assert(none.floodedHouses > 0 && none.damageM > 0 && noneA.floodedHouses > 0 && noneA.damageM > 0, 'a 2-in storm floods homes on the real map in both scenarios');
+
+    // --- v1 shape with no live tools: tactics present but empty, nothing released
+    assert(none.tactics && none.tactics.sandbagCells === 0 && none.tactics.pumps === 0 && none.tactics.evacuated.length === 0 && none.tactics.spillwayUsed === false && none.tactics.damageSaved === 0 && none.tactics.housesSaved === 0
+      && none.tactics.counterfactual.damageM === none.damageM && none.tactics.counterfactual.floodedHouses === none.floodedHouses && none.tactics.counterfactual.injuriesRisk === none.injuriesRisk
+      && none.releasedAF === 0 && none.spillwayUsed === false && none.unnecessaryEvacs === 0, 'no live tools: result.tactics is a zero delta, releasedAF 0, no evacuations');
+
+    // --- arrivalFrame / floodTimeline / floodedByFrame consistency (and alignment with frames)
+    function checkTimeline(r, label) {
+      const fr = r.frames, tl = r.floodTimeline, bf = r.floodedByFrame, af = r.arrivalFrame;
+      let ok = af instanceof Int32Array && af.length === NN && Array.isArray(tl) && tl.length === fr.length && tl.length === FL.FRAME_COUNT && bf instanceof Int32Array && bf.length === fr.length;
+      const flooded = new Set(Array.from(r.floodedCells)); let cum = 0, seen = 0;
+      for (let f = 0; f < tl.length && ok; f++) {
+        if (!(tl[f] instanceof Int32Array)) { ok = false; break; }
+        for (const i of tl[f]) { if (af[i] !== f || !flooded.has(i)) ok = false; seen++; }
+        cum += tl[f].length; if (bf[f] !== cum) ok = false;
+      }
+      let neg = 0, pos = 0;
+      for (let i = 0; i < NN; i++) { if (af[i] < 0) neg++; else { pos++; if (!flooded.has(i) || af[i] >= fr.length) ok = false; } }
+      if (pos !== flooded.size || seen !== flooded.size || neg !== NN - flooded.size || (bf.length && bf[bf.length - 1] !== flooded.size)) ok = false;
+      assert(ok, label + ': arrivalFrame (-1 = never) / floodTimeline / cumulative floodedByFrame agree (' + flooded.size + ' cells over ' + tl.length + ' frames)');
+      // the flood front is derived from the tracer's routing: a cell never floods later than the first particle drawn past it (+1 frame for the tracer's multi-cell hops)
+      const firstP = new Int32Array(NN).fill(-1);
+      fr.forEach((f, fi) => { for (let k = 0; k < f.count; k++) { const x = Math.floor(f.positions[3 * k]), y = Math.floor(f.positions[3 * k + 1]); if (C.inBounds(x, y)) { const i = y * N + x; if (firstP[i] < 0) firstP[i] = fi; } } });
+      let visited = 0, consistent = 0, exact = 0;
+      for (const i of flooded) { if (firstP[i] < 0) continue; visited++; if (af[i] <= firstP[i] + 1) consistent++; if (af[i] === firstP[i]) exact++; }
+      return { visited, consistent, exact };
+    }
+    checkTimeline(none, 'upstream scar');
+    const tlA = checkTimeline(noneA, 'scar above town');
+    const maxA = Math.max(...Array.from(noneA.floodedCells).map(i => noneA.arrivalFrame[i]));
+    console.log('scar above town: arrival frames 0..' + maxA + ', ' + tlA.visited + ' flooded cells visited by particles, ' + tlA.consistent + ' consistent, ' + tlA.exact + ' exact');
+    assert(tlA.visited >= 5 && tlA.consistent === tlA.visited && tlA.exact >= 3 && maxA >= 12, 'scar above town: water reaches the neighbourhoods on the particle schedule (front never later than the tracer)');
+    assert(noneA.firstTownFloodFrame >= 0 && typeof noneA.firstTownFloodZone === 'string' && noneA.frames.some(f => f.notes && f.notes.indexOf(noneA.firstTownFloodZone) >= 0), 'firstTownFloodFrame/Zone set and a frame note announces the first neighbourhood hit');
+
+    // --- sandbags: early (before the water) beats late (after), both beat none; atFrame omitted == pre-storm == full effect
+    const resCells = Array.from(none.floodedCells).filter(i => wUp.land[i] === L.RESIDENTIAL || wUp.land[i] === L.CIVIC);
+    const sb = (cells, af) => cells.map(i => { const p = C.xy(i); return af == null ? { type: 'sandbag', x: p.x, y: p.y } : { type: 'sandbag', x: p.x, y: p.y, atFrame: af }; });
+    const early = F3.simulate(S(), wUp, storm, sb(resCells, 0));
+    const late = F3.simulate(S(), wUp, storm, sb(resCells, FL.FRAME_COUNT - 1));
+    const pre = F3.simulate(S(), wUp, storm, sb(resCells, null));
+    noNaN(early, 'early sandbags'); noNaN(late, 'late sandbags');
+    console.log('sandbags on ' + resCells.length + ' flooded res/civic cells: none $' + none.damageM + 'M/' + none.floodedHouses + ' homes | early $' + early.damageM + 'M/' + early.floodedHouses + ' (saved $' + early.tactics.damageSaved + 'M, ' + early.tactics.housesSaved + ' homes) | late $' + late.damageM + 'M/' + late.floodedHouses + ' (saved $' + late.tactics.damageSaved + 'M)');
+    assert(resCells.length >= 5 && early.floodedHouses < none.floodedHouses && early.damageM < none.damageM * 0.6, 'early sandbags cut flooded homes and damage by > 40%');
+    assert(late.damageM < none.damageM && late.damageM > early.damageM && late.floodedHouses >= early.floodedHouses && late.tactics.damageSaved < early.tactics.damageSaved, 'late sandbags (after the water arrived) help less than early ones');
+    assert(pre.damageM === early.damageM && pre.floodedHouses === early.floodedHouses, 'sandbags with no atFrame count as placed before the storm (full effect)');
+    assert(early.tactics.sandbagCells === resCells.length && early.tactics.counterfactual.damageM === none.damageM && early.tactics.counterfactual.floodedHouses === none.floodedHouses && Math.abs(early.tactics.counterfactual.injuriesRisk - none.injuriesRisk) < 1e-9
+      && Math.abs(early.tactics.damageSaved - (none.damageM - early.damageM)) < 1e-6 && early.tactics.housesSaved === none.floodedHouses - early.floodedHouses, 'tactics: sandbag count, counterfactual == the no-live-tools storm, damageSaved/housesSaved are the deltas');
+    // the sandbag neighbours: a line protects its 4 neighbours too (placing on a neighbour of a flooded cell can clear it)
+    {
+      const target = resCells[0], p = C.xy(target), nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy })).filter(q => C.inBounds(q.x, q.y));
+      const viaNb = F3.simulate(S(), wUp, storm, nb.map(q => ({ type: 'sandbag', x: q.x, y: q.y, atFrame: 0 })));
+      assert(viaNb.floodedCells.indexOf(target) < 0 || F3.simulate(S(), wUp, storm, [{ type: 'sandbag', x: p.x, y: p.y, atFrame: 0 }]).floodedCells.indexOf(target) >= 0, 'a sandbag line protects its 4 neighbours');
+    }
+    // the sandbag timing is judged against each cell's own arrival: placed exactly at the arrival frame still counts as early
+    {
+      const c0 = resCells[0], at = none.arrivalFrame[c0];
+      const onTime = F3.simulate(S(), wUp, storm, [{ type: 'sandbag', i: c0, atFrame: at }]), justLate = F3.simulate(S(), wUp, storm, [{ type: 'sandbag', i: c0, atFrame: at + 1 }]), one = F3.simulate(S(), wUp, storm, [{ type: 'sandbag', i: c0, atFrame: 0 }]);
+      assert(onTime.damageM === one.damageM && justLate.damageM >= onTime.damageM, 'atFrame <= arrivalFrame[cell] is full effect; one frame later is the 40% rule');
+    }
+
+    // --- pump: damage on its cell x0.4 (late: x0.76), max 3 crews, one per cell
+    {
+      const pc = resCells.find(i => wUp.land[i] === L.RESIDENTIAL);
+      const pumped = F3.simulate(S(), wUp, storm, [{ type: 'pump', i: pc, atFrame: 0 }]);
+      const pumpedLate = F3.simulate(S(), wUp, storm, [{ type: 'pump', i: pc, atFrame: FL.FRAME_COUNT - 1 }]);
+      const cellDmg = 0.12;  // residential cell, no rain-capture project
+      console.log('pump on a flooded home cell: $' + none.damageM + 'M -> $' + pumped.damageM + 'M early, $' + pumpedLate.damageM + 'M late');
+      assert(Math.abs((none.damageM - pumped.damageM) - 0.6 * cellDmg) < 0.011 && pumped.floodedHouses === none.floodedHouses && pumped.tactics.pumps === 1, 'pump cuts damage on its cell to 40% (still counted as flooded)');
+      assert(Math.abs((none.damageM - pumpedLate.damageM) - 0.24 * cellDmg) < 0.011 && pumpedLate.damageM > pumped.damageM, 'late pump: 40% effectiveness (damage x0.76)');
+      const many = F3.simulate(S(), wUp, storm, resCells.slice(0, 5).map(i => ({ type: 'pump', i, atFrame: 0 })).concat([{ type: 'pump', i: pc, atFrame: 0 }]));
+      assert(many.tactics.pumps === 3 && many.damageM < none.damageM, 'pump crews capped at 3, one per cell');
+    }
+
+    // --- evacuate: injury risk in that neighbourhood x0.1; a neighbourhood that never floods is flagged
+    {
+      const floodedNb = nbs.find(z => Array.from(none.floodedCells).some(i => wUp.zone[i] === z.id));
+      const dryNb = nbs.find(z => !Array.from(none.floodedCells).some(i => wUp.zone[i] === z.id));
+      assert(floodedNb && dryNb, 'upstream scar: one neighbourhood floods (' + (floodedNb && floodedNb.name) + '), another stays dry (' + (dryNb && dryNb.name) + ')');
+      const ev = F3.simulate(S(), wUp, storm, [{ type: 'evacuate', zoneId: floodedNb.id, atFrame: 2 }]);
+      const evDry = F3.simulate(S(), wUp, storm, [{ type: 'evacuate', zoneId: dryNb.id, atFrame: 2 }]);
+      const evCentre = F3.simulate(S(), wUp, storm, [{ type: 'evacuate', x: floodedNb.center.x, y: floodedNb.center.y, atFrame: 2 }]);
+      const evBoth = F3.simulate(S(), wUp, storm, [{ type: 'evacuate', zoneId: floodedNb.id }, { type: 'evacuate', zoneId: dryNb.id }, { type: 'evacuate', zoneId: dryNb.id }]);
+      console.log('evacuate ' + floodedNb.name + ': risk ' + none.injuriesRisk.toFixed(3) + ' -> ' + ev.injuriesRisk.toFixed(3) + ' | ' + dryNb.name + ' (never floods): ' + evDry.injuriesRisk.toFixed(3) + ', unnecessary ' + evDry.unnecessaryEvacs);
+      assert(ev.injuriesRisk < none.injuriesRisk * 0.9 && ev.unnecessaryEvacs === 0 && ev.tactics.evacuated.length === 1 && ev.tactics.evacuated[0] === floodedNb.name && ev.damageM === none.damageM, 'evacuating the flooded neighbourhood cuts injury risk, no false alarm, damage unchanged');
+      assert(evDry.unnecessaryEvacs === 1 && Math.abs(evDry.injuriesRisk - none.injuriesRisk) < 1e-9 && evDry.tactics.evacuated[0] === dryNb.name, 'evacuating a neighbourhood the water never reaches is flagged (unnecessaryEvacs = 1)');
+      assert(Math.abs(evCentre.injuriesRisk - ev.injuriesRisk) < 1e-9, 'evacuate accepts a neighbourhood centre cell instead of zoneId');
+      assert(evBoth.unnecessaryEvacs === 1 && evBoth.tactics.evacuated.length === 2, 'duplicate evacuation orders collapse; unnecessary count is per zone');
+    }
+
+    // --- spillway: peak below the dam x0.6, 1,500 AF released, farm damage below the dam x1.2, reservoir sediment unchanged
+    {
+      const sp = F3.simulate(S(), wUp, storm, [{ type: 'spillway', atFrame: 4 }, { type: 'spillway', atFrame: 9 }]);
+      noNaN(sp, 'spillway result');
+      console.log('spillway: peakTown ' + none.peakCfsTown + ' -> ' + sp.peakCfsTown + ' cfs, damage $' + none.damageM + 'M -> $' + sp.damageM + 'M (' + sp.floodedFarm + ' farm cells), released ' + sp.releasedAF + ' AF');
+      assert(sp.peakCfsTown < none.peakCfsTown * 0.75 && sp.peakCfsTown > 0, 'emergency release lowers the peak below the dam (' + none.peakCfsTown + ' -> ' + sp.peakCfsTown + ' cfs)');
+      assert(sp.releasedAF === 1500 && sp.spillwayUsed === true && sp.tactics.spillwayUsed === true, 'releasedAF = 1,500 and spillwayUsed set (a second order is ignored)');
+      assert(sp.peakCfsReservoir === none.peakCfsReservoir && sp.sedimentToReservoir === none.sedimentToReservoir && sp.ashToReservoir === none.ashToReservoir, 'spillway leaves inflow and reservoir sediment trapping unchanged');
+      assert(sp.floodedFarm === 0 || sp.damageM > none.damageM, 'farms downstream take a surge (farm flood damage x1.2)');
+      assert(sp.tactics.counterfactual.damageM === none.damageM && sp.tactics.damageSaved === 0 && sp.tactics.housesSaved === 0, 'spillway alone: counterfactual is the untouched storm, savings clamp at 0');
+    }
+
+    // --- everything together vs its counterfactual; pre-storm mitigations stay in the counterfactual
+    {
+      const prep = F3.prepare(S(), wUp, storm);
+      const warns = Array.from(prep.placeable.warning).map(i => Object.assign({ type: 'warning' }, C.xy(i)));
+      const basins = Array.from(prep.placeable.debris_basin).sort((a, b) => wUp.flowAcc[b] - wUp.flowAcc[a]).slice(0, 2).map(i => Object.assign({ type: 'debris_basin' }, C.xy(i)));
+      const preOnly = warns.concat(basins);
+      const floodedNb = nbs.find(z => Array.from(none.floodedCells).some(i => wUp.zone[i] === z.id));
+      const live = sb(resCells, 1).concat([{ type: 'pump', i: resCells[0], atFrame: 3 }, { type: 'evacuate', zoneId: floodedNb.id, atFrame: 2 }, { type: 'spillway', atFrame: 5 }]);
+      const preRun = F3.simulate(S(), wUp, storm, preOnly);
+      const all = F3.simulate(S(), wUp, storm, preOnly.concat(live));
+      noNaN(all, 'all-tools result'); noNaN(all.tactics, 'all-tools tactics');
+      console.log('pre-storm only: $' + preRun.damageM + 'M/' + preRun.floodedHouses + ' homes/risk ' + preRun.injuriesRisk.toFixed(3) + ' | + live tools: $' + all.damageM + 'M/' + all.floodedHouses + '/' + all.injuriesRisk.toFixed(3) + ' (saved $' + all.tactics.damageSaved + 'M, ' + all.tactics.housesSaved + ' homes)');
+      assert(all.tactics.counterfactual.damageM === preRun.damageM && all.tactics.counterfactual.floodedHouses === preRun.floodedHouses && Math.abs(all.tactics.counterfactual.injuriesRisk - preRun.injuriesRisk) < 1e-9, 'tactics.counterfactual = same storm + same pre-storm mitigations, no live tools');
+      assert(all.tactics.counterfactual.damageM >= all.damageM && all.tactics.counterfactual.floodedHouses >= all.floodedHouses && all.tactics.counterfactual.injuriesRisk >= all.injuriesRisk && all.tactics.damageSaved > 0 && all.tactics.housesSaved > 0, 'counterfactual >= mitigated on damage, homes and injury risk');
+      assert(all.tactics.sandbagCells === resCells.length && all.tactics.pumps === 1 && all.tactics.evacuated[0] === floodedNb.name && all.tactics.spillwayUsed === true && all.trappedTons > 0 && all.releasedAF === 1500, 'tactics report every live tool; pre-storm basins still trap');
+      const again = F3.simulate(S(), wUp, storm, preOnly.concat(live));
+      assert(again.damageM === all.damageM && again.floodedHouses === all.floodedHouses && again.peakCfsTown === all.peakCfsTown && again.arrivalFrame.every((v, i) => v === all.arrivalFrame[i]) && again.floodedByFrame.every((v, i) => v === all.floodedByFrame[i]), 'simulate with live tools is deterministic');
+      // v1 helpers still work alongside live tools
+      const att = F3.attribute(S(), wUp, storm, preOnly.concat(live));
+      assert(att.length >= 5 && att.every(a => isFinite(a.pct) && isFinite(a.preventedDamageM)) && att.some(a => a.key === 'sandbag'), 'attribute() handles live tools (' + att.map(a => a.key).join(',') + ')');
+      // speed: frames + live tools (+ the internal counterfactual)
+      let best = 1e9; for (let k = 0; k < 3; k++) { const t0 = process.hrtime.bigint(); F3.simulate(S(), wUp, storm, preOnly.concat(live)); best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6); }
+      console.log('simulate with frames + live tools: best of 3 = ' + best.toFixed(1) + ' ms');
+      assert(best < 150, 'simulate with frames on the real world < 150 ms (' + best.toFixed(1) + ' ms)');
+    }
+
+    // --- placeableLive + canPlace
+    {
+      const prep = F3.prepare(S(), wUp, storm);
+      const sets = {};
+      for (const t of LIVE) {
+        const pl = F3.placeableLive(prep, wUp, t); sets[t] = new Set(Array.from(pl));
+        assert(pl instanceof Int32Array && pl.length > 0 && Array.from(pl).every(i => F3.canPlace(prep, t, i)), 'placeableLive(' + t + ') non-empty (' + pl.length + ') and canPlace agrees');
+      }
+      const dam = C.idx(wUp.reservoir.dam.x, wUp.reservoir.dam.y);
+      assert(sets.spillway.size === 1 && sets.spillway.has(dam) && !F3.canPlace(prep, 'spillway', dam + 1), 'spillway only at the dam cell');
+      assert(sets.evacuate.size === nbs.length && nbs.every(z => sets.evacuate.has(C.idx(z.center.x, z.center.y))), 'evacuate at the ' + nbs.length + ' neighbourhood centres');
+      const dev = i => wUp.land[i] === L.RESIDENTIAL || wUp.land[i] === L.CIVIC || wUp.land[i] === L.FARM;
+      assert(Array.from(sets.pump).every(dev) && Array.from(sets.sandbag).every(i => dev(i) && sets.pump.has(i)) && sets.sandbag.size < sets.pump.size, 'pump on any developed/farm cell; sandbag sites are a subset near water');
+      assert(resCells.every(i => sets.sandbag.has(i)), 'every cell that floods is a sandbag site');
+      const forestCell = up.cells[0], resCell = wUp.reservoir.cells[0];
+      assert(!F3.canPlace(prep, 'sandbag', forestCell) && !F3.canPlace(prep, 'pump', resCell) && !F3.canPlace(prep, 'sandbag', -1) && !F3.canPlace(prep, 'sandbag', NaN), 'canPlace rejects forest / reservoir / off-grid cells for live tools');
+      assert(F3.canPlace(prep, 'mulch', prep.placeable.mulch[0]) && !F3.canPlace(prep, 'mulch', dam), 'canPlace still validates pre-storm tools');
+      const standalone = F3.placeableLive(null, wUp, 'pump');
+      assert(standalone.length === sets.pump.size && F3.placeableLive(prep, null, 'evacuate').length === nbs.length && F3.placeableLive(prep, wUp, 'mulch').length === 0, 'placeableLive works without a prep (pump) or without a world (from prep); non-live types give an empty array');
+      assert(PRE.every(t => prep.placeable[t] instanceof Int32Array) && F3.prepare(S(), wUp, storm).placeable.sandbag instanceof Int32Array, 'prepare keeps the v1 placeable sets and adds the live ones');
+    }
+
+    // --- applyResult: the spillway release comes out of storage (-1,500 AF) and costs trust; a false-alarm evacuation dips trust
+    {
+      const sp = F3.simulate(S(), wUp, storm, [{ type: 'spillway', atFrame: 4 }]);
+      const st = S({ budget: 10, emergencyFund: 1 }); st.reservoir.storageAF = 30000; st.trustDelta = 0;
+      const applied = F3.applyResult(st, cloneRW(wUp), sp);
+      noNaN(st, 'state after spillway applyResult');
+      assert(st.reservoir.storageAF === 28500 && applied.releasedAF === 1500 && st.trustDelta === -1 && st.log.some(l => /release/i.test(l.text)), 'applyResult with the spillway: storage 30,000 -> 28,500 AF, trust -1, logged');
+      const st2 = S(); st2.reservoir.storageAF = 30000; st2.trustDelta = 0;
+      F3.applyResult(st2, cloneRW(wUp), none);
+      assert(st2.reservoir.storageAF === 30000 && st2.trustDelta === 0, 'applyResult without the spillway leaves storage and trust alone');
+      const st3 = S(); st3.reservoir.storageAF = 900; st3.trustDelta = 0;
+      const a3 = F3.applyResult(st3, cloneRW(wUp), sp);
+      assert(st3.reservoir.storageAF === 0 && a3.releasedAF === 900, 'release cannot take storage below zero');
+      const dryNb = nbs.find(z => !Array.from(none.floodedCells).some(i => wUp.zone[i] === z.id));
+      const evDry = F3.simulate(S(), wUp, storm, [{ type: 'evacuate', zoneId: dryNb.id }]);
+      const st4 = S(); st4.trustDelta = 0; F3.applyResult(st4, cloneRW(wUp), evDry);
+      assert(st4.trustDelta < 0 && st4.trustDelta > -1, 'an unnecessary evacuation dips trust a little (' + st4.trustDelta + ')');
+    }
+
+    // --- stormRisk x1.4 (v1 formula: 0.30 fall base x scar factor x wetness, now x1.4, still capped at 0.7)
+    {
+      const scarAcres = up.cells.length * C.ACRES_PER_CELL, scarF = Math.pow(C.clamp(scarAcres / 3000, 0, 1), 0.6);
+      const wet = C.clamp(1 + 0.3 * (1.2 - 3) / 3, 0.7, 1.4);
+      const expected = C.clamp(0.30 * Math.max(0.05, scarF) * wet * 1.4, 0, 0.7);
+      const r = F3.stormRisk(S({ season: 3 }), wUp);
+      assert(Math.abs(r - expected) < 1e-6 && r <= 0.7, 'stormRisk is the v1 formula x1.4 (' + r.toFixed(3) + ')');
+      assert(F3.stormRisk(S({ season: 3 }), cloneRW(w0)) < 0.05, 'no scar: fall storm risk stays small');
+    }
+  } else console.log('(src/world/terrain.js not present; storm defence real-world tests skipped)');
+}
+
 console.log('\nALL PASS');

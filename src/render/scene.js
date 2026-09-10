@@ -96,7 +96,7 @@
     var camera = ctx.camera, dom = ctx.renderer.domElement;
     var target = new THREE.Vector3(2.5, 6, 4.5);
     var st = {
-      target: target, az: 45 * DEG, pitch: 48 * DEG, dist: 110, enabled: true,
+      target: target, az: 45 * DEG, pitch: 48 * DEG, dist: 110, enabled: true, panEnabled: true,
       heightAt: null, pickMesh: null,
       vPanX: 0, vPanZ: 0, vAz: 0, vPitch: 0, zoomAccum: 0,
       anchor: new THREE.Vector3(), anchorValid: false,
@@ -201,6 +201,7 @@
       if (e.pointerType === 'touch') { addTouch(e); return; }
       if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
       var orbit = e.button === 2 || e.button === 1 || e.ctrlKey || e.shiftKey || e.metaKey;
+      if (!orbit && !st.panEnabled) return; // tactical mode: left-drag belongs to the paint handler (no capture, no camera motion)
       st.mode = orbit ? 2 : 1; st.lastX = e.clientX; st.lastY = e.clientY; st.lastT = st.lastMoveT = nowMs();
       cancelMotion();
       try { dom.setPointerCapture(e.pointerId); st.capturedId = e.pointerId; } catch (err) { st.capturedId = -1; }
@@ -258,7 +259,7 @@
       st.ptr[slot].x = e.clientX; st.ptr[slot].y = e.clientY;
       var t = nowMs(), dt = Math.max((t - st.lastT) / 1000, 0.001);
       if (st.nptr === 1) {
-        panBy(e.clientX - st.lastX, e.clientY - st.lastY, dt);
+        if (st.panEnabled) panBy(e.clientX - st.lastX, e.clientY - st.lastY, dt);
         st.lastX = e.clientX; st.lastY = e.clientY;
       } else if (st.nptr === 2) {
         var a = st.ptr[0], b = st.ptr[1], dx = b.x - a.x, dy = b.y - a.y;
@@ -384,6 +385,12 @@
       st.enabled = !!b;
       if (!st.enabled) { endDrag(null); st.nptr = 0; st.ptr[0].id = st.ptr[1].id = -1; clearKeys(); cancelMotion(); }
     }
+    /* Disable left-drag (and one-finger) pan only: orbit (right/middle/ctrl-drag, two-finger twist), wheel zoom and
+       keyboard pan keep working. A pan drag in progress is ended so the camera never moves under a paint stroke. */
+    function setPanEnabled(b) {
+      st.panEnabled = !!b;
+      if (!st.panEnabled && st.mode === 1) { endDrag(null); st.vPanX = st.vPanZ = 0; }
+    }
     function dispose() {
       dom.removeEventListener('pointerdown', onPointerDown);
       dom.removeEventListener('pointermove', onPointerMove);
@@ -396,7 +403,7 @@
       root.removeEventListener('blur', clearKeys);
     }
 
-    st.update = update; st.focus = focus; st.setEnabled = setEnabled; st.dispose = dispose; st.pickAt = pickAt;
+    st.update = update; st.focus = focus; st.setEnabled = setEnabled; st.setPanEnabled = setPanEnabled; st.dispose = dispose; st.pickAt = pickAt;
     st.setView = function (az, pitch, dist) { st.az = num(az, st.az); st.pitch = clamp(num(pitch, st.pitch), PITCH_MIN, PITCH_MAX); st.dist = clamp(num(dist, st.dist), DIST_MIN, DIST_MAX); };
     return st;
   }
@@ -616,6 +623,7 @@
     };
     ctx.focus = function (sx, sz, dist, opts) { controls.focus(sx, sz, dist, opts); };
     ctx.setControlsEnabled = function (b) { controls.setEnabled(b); };
+    ctx.setPanEnabled = function (b) { controls.setPanEnabled(b); };
     ctx.setView = function (az, pitch, dist) { controls.setView(az, pitch, dist); };
 
     ctx.dispose = function () {
