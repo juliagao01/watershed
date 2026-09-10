@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watershed — scene check</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1a1d22; color: #eee; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  #canvas-host { position: absolute; inset: 0; }
+  #ui { position: absolute; inset: 0; pointer-events: none; }
+  .panel { pointer-events: auto; position: absolute; background: rgba(20, 24, 30, 0.82); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(6px); }
+  #ctl { top: 12px; left: 12px; width: 300px; max-height: calc(100% - 24px); overflow: auto; }
+  #stats { bottom: 12px; left: 12px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre; }
+  #help { bottom: 12px; right: 12px; max-width: 320px; font-size: 12px; color: #cfd6de; }
+  h3 { margin: 6px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9fb3c8; }
+  .row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  button { pointer-events: auto; background: #2d3540; color: #eee; border: 1px solid #4a5563; border-radius: 6px; padding: 4px 8px; cursor: pointer; font: inherit; }
+  button:hover { background: #3a4552; }
+  button.on { background: #3f7fbf; border-color: #5aa0e0; }
+  input[type=range] { width: 100%; }
+  input[type=text], select { background: #1f252d; color: #eee; border: 1px solid #4a5563; border-radius: 6px; padding: 3px 6px; font: inherit; }
+  label { display: block; margin: 2px 0; }
+  .mods { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #b7c2cf; }
+  .ok { color: #7fd48a; } .miss { color: #e0a060; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/rng.js"></script>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-host"></div>
+  <div id="ui">
+    <div id="ctl" class="panel">
+      <h3>Modules</h3>
+      <div id="mods" class="mods">loading…</div>
+      <h3>Season</h3>
+      <div class="row" id="seasons"></div>
+      <h3>Weather</h3>
+      <div class="row" id="weather"></div>
+      <h3>Overlay</h3>
+      <div class="row" id="overlay"></div>
+      <h3>Time of day</h3>
+      <input id="tod" type="range" min="0" max="1" step="0.01" value="0.36">
+      <h3>Camera</h3>
+      <div class="row">
+        <select id="zone"></select>
+        <button id="flyZone">Fly to zone</button>
+        <button id="flyHome">Home view</button>
+      </div>
+      <div class="row">
+        <button id="fireDemo">Fire demo</button>
+        <button id="clearFire">Clear fire</button>
+        <button id="clouds" class="on">Cloud shadows</button>
+      </div>
+      <h3>Input guards</h3>
+      <label><input id="modal" type="checkbox"> body.modal-open (keys ignored)</label>
+      <label>focus test: <input id="txt" type="text" placeholder="type WASD here — camera must not move" size="26"></label>
+    </div>
+    <div id="stats" class="panel"></div>
+    <div id="help" class="panel">
+      <b>Controls</b> — left-drag pan · right-drag / ctrl+drag orbit · wheel zoom to cursor · WASD/arrows pan · Q/E rotate · touch: 1 finger pan, 2 fingers pinch/twist. Click a cell to log it.
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var WS = window.WS, C = WS.C;
+
+  /* ---------- optional module loader (missing files are tolerated) ---------- */
+  var MODULES = ['world/terrain', 'render/terrainMesh', 'render/water', 'render/props', 'render/effects', 'render/scene', 'render/renderer'];
+  var loaded = {};
+  function loadSeq(i, done) {
+    if (i >= MODULES.length) return done();
+    var s = document.createElement('script');
+    s.src = '../src/' + MODULES[i] + '.js';
+    s.onload = function () { loaded[MODULES[i]] = true; loadSeq(i + 1, done); };
+    s.onerror = function () { loaded[MODULES[i]] = false; loadSeq(i + 1, done); };
+    document.head.appendChild(s);
+  }
+
+  /* ---------- inline stub world (used only when WS.World is missing) ---------- */
+  function stubWorld(seed) {
+    var N = C.N, NN = N * N, L = C.LAND;
+    var noise = WS.Noise.create(seed), rng = WS.RNG.create(seed);
+    var elev = new Float32Array(NN), land = new Uint8Array(NN), slope = new Float32Array(NN), aspect = new Float32Array(NN);
+    var fuel = new Float32Array(NN), moisture = new Float32Array(NN), burn = new Float32Array(NN), treeDensity = new Float32Array(NN);
+    var cropHealth = new Float32Array(NN), habitat = new Float32Array(NN), zone = new Int16Array(NN).fill(-1);
+    var flowDir = new Int32Array(NN).fill(-1), flowAcc = new Float32Array(NN);
+    var idx = function (x, y) { return y * N + x; };
+    var inB = function (x, y) { return x >= 0 && y >= 0 && x < N && y < N; };
+
+    // river polyline (source NW -> basin -> dam -> SE outlet)
+    var nodes = [[12, 10], [20, 22], [30, 36], [40, 48], [48, 56], [53, 61], [58, 66], [63, 71], [70, 80], [80, 92], [92, 102], [104, 112], [118, 124]];
+    var path = [];
+    for (var n = 0; n < nodes.length - 1; n++) {
+      var ax = nodes[n][0], ay = nodes[n][1], bx = nodes[n + 1][0], by = nodes[n + 1][1];
+      var steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+      for (var s = 0; s < steps; s++) {
+        var t = s / steps, wob = noise.simplex2(n * 3.1 + t * 4, 7.7) * 1.2;
+        var px = Math.round(ax + (bx - ax) * t + wob), py = Math.round(ay + (by - ay) * t - wob);
+        px = Math.max(0, Math.min(N - 1, px)); py = Math.max(0, Math.min(N - 1, py));
+        if (!path.length || path[path.length - 1].x !== px || path[path.length - 1].y !== py) path.push({ x: px, y: py });
+      }
+    }
+    path.push({ x: 118, y: 124 });
+    var damIndex = 0; for (var k = 0; k < path.length; k++) if (path[k].x === 63 && path[k].y === 71) damIndex = k;
+    if (!damIndex) { for (k = 0; k < path.length; k++) if (path[k].x >= 62 && path[k].y >= 70) { damIndex = k; break; } }
+    var center = { x: 53, y: 61 }, basinR = 9;
+
+    // elevation
+    var x, y, i;
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y);
+      var d = (x + y) / (2 * N);
+      var base = 3500 - 1550 * Math.pow(d, 0.85);
+      var ridge = 420 * noise.ridged(x * 0.035 + 3, y * 0.035 + 1, 4) * Math.pow(1 - d, 1.6);
+      var hills = 70 * noise.fbm(x * 0.06, y * 0.06, 4);
+      elev[i] = base + ridge + hills;
+    }
+    // valley carve: distance to river path
+    var dist = new Float32Array(NN).fill(1e9), nearK = new Int32Array(NN);
+    for (k = 0; k < path.length; k++) {
+      var p = path[k];
+      for (var dy = -12; dy <= 12; dy++) for (var dx = -12; dx <= 12; dx++) {
+        var qx = p.x + dx, qy = p.y + dy; if (!inB(qx, qy)) continue;
+        var dd = Math.sqrt(dx * dx + dy * dy), qi = idx(qx, qy);
+        if (dd < dist[qi]) { dist[qi] = dd; nearK[qi] = k; }
+      }
+    }
+    for (i = 0; i < NN; i++) {
+      if (dist[i] < 1e8) {
+        var frac = nearK[i] / (path.length - 1);
+        var riverElev = 3050 - 1150 * Math.pow(frac, 0.9);
+        var w = 4 + 6 * frac, carve = Math.exp(-(dist[i] * dist[i]) / (w * w));
+        elev[i] = elev[i] * (1 - carve) + Math.min(elev[i], riverElev + 6 * dist[i]) * carve;
+      }
+    }
+    // reservoir basin
+    var spillElev = 0;
+    for (y = center.y - basinR; y <= center.y + basinR; y++) for (x = center.x - basinR; x <= center.x + basinR; x++) {
+      var r = Math.sqrt((x - center.x) * (x - center.x) + (y - center.y) * (y - center.y));
+      if (r <= basinR) spillElev = Math.max(spillElev, 0);
+    }
+    spillElev = 2190;
+    var resCells = [];
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      var rr = Math.sqrt((x - center.x) * (x - center.x) + (y - center.y) * (y - center.y));
+      if (rr <= basinR) {
+        i = idx(x, y);
+        var depth = 38 * Math.sqrt(Math.max(0, 1 - (rr / basinR) * (rr / basinR)));
+        elev[i] = Math.min(elev[i], spillElev - depth);
+        if (elev[i] < spillElev - 1) resCells.push(i);
+      } else if (rr < basinR + 3) { i = idx(x, y); elev[i] = Math.max(elev[i], spillElev + 2 + (rr - basinR) * 8); }
+    }
+    // river channel monotonic
+    var last = 1e9;
+    for (k = 0; k < path.length; k++) {
+      i = idx(path[k].x, path[k].y);
+      var inBasin = (Math.sqrt((path[k].x - center.x) * (path[k].x - center.x) + (path[k].y - center.y) * (path[k].y - center.y)) <= basinR);
+      if (!inBasin) { elev[i] = Math.min(elev[i], last - 0.5); last = elev[i]; } else { last = Math.min(last, spillElev - 1); }
+    }
+    var bedElev = 1e9; for (k = 0; k < resCells.length; k++) bedElev = Math.min(bedElev, elev[resCells[k]]);
+    var resDepth = new Float32Array(resCells.length);
+    for (k = 0; k < resCells.length; k++) resDepth[k] = spillElev - elev[resCells[k]];
+    // land
+    var resSet = new Uint8Array(NN); for (k = 0; k < resCells.length; k++) resSet[resCells[k]] = 1;
+    var onRiver = new Uint8Array(NN); for (k = 0; k < path.length; k++) onRiver[idx(path[k].x, path[k].y)] = 1;
+    var town = { x0: 70, y0: 62, x1: 92, y1: 84 };
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y);
+      var e = elev[i], nz = noise.fbm(x * 0.09 + 9, y * 0.09 + 9, 3);
+      if (resSet[i]) land[i] = L.RESERVOIR;
+      else if (onRiver[i]) land[i] = L.RIVER;
+      else if (e > 3450) land[i] = L.ALPINE;
+      else if (e > 2200 && nz > -0.35) land[i] = L.FOREST;
+      else if (x >= town.x0 && x <= town.x1 && y >= town.y0 && y <= town.y1 && e < 2300) land[i] = L.RESIDENTIAL;
+      else if (y > 92 && x > 56 && x < 118 && e < 2150 && dist[i] > 1) land[i] = L.FARM;
+      else if (dist[i] <= 1.5 && e < 2400) land[i] = L.RIPARIAN;
+      else land[i] = L.SHRUB;
+    }
+    // civic core, roads, wetland
+    for (y = 74; y <= 78; y++) for (x = 78; x <= 84; x++) land[idx(x, y)] = L.CIVIC;
+    var roads = [];
+    var main = []; for (x = 63; x <= 118; x++) main.push({ x: x, y: Math.round(71 + (x - 63) * 0.42) }); roads.push(main);
+    for (var ry = town.y0 + 2; ry <= town.y1; ry += 6) { var rd = []; for (x = town.x0; x <= town.x1; x++) rd.push({ x: x, y: ry }); roads.push(rd); }
+    for (var rx = town.x0 + 3; rx <= town.x1; rx += 7) { var rc = []; for (y = town.y0; y <= town.y1; y++) rc.push({ x: rx, y: y }); roads.push(rc); }
+    for (k = 0; k < roads.length; k++) for (n = 0; n < roads[k].length; n++) { i = idx(roads[k][n].x, roads[k][n].y); if (land[i] !== L.RIVER && land[i] !== L.RESERVOIR) land[i] = L.ROAD; }
+    var wetCells = [], wp = path[Math.min(path.length - 1, damIndex + 15)];
+    for (dy = -4; dy <= 4; dy++) for (dx = -4; dx <= 4; dx++) { qx = wp.x + dx + 3; qy = wp.y + dy; if (inB(qx, qy) && dx * dx + dy * dy <= 18) { i = idx(qx, qy); if (land[i] === L.SHRUB || land[i] === L.RIPARIAN || land[i] === L.FARM) { land[i] = L.WETLAND; wetCells.push(i); } } }
+    // derived fields
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y);
+      var ex = elev[idx(Math.min(N - 1, x + 1), y)] - elev[idx(Math.max(0, x - 1), y)];
+      var ey = elev[idx(x, Math.min(N - 1, y + 1))] - elev[idx(x, Math.max(0, y - 1))];
+      slope[i] = Math.sqrt(ex * ex + ey * ey) / (2 * C.CELL_M);
+      aspect[i] = Math.atan2(-ex, ey);
+      var lnd = land[i];
+      treeDensity[i] = lnd === L.FOREST ? 0.35 + 0.65 * (noise.fbm(x * 0.05, y * 0.05, 3) * 0.5 + 0.5) : (lnd === L.RIPARIAN ? 0.4 : 0);
+      fuel[i] = (lnd === L.FOREST || lnd === L.SHRUB) ? 0.45 + 0.4 * (noise.fbm(x * 0.07 + 5, y * 0.07, 3) * 0.5 + 0.5) : 0;
+      moisture[i] = lnd === L.FOREST ? 0.6 : 0.45;
+      cropHealth[i] = lnd === L.FARM ? 0.85 : 0;
+      habitat[i] = (lnd === L.SHRUB || lnd === L.RIPARIAN) ? 0.5 + 0.5 * (noise.fbm(x * 0.04, y * 0.04 + 3, 2) * 0.5 + 0.5) : 0.1;
+    }
+    // zones
+    var zones = [], zid = 0;
+    function addZone(type, name, cells, upstream) {
+      var arr = Int32Array.from(cells), cx = 0, cy = 0, x0 = N, y0 = N, x1 = 0, y1 = 0;
+      for (var q = 0; q < arr.length; q++) { var zx = arr[q] % N, zy = (arr[q] / N) | 0; cx += zx; cy += zy; x0 = Math.min(x0, zx); y0 = Math.min(y0, zy); x1 = Math.max(x1, zx); y1 = Math.max(y1, zy); zone[arr[q]] = zid; }
+      var z = { id: zid++, type: type, name: name, cells: arr, center: { x: arr.length ? Math.round(cx / arr.length) : 0, y: arr.length ? Math.round(cy / arr.length) : 0 }, upstreamOfReservoir: !!upstream, bbox: { x0: x0, y0: y0, x1: x1, y1: y1 } };
+      zones.push(z); return z;
+    }
+    var fnames = ['Cameron Ridge', 'Troublesome Bench', 'North Fork Slopes', 'Kestrel Divide', 'Ponderosa Flats', 'Roaring Gulch'];
+    var fbuckets = [[], [], [], [], [], []];
+    for (i = 0; i < NN; i++) if (land[i] === L.FOREST) { x = i % N; y = (i / N) | 0; var b; if (x + y < 60) b = (x < y) ? 0 : 1; else if (x + y < 100) b = (x < y) ? 2 : 3; else b = (y > x) ? 4 : 5; fbuckets[b].push(i); }
+    for (k = 0; k < 6; k++) addZone('forest', fnames[k], fbuckets[k], k < 4);
+    var nnames = ['Marshall Heights', 'Old Mill', 'Riverbend', 'Sagebrush Estates'], nb = [[], [], [], []];
+    for (i = 0; i < NN; i++) if (land[i] === L.RESIDENTIAL) { x = i % N; y = (i / N) | 0; nb[(x < 81 ? 0 : 1) + (y < 73 ? 0 : 2)].push(i); }
+    for (k = 0; k < 4; k++) addZone('neighborhood', nnames[k], nb[k], false);
+    var civ = []; for (i = 0; i < NN; i++) if (land[i] === L.CIVIC) civ.push(i); addZone('civic', 'Civic Core', civ, false);
+    var fnm = ['Lazy J Ranch', 'Two Rivers Farm', 'Hay Meadows Co-op', 'Orchard Bench'], fb = [[], [], [], []];
+    for (i = 0; i < NN; i++) if (land[i] === L.FARM) { x = i % N; fb[Math.min(3, Math.floor((x - 56) / 16))].push(i); }
+    for (k = 0; k < 4; k++) addZone('farm', fnm[k], fb[k], false);
+    var resZone = addZone('reservoir', 'Bitterbrush Reservoir', resCells, false);
+    var wetZone = addZone('wetland', 'Willow Bottoms', wetCells, false);
+    // buildings
+    var buildings = [];
+    for (i = 0; i < NN; i++) if (land[i] === L.RESIDENTIAL && rng.chance(0.5)) buildings.push({ type: 'house', x: i % N, y: (i / N) | 0, rot: rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]), zoneId: zone[i], scale: 0.9 + rng.next() * 0.25 });
+    var civicId = zones.filter(function (z) { return z.type === 'civic'; })[0].id;
+    [['town_hall', 81, 76], ['school', 79, 75], ['hospital', 83, 77], ['fire_station', 78, 78], ['fire_station', 72, 64], ['church', 84, 75], ['shop', 80, 78], ['shop', 82, 78], ['shelter', 79, 77]]
+      .forEach(function (b) { buildings.push({ type: b[0], x: b[1], y: b[2], rot: 0, zoneId: civicId, scale: 1 }); });
+    buildings.push({ type: 'treatment_plant', x: 66, y: 72, rot: 0, zoneId: -1, scale: 1 });
+    buildings.push({ type: 'dam', x: 63, y: 71, rot: 0, zoneId: resZone.id, scale: 1 });
+    zones.forEach(function (z) { if (z.type === 'farm' && z.cells.length) buildings.push({ type: 'barn', x: z.center.x, y: z.center.y, rot: 0, zoneId: z.id, scale: 1 }); });
+    // flow direction (D8) + accumulation
+    var damI = idx(63, 71), below = path[Math.min(path.length - 1, damIndex + 1)], belowI = idx(below.x, below.y);
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = idx(x, y);
+      if (resSet[i]) { flowDir[i] = damI; continue; }
+      var best = -1, bestE = elev[i];
+      for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; qx = x + dx; qy = y + dy; if (!inB(qx, qy)) continue; qi = idx(qx, qy); if (elev[qi] < bestE) { bestE = elev[qi]; best = qi; } }
+      flowDir[i] = best;
+    }
+    flowDir[damI] = belowI;
+    var order = new Int32Array(NN); for (i = 0; i < NN; i++) order[i] = i;
+    Array.prototype.sort.call(order, function (a, b) { return elev[b] - elev[a]; });
+    for (k = 0; k < NN; k++) { i = order[k]; flowAcc[i] += 1; if (flowDir[i] >= 0 && flowDir[i] !== i) flowAcc[flowDir[i]] += flowAcc[i]; }
+    var upMask = new Int8Array(NN); // -1 unknown, 0 no, 1 yes
+    function isUp(i0) {
+      var chain = [], cur = i0, guardN = 0, res = 0;
+      while (cur >= 0 && guardN++ < NN) { if (upMask[cur]) { res = upMask[cur] > 0 ? 1 : 0; break; } if (resSet[cur]) { res = 1; break; } chain.push(cur); cur = flowDir[cur]; if (cur === damI) { res = 0; break; } }
+      for (var q = 0; q < chain.length; q++) upMask[chain[q]] = res ? 1 : -1;
+      return !!res;
+    }
+    var widths = new Float32Array(path.length); for (k = 0; k < path.length; k++) widths[k] = 1 + 2 * k / path.length;
+    var cellsAbove = [], cellsBelow = []; for (k = 0; k < path.length; k++) (k < damIndex ? cellsAbove : cellsBelow).push(idx(path[k].x, path[k].y));
+    var capacityAF = C.HYDRO.RESERVOIR_CAPACITY_AF;
+    var world = {
+      seed: seed, N: N, cellM: C.CELL_M, elev: elev, land: land, slope: slope, aspect: aspect, fuel: fuel, moisture: moisture, burn: burn,
+      treeDensity: treeDensity, cropHealth: cropHealth, habitat: habitat, flowDir: flowDir, flowAcc: flowAcc, zone: zone, zones: zones,
+      river: { path: path, widths: widths, damIndex: damIndex, cellsAbove: Int32Array.from(cellsAbove), cellsBelow: Int32Array.from(cellsBelow) },
+      reservoir: { cells: Int32Array.from(resCells), depth: resDepth, bedElev: bedElev, spillElev: spillElev, capacityAF: capacityAF, dam: { x: 63, y: 71 }, intake: { x: 60, y: 68 }, center: center,
+        levelForStorage: function (af) { var f = Math.max(0, Math.min(1, af / capacityAF)); return bedElev + (spillElev - bedElev) * Math.pow(f, 1 / 2.2); },
+        areaForStorage: function (af) { var f = Math.max(0, Math.min(1, af / capacityAF)); return resCells.length * Math.pow(f, 0.6); }, zoneId: resZone.id },
+      wetland: { cells: Int32Array.from(wetCells), zoneId: wetZone.id, center: wetZone.center },
+      buildings: buildings, roads: roads, snowlineElev: 2600, treeline: 3450,
+      idx: idx, xy: function (i) { return { x: i % N, y: (i / N) | 0 }; }, inBounds: inB,
+      neighbors8: function (i) { var out = [], cx = i % N, cy = (i / N) | 0; for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; if (inB(cx + dx, cy + dy)) out.push(idx(cx + dx, cy + dy)); } return out; },
+      cellsOf: function (le) { var out = []; for (var q = 0; q < NN; q++) if (land[q] === le) out.push(q); return Int32Array.from(out); },
+      zoneById: function (id) { return zones[id] || null; },
+      zonesOf: function (type) { return zones.filter(function (z) { return z.type === type; }); },
+      isUpstreamOfReservoir: isUp,
+      summary: function () { return { zones: zones.length, buildings: buildings.length, reservoirCells: resCells.length, riverNodes: path.length }; }
+    };
+    return world;
+  }
+
+  /* ---------- inline stub terrain mesh (only when WS.TerrainMesh is missing) ---------- */
+  function stubTerrainMesh() {
+    var L = C.LAND, P = C.PALETTE;
+    var LANDCOL = {};
+    LANDCOL[L.RIVER] = P.waterDeep; LANDCOL[L.RESERVOIR] = P.waterDeep; LANDCOL[L.ALPINE] = P.alpine; LANDCOL[L.FOREST] = P.forest; LANDCOL[L.SHRUB] = P.shrub;
+    LANDCOL[L.FARM] = P.farm; LANDCOL[L.RESIDENTIAL] = P.residential; LANDCOL[L.CIVIC] = P.civic; LANDCOL[L.WETLAND] = P.wetland; LANDCOL[L.ROAD] = P.road; LANDCOL[L.RIPARIAN] = P.riparian;
+    return {
+      build: function (world) {
+        var N = C.N, M = N + 1, corner = new Float32Array(M * M);
+        for (var cy = 0; cy < M; cy++) for (var cx = 0; cx < M; cx++) {
+          var sum = 0, cnt = 0;
+          for (var dy = -1; dy <= 0; dy++) for (var dx = -1; dx <= 0; dx++) { var x = cx + dx, y = cy + dy; if (x >= 0 && y >= 0 && x < N && y < N) { sum += world.elev[y * N + x]; cnt++; } }
+          corner[cy * M + cx] = C.elevToScene(sum / cnt);
+        }
+        var geo = new THREE.PlaneGeometry(N, N, N, N); geo.rotateX(-Math.PI / 2);
+        var pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+        for (var v = 0; v < pos.count; v++) { var vx = v % M, vy = (v / M) | 0; pos.setY(v, corner[vy * M + vx]); }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        geo.computeVertexNormals();
+        var mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 });
+        var mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = 'terrain(stub)';
+        var skirt = new THREE.Mesh(new THREE.BoxGeometry(N, 6, N), new THREE.MeshStandardMaterial({ color: 0x4a3b2e, roughness: 1 }));
+        skirt.position.y = C.elevToScene(1500) + 1; skirt.receiveShadow = true; mesh.add(skirt);
+        var c = new THREE.Color();
+        var api = {
+          mesh: mesh, geometry: geo,
+          heightAt: function (sx, sz) {
+            var fx = sx + N / 2, fz = sz + N / 2; fx = Math.max(0, Math.min(N - 1e-4, fx)); fz = Math.max(0, Math.min(N - 1e-4, fz));
+            var x0 = fx | 0, z0 = fz | 0, tx = fx - x0, tz = fz - z0;
+            var h00 = corner[z0 * M + x0], h10 = corner[z0 * M + x0 + 1], h01 = corner[(z0 + 1) * M + x0], h11 = corner[(z0 + 1) * M + x0 + 1];
+            return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz;
+          },
+          recolor: function (world, state, season, opts) {
+            var snow = (opts && opts.snowlineElev) || 9999;
+            for (var v = 0; v < pos.count; v++) {
+              var vx = Math.min(N - 1, v % M), vy = Math.min(N - 1, (v / M) | 0), i = vy * N + vx;
+              c.setHex(LANDCOL[world.land[i]] || P.shrub);
+              if (world.elev[i] > snow && world.land[i] !== L.RIVER && world.land[i] !== L.RESERVOIR) c.setHex(P.snow);
+              var j = 1 - 0.06 * ((vx * 7 + vy * 13) % 5) / 4; c.multiplyScalar(j);
+              c.convertSRGBToLinear();
+              col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
+            }
+            geo.attributes.color.needsUpdate = true;
+          },
+          colorForCell: function (i, world, state, season, out) { out = out || new THREE.Color(); return out.setHex(LANDCOL[world.land[i]] || P.shrub); }
+        };
+        api.recolor(world, null, 1, { snowlineElev: 3100 });
+        return api;
+      }
+    };
+  }
+
+  /* ---------- boot ---------- */
+  function boot() {
+    var mods = document.getElementById('mods');
+    mods.innerHTML = MODULES.map(function (m) { return '<span class="' + (loaded[m] ? 'ok' : 'miss') + '">' + (loaded[m] ? '✓' : '✗') + ' ' + m + '</span>'; }).join('<br>') +
+      (WS.TerrainMesh ? '' : '<br><span class="miss">using inline stub terrain</span>') + (WS.World ? '' : '<br><span class="miss">using inline stub world</span>');
+    if (!WS.TerrainMesh) WS.TerrainMesh = stubTerrainMesh();
+    if (!WS.Renderer) { mods.innerHTML += '<br><span class="miss">WS.Renderer missing — nothing to render</span>'; return; }
+
+    var world = WS.World ? WS.World.generate(7) : stubWorld(7);
+    var state = {
+      seed: 7, mode: 'simulated', years: 6, turn: 1, year: 1, season: 1, phase: 'plan',
+      budget: 12, annualBudget: 12, emergencyFund: 0,
+      outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0,
+      population: 12400, growthRate: 0.012,
+      climate: { snowpackPct: 100, snowSWEin: 18, precipIn: 3.2, tempAnomF: 0, soilMoisturePct: 45, fireDanger: 0.2, fireDangerLabel: 'Moderate',
+        streamflowCfs: 60, windDirRad: 0.8, windMph: 8, drought: 'None', description: '', uncertainty: 0.15 },
+      reservoir: { storageAF: 32000, capacityAF: 42000, turbidity: 0.05, ashContam: 0, algae: 0 },
+      water: { demands: { households: 0, farms: 0, fire: 0, hydro: 0, recreation: 0, tribal: 0, wildlife: 0, downstream: 0 },
+        alloc: { households: 1, farms: 1, fire: 1, hydro: 1, recreation: 1, tribal: 1, wildlife: 1, downstream: 1 },
+        delivered: {}, shortage: {}, availableAF: 0, inflowAF: 0, outflowAF: 0, restriction: 'none' },
+      fire: { policy: 'managed', activeFire: null, seasonAcres: 0, totalAcres: 0, structuresLost: 0, fires: [], smokeDays: 0 },
+      projects: { funded: {}, pendingBurn: null }, mitigations: [], pendingStorm: null, scheduled: [],
+      log: [], timeline: [], history: [], unlockedCases: [], seenCases: [], flags: {},
+      stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
+      lastSeasonReport: null
+    };
+    window.world = world; window.state = state;
+    var host = document.getElementById('canvas-host');
+    var R = WS.Renderer.init(host, world, state);
+    if (!R) { mods.innerHTML += '<br><span class="miss">Renderer.init returned null (WebGL?)</span>'; return; }
+
+    function group(id, items, onPick, initial) {
+      var el = document.getElementById(id), btns = [];
+      items.forEach(function (it) {
+        var b = document.createElement('button'); b.textContent = it.label;
+        b.onclick = function () { btns.forEach(function (o) { o.classList.remove('on'); }); b.classList.add('on'); onPick(it.value); };
+        if (it.value === initial) b.classList.add('on');
+        el.appendChild(b); btns.push(b);
+      });
+    }
+    group('seasons', C.SEASONS.map(function (n, i) { return { label: n, value: i }; }), function (v) {
+      var cl = Object.assign({}, state.climate);
+      if (v === 2) cl.drought = 'D2'; // show the drought bleach in summer
+      state.season = v; WS.Renderer.setSeason(v, cl);
+    }, 1);
+    group('weather', ['clear', 'rain', 'storm', 'snow', 'smoke', 'haze'].map(function (k) { return { label: k, value: k }; }), function (k) {
+      WS.Renderer.setWeather(k, 0.8);
+      if (!WS.Effects) { // without Effects, exercise the scene's smoke/haze lighting path directly
+        var cl = Object.assign({}, state.climate, { smoke: k === 'smoke' ? 0.8 : 0, haze: k === 'haze' ? 0.5 : 0 });
+        WS.Renderer.setSeason(state.season, cl);
+      }
+    }, 'clear');
+    group('overlay', ['none', 'watershed', 'fire', 'moisture', 'burn'].map(function (k) { return { label: k, value: k }; }), function (k) { WS.Renderer.setOverlay(k); }, 'none');
+    document.getElementById('tod').addEventListener('input', function (e) { WS.Renderer.setTimeOfDay(parseFloat(e.target.value)); });
+    var zsel = document.getElementById('zone');
+    (world.zones || []).forEach(function (z) { var o = document.createElement('option'); o.value = z.id; o.textContent = z.type + ' · ' + z.name; zsel.appendChild(o); });
+    document.getElementById('flyZone').onclick = function () { WS.Renderer.flyToZone(parseInt(zsel.value, 10)); };
+    document.getElementById('flyHome').onclick = function () { WS.Renderer.flyTo(66, 68, 110); };
+    document.getElementById('fireDemo').onclick = function () {
+      var f = (world.zonesOf ? world.zonesOf('forest') : [])[0]; if (!f) return;
+      var burning = [], burned = []; for (var k = 0; k < f.cells.length; k += 9) (k % 27 ? burning : burned).push(f.cells[k]);
+      WS.Renderer.setFire(burning, burned); WS.Renderer.setHighlight(burning.slice(0, 40), 0xff6a1a);
+    };
+    document.getElementById('clearFire').onclick = function () { WS.Renderer.setFire([], []); WS.Renderer.setHighlight(null, null); };
+    var cloudBtn = document.getElementById('clouds'), cloudsOn = true;
+    cloudBtn.onclick = function () { cloudsOn = !cloudsOn; cloudBtn.classList.toggle('on', cloudsOn); if (WS.Renderer._ctx) WS.Renderer._ctx.setCloudShadows(cloudsOn); };
+    document.getElementById('modal').addEventListener('change', function (e) { document.body.classList.toggle('modal-open', e.target.checked); });
+
+    var lastClick = '—', hover = '—';
+    WS.Renderer.onCellClick(function (c) { lastClick = c.x + ',' + c.y + ' (' + C.LAND_NAMES[world.land[c.i]] + ', ' + Math.round(world.elev[c.i]) + ' m)'; });
+    WS.Renderer.onCellHover(function (c) { hover = c ? (c.x + ',' + c.y) : '—'; });
+    var statsEl = document.getElementById('stats');
+    setInterval(function () {
+      var s = WS.Renderer.getStats(), ctx = WS.Renderer._ctx, cam = ctx ? ctx.controls : null;
+      statsEl.textContent = 'fps ' + s.fps + '  draws ' + s.drawCalls + '  tris ' + s.triangles.toLocaleString() +
+        (cam ? '\ncam az ' + (cam.az * 180 / Math.PI).toFixed(0) + '°  pitch ' + (cam.pitch * 180 / Math.PI).toFixed(0) + '°  dist ' + cam.dist.toFixed(0) +
+        '\ntarget ' + cam.target.x.toFixed(1) + ', ' + cam.target.z.toFixed(1) : '') +
+        '\nhover ' + hover + '\nclick ' + lastClick;
+    }, 250);
+  }
+
+  loadSeq(0, boot);
+})();
+</script>
+</body>
+</html>

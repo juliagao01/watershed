@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watershed — terrain + water check (dev)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1c1a17; color: #eee; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #host { position: absolute; inset: 0; }
+  canvas { display: block; }
+  #panel { position: absolute; top: 10px; left: 10px; width: 250px; background: rgba(20,18,16,0.82); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; }
+  #panel h1 { font-size: 14px; margin: 0 0 6px; }
+  #panel label { display: block; margin: 6px 0 2px; color: #cfc8bd; }
+  #panel input[type=range], #panel select { width: 100%; }
+  #panel button { margin: 6px 4px 0 0; padding: 4px 8px; font: inherit; background: #3b5a3f; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+  #panel button.alt { background: #6b4a3a; }
+  #stats { margin-top: 8px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #bfe0c4; white-space: pre-wrap; }
+  #err { color: #ff8a80; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 11px; }
+  #hint { position: absolute; bottom: 8px; left: 12px; color: #a9a29a; font-size: 11px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/rng.js"></script>
+<script src="stubWorld.js"></script>
+<script src="../src/render/terrainMesh.js"></script>
+<script src="../src/render/water.js"></script>
+</head>
+<body>
+<div id="host"></div>
+<div id="panel">
+  <h1>Terrain + Water check</h1>
+  <div>World: <span id="worldSrc">…</span></div>
+  <label>Season <select id="season"><option value="0">Winter</option><option value="1" selected>Spring</option><option value="2">Summer</option><option value="3">Fall</option></select></label>
+  <label>Pool <span id="poolV">75%</span><input id="pool" type="range" min="0" max="110" value="75"></label>
+  <label>Turbidity <span id="turbV">0.05</span><input id="turb" type="range" min="0" max="100" value="5"></label>
+  <label>Ash <span id="ashV">0.00</span><input id="ash" type="range" min="0" max="100" value="0"></label>
+  <label>River flow <span id="cfsV">60 cfs</span><input id="cfs" type="range" min="0" max="1200" value="60"></label>
+  <label>Soil moisture (all cells) <span id="moistV">default</span><input id="moist" type="range" min="0" max="100" value="-1"></label>
+  <label>Snowline override <span id="snowV">season default</span><input id="snow" type="range" min="1900" max="3900" value="1900"></label>
+  <div>
+    <button id="burnBtn">Burn a sector</button><button id="clearBtn" class="alt">Clear burn</button>
+    <button id="cropBtn">Stress crops</button><button id="resetBtn" class="alt">Reset world</button>
+  </div>
+  <div id="stats"></div>
+  <div id="err"></div>
+</div>
+<div id="hint">Left-drag orbit · right-drag / shift-drag pan · wheel zoom · R reset view</div>
+<script>
+(function () {
+  'use strict';
+  var errEl = document.getElementById('err');
+  window.addEventListener('error', function (e) { errEl.textContent += (e.message || e) + '\n'; });
+
+  function boot(world, srcLabel) {
+    document.getElementById('worldSrc').textContent = srcLabel;
+    var C = WS.C, N = world.N;
+    var host = document.getElementById('host');
+    var renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    host.appendChild(renderer.domElement);
+
+    var scene = new THREE.Scene();
+    scene.background = new THREE.Color(C.PALETTE.sky);
+    scene.fog = new THREE.FogExp2(C.PALETTE.fog, 0.0035);
+    var camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 0.5, 1200);
+
+    var sun = new THREE.DirectionalLight(C.PALETTE.sun, 2.2);
+    sun.position.set(-70, 95, 55);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -80; sun.shadow.camera.right = 80; sun.shadow.camera.top = 80; sun.shadow.camera.bottom = -80;
+    sun.shadow.camera.near = 10; sun.shadow.camera.far = 320;
+    sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
+    scene.add(sun); scene.add(sun.target);
+    scene.add(new THREE.HemisphereLight(C.PALETTE.sky, 0x5a4a3a, 0.55));
+    scene.add(new THREE.AmbientLight(C.PALETTE.fill, 0.18));
+
+    var t0 = performance.now();
+    var terrain = WS.TerrainMesh.build(world);
+    var tBuild = performance.now() - t0;
+    scene.add(terrain.mesh); scene.add(terrain.skirt);
+    t0 = performance.now();
+    var water = WS.WaterMesh.build(world, { heightAt: terrain.heightAt });
+    var wBuild = performance.now() - t0;
+    scene.add(water.group);
+
+    /* snapshot of mutable world fields so "Reset world" works */
+    var burn0 = new Float32Array(world.burn), moist0 = new Float32Array(world.moisture), crop0 = new Float32Array(world.cropHealth);
+
+    /* ---- orbit camera ---- */
+    var target = new THREE.Vector3(0, 6, 4), yaw = -0.6, pitch = 0.9, dist = 120;
+    function resetView() { target.set(0, 6, 4); yaw = -0.6; pitch = 0.9; dist = 120; }
+    function applyCam() {
+      pitch = Math.max(22 * Math.PI / 180, Math.min(80 * Math.PI / 180, pitch));
+      dist = Math.max(12, Math.min(220, dist));
+      target.x = Math.max(-64, Math.min(64, target.x)); target.z = Math.max(-64, Math.min(64, target.z));
+      target.y = terrain.heightAt(target.x, target.z);
+      camera.position.set(target.x + dist * Math.cos(pitch) * Math.sin(yaw), target.y + dist * Math.sin(pitch), target.z + dist * Math.cos(pitch) * Math.cos(yaw));
+      camera.lookAt(target);
+    }
+    var drag = null;
+    var el = renderer.domElement;
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    el.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey || e.ctrlKey }; el.setPointerCapture(e.pointerId); });
+    el.addEventListener('pointerup', function () { drag = null; });
+    el.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+      if (drag.pan) {
+        var s = dist * 0.0015;
+        var fx = Math.sin(yaw), fz = Math.cos(yaw);
+        target.x -= (dx * fz - dy * fx) * s; target.z -= (-dx * fx - dy * fz) * s;
+      } else { yaw -= dx * 0.006; pitch += dy * 0.006; }
+      applyCam();
+    });
+    el.addEventListener('wheel', function (e) { e.preventDefault(); dist *= Math.exp(e.deltaY * 0.0012); applyCam(); }, { passive: false });
+    window.addEventListener('keydown', function (e) { if (e.key === 'r' || e.key === 'R') { resetView(); applyCam(); } });
+    window.addEventListener('resize', function () {
+      camera.aspect = host.clientWidth / host.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(host.clientWidth, host.clientHeight);
+    });
+    applyCam();
+
+    /* ---- controls ---- */
+    var $ = function (id) { return document.getElementById(id); };
+    var state = { season: 1, climate: {} }; // minimal mock of game state
+    var lastRecolorMs = 0;
+    function recolor() {
+      var snow = +$('snow').value;
+      var opts = snow > 1900 ? { snowlineElev: snow } : null;
+      $('snowV').textContent = opts ? snow + ' m' : 'season default';
+      var t = performance.now();
+      terrain.recolor(world, state, state.season, opts);
+      lastRecolorMs = performance.now() - t;
+    }
+    function applySeason() { state.season = +$('season').value; water.setSeason(state.season); recolor(); }
+    function applyReservoir() {
+      var f = +$('pool').value / 100, tu = +$('turb').value / 100, a = +$('ash').value / 100;
+      $('poolV').textContent = Math.round(f * 100) + '%'; $('turbV').textContent = tu.toFixed(2); $('ashV').textContent = a.toFixed(2);
+      water.setReservoir(f, tu, a);
+    }
+    function applyRiver() {
+      var cfs = +$('cfs').value; $('cfsV').textContent = cfs + ' cfs';
+      water.setRiver(cfs, +$('turb').value / 100);
+    }
+    function applyMoisture() {
+      var v = +$('moist').value;
+      if (v < 0) { world.moisture.set(moist0); $('moistV').textContent = 'default'; }
+      else { world.moisture.fill(v / 100); $('moistV').textContent = (v / 100).toFixed(2); }
+      recolor();
+    }
+    $('season').addEventListener('change', applySeason);
+    ['pool', 'turb', 'ash'].forEach(function (id) { $(id).addEventListener('input', function () { applyReservoir(); applyRiver(); }); });
+    $('cfs').addEventListener('input', applyRiver);
+    $('moist').addEventListener('input', applyMoisture);
+    $('snow').addEventListener('input', recolor);
+    var burnZone = 0;
+    $('burnBtn').addEventListener('click', function () {
+      var forests = world.zonesOf('forest');
+      if (!forests.length) return;
+      var z = forests[burnZone % forests.length]; burnZone++;
+      var nz = WS.Noise.create('burn' + burnZone);
+      for (var i = 0; i < z.cells.length; i++) {
+        var c = z.cells[i], x = c % N, y = (c / N) | 0;
+        var s = 0.55 + 0.45 * nz.fbm(x * 0.08, y * 0.08, 3);
+        world.burn[c] = Math.max(world.burn[c], Math.max(0, Math.min(1, s)));
+      }
+      recolor();
+    });
+    $('clearBtn').addEventListener('click', function () { world.burn.set(burn0); recolor(); });
+    $('cropBtn').addEventListener('click', function () {
+      for (var i = 0; i < world.cropHealth.length; i++) if (world.cropHealth[i] > 0) world.cropHealth[i] = Math.max(0.05, world.cropHealth[i] - 0.3);
+      recolor();
+    });
+    $('resetBtn').addEventListener('click', function () {
+      world.burn.set(burn0); world.moisture.set(moist0); world.cropHealth.set(crop0); $('moist').value = -1; $('moistV').textContent = 'default'; recolor();
+    });
+    applySeason(); applyReservoir(); applyRiver();
+
+    /* ---- loop ---- */
+    var last = performance.now(), frames = 0, fpsT = 0, fps = 0;
+    function tick(now) {
+      var dt = Math.min(0.1, (now - last) / 1000); last = now;
+      water.update(dt);
+      renderer.render(scene, camera);
+      frames++; fpsT += dt;
+      if (fpsT >= 0.5) {
+        fps = frames / fpsT; frames = 0; fpsT = 0;
+        var info = renderer.info.render;
+        $('stats').textContent = 'fps ' + fps.toFixed(0) + '  draw calls ' + info.calls + '  tris ' + info.triangles.toLocaleString() +
+          '\nterrain build ' + tBuild.toFixed(0) + ' ms · water build ' + wBuild.toFixed(0) + ' ms · recolor ' + lastRecolorMs.toFixed(1) + ' ms' +
+          '\npool level y ' + water.getLevelY().toFixed(2) + ' · cells ' + N + '×' + N;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+    window.__check = { world: world, terrain: terrain, water: water, scene: scene, renderer: renderer, camera: camera };
+  }
+
+  /* prefer the real world generator when present; fall back to the dev stub (a 404 here is expected while terrain.js is unwritten) */
+  function start() {
+    var seed = 7;
+    if (WS.World && typeof WS.World.generate === 'function') {
+      try { boot(WS.World.generate(seed), 'WS.World.generate(' + seed + ')'); return; }
+      catch (e) { errEl.textContent += 'WS.World.generate failed, using stub: ' + e.message + '\n'; }
+    }
+    boot(WS.StubWorld.generate(seed), 'dev stub (src/world/terrain.js not loaded)');
+  }
+  var s = document.createElement('script');
+  s.src = '../src/world/terrain.js';
+  s.onload = start; s.onerror = start;
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watershed — UI check</title>
+<link rel="stylesheet" href="../src/ui/style.css">
+<style>
+  /* dev-only: fake terrain backdrop + control strip */
+  #canvas-host { background: radial-gradient(ellipse at 40% 60%, #3b7fb0 0, #35643a 18%, #5c6b3a 40%, #b3a45e 62%, #9a948c 85%, #d9e3ec 100%); }
+  #devbar { position: fixed; top: 140px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; max-width: 700px; justify-content: center; }
+  #devbar button { font: 12px/1.2 system-ui, sans-serif; padding: 4px 8px; background: #fbf6ea; color: #1b1f22; border: 1px solid #8a7a4a; border-radius: 6px; cursor: pointer; }
+  #devout { position: fixed; top: 205px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
+</style>
+</head>
+<body>
+<div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
+<div id="devbar"></div>
+<div id="devout">mock game loaded</div>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/rng.js"></script>
+<script src="../src/ui/hud.js"></script>
+<script src="../src/ui/panels.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = WS.C, N = C.N, NN = N * N;
+  var rng = WS.RNG.create(7);
+  var out = document.getElementById('devout');
+  function say(t) { out.textContent = t; console.log('[dev]', t); }
+
+  /* ---- mock world ---- */
+  var forestNames = ['Cameron Ridge', 'Troublesome Bench', 'North Fork Slopes', 'Kestrel Divide', 'Ponderosa Flats', 'Roaring Gulch'];
+  var hoodNames = ['Marshall Heights', 'Old Mill', 'Riverbend', 'Sagebrush Estates'];
+  var farmNames = ['Lazy J Ranch', 'Two Rivers Farm', 'Hay Meadows Co-op', 'Orchard Bench'];
+  var world = { seed: 7, N: N, fuel: new Float32Array(NN), burn: new Float32Array(NN), zones: [] };
+  var zid = 0;
+  function mkZone(type, name, n, extra) {
+    var cells = new Int32Array(n); for (var i = 0; i < n; i++) cells[i] = rng.int(0, NN - 1);
+    var z = Object.assign({ id: zid++, type: type, name: name, cells: cells, center: { x: rng.int(10, 118), y: rng.int(10, 118) }, upstreamOfReservoir: false }, extra || {});
+    world.zones.push(z); return z;
+  }
+  forestNames.forEach(function (n, i) { var z = mkZone('forest', n, 1000, { upstreamOfReservoir: i < 4 }); var f = 0.45 + i * 0.07; for (var k = 0; k < z.cells.length; k++) { world.fuel[z.cells[k]] = f + rng.next() * 0.1; if (i === 1) world.burn[z.cells[k]] = rng.next() < 0.35 ? 0.7 : 0; } });
+  hoodNames.forEach(function (n) { mkZone('neighborhood', n, 90); });
+  farmNames.forEach(function (n) { mkZone('farm', n, 300); });
+  mkZone('wetland', 'Bitterbrush Wetland', 60);
+  world.zoneById = function (id) { return world.zones.filter(function (z) { return z.id === id; })[0] || null; };
+  world.zonesOf = function (t) { return world.zones.filter(function (z) { return z.type === t; }); };
+
+  /* ---- mock state (SPEC §3) with 8 history entries ---- */
+  var history = [];
+  for (var t = 0; t < 8; t++) {
+    history.push({ turn: t, year: 1 + Math.floor(t / 4), season: t % 4, storageAF: 32000 - t * 1800 + (t % 4 === 1 ? 6000 : 0), snowpackPct: [102, 88, 71, 64, 96, 80, 58, 75][t], streamflowCfs: [40, 210, 55, 30, 45, 190, 38, 26][t], fireDanger: [0.15, 0.3, 0.62, 0.45, 0.2, 0.35, 0.78, 0.5][t], fuelAvg: 0.6 + t * 0.01, turbidity: [0.05, 0.05, 0.08, 0.3, 0.2, 0.14, 0.1, 0.42][t], W: 70 - t, E: 65 - t * 1.5, P: 72 - t * 0.5, F: 68 - t * 2, T: 60 + (t % 3), R: 67 - t, budget: 12 - (t % 4) * 3, cropHealth: 0.85 - t * 0.02, shortagePct: t * 0.01, trust: 60, precipIn: [2.1, 3.4, 1.2, 2.8, 2.5, 3.9, 0.6, 3.1][t], tempAnomF: [-1, 0.5, 3.2, 1.1, 0.2, 1.4, 4.1, 2.0][t], soilMoisturePct: [48, 55, 34, 40, 46, 52, 28, 38][t], population: 12400 + t * 40 });
+  }
+  var state = {
+    seed: 7, mode: 'simulated', years: 6, turn: 8, year: 3, season: 0, phase: 'plan',
+    budget: 9.4, annualBudget: 12, emergencyFund: 2.5,
+    outcomes: { W: 62, E: 55, P: 70, F: 52, T: 61 }, resilience: 60.1,
+    population: 12720, growthRate: 0.012,
+    climate: { snowpackPct: 75, snowSWEin: 13.5, precipIn: 2.4, tempAnomF: 1.8, soilMoisturePct: 38, fireDanger: 0.52, fireDangerLabel: 'High', streamflowCfs: 31, windDirRad: 0.8, windMph: 12, drought: 'D2', description: 'A thin, early-melting snowpack after a warm winter. Fuels are drying out early.', uncertainty: 0.25 },
+    reservoir: { storageAF: 21500, capacityAF: 42000, turbidity: 0.42, ashContam: 0.3, algae: 0.1 },
+    water: { demands: { households: 1650, farms: 0, fire: 600, hydro: 2200, recreation: 1500, tribal: 375, wildlife: 2500, downstream: 2250 },
+             alloc: { households: 1, farms: 1, fire: 1, hydro: 0.8, recreation: 0.6, tribal: 1, wildlife: 1, downstream: 1 },
+             delivered: { households: 1600, farms: 0, fire: 600, hydro: 1500, recreation: 900, tribal: 375, wildlife: 2300, downstream: 2250 }, shortage: {}, availableAF: 9800, inflowAF: 2100, outflowAF: 9525, restriction: 'voluntary' },
+    fire: { policy: 'managed', activeFire: null, seasonAcres: 0, totalAcres: 4120, structuresLost: 3, fires: [{ year: 2, season: 2, acres: 4120, zoneIds: [1, 2], structures: 3, upstream: true }], smokeDays: 6 },
+    projects: { funded: { streamgages: { level: 0, targets: [], turnFunded: -1 }, forest_thinning: { level: 1, targets: [0], turnFunded: 3 } }, pendingBurn: null },
+    mitigations: [], pendingStorm: { intensityIn: 2.1, turnsUntil: 1, source: 'event' }, scheduled: [],
+    log: [
+      { turn: 2, year: 1, season: 2, text: 'Funded forest thinning in Cameron Ridge ($1.8M).', kind: 'good' },
+      { turn: 5, year: 2, season: 1, text: 'Low snowpack: 64% of average. Farms warned of a short summer.', kind: 'warn' },
+      { turn: 6, year: 2, season: 2, text: 'Lightning fire in Troublesome Bench — 4,120 acres, 3 homes lost.', kind: 'bad' },
+      { turn: 7, year: 2, season: 3, text: 'Storm forecast over the burn scar. Emergency fund released.', kind: 'event' },
+      { turn: 8, year: 3, season: 0, text: 'New year: budget +$12.0M, upkeep −$0.4M.', kind: 'info' }
+    ],
+    timeline: [{ turn: 6, year: 2, season: 2, entries: [{ text: 'A century of suppression left Troublesome Bench at 78% fuel load; the lightning strike found dry, dense fuel and ran 4,120 acres in three days.', kind: 'fire' }, { text: 'Your thinning in Cameron Ridge slowed the western flank; the fire stopped at the treated boundary.', kind: 'good' }] }],
+    history: history, unlockedCases: ['cameron_peak', 'streamgages'], seenCases: ['streamgages'],
+    flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0.04, hydroMWh: 1800, recreationVisits: 42000 }, lastSeasonReport: null
+  };
+
+  /* ---- mock sim modules used by the UI (spec'd APIs only) ---- */
+  WS.Advisors = { CHARACTERS: [
+    { id: 'reyes', name: 'Capt. Dolores Reyes', role: 'Wildland fire captain', color: '#ff7a33', avatarEmoji: '🚒' },
+    { id: 'jensen', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#d4a24c', avatarEmoji: '🤠' },
+    { id: 'whitehorse', name: 'Naomi Whitehorse', role: 'Tribal water representative', color: '#e9c46a', avatarEmoji: '🪶' },
+    { id: 'natarajan', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#4aa3df', avatarEmoji: '🔬' },
+    { id: 'lee', name: 'Marcus Lee', role: 'Resident, Marshall Heights', color: '#8f8b82', avatarEmoji: '🏡' },
+    { id: 'ortiz', name: 'Dr. Ana Ortiz', role: 'Wildlife biologist', color: '#6fbf73', avatarEmoji: '🦌' }
+  ] };
+  WS.CaseStudies = { LIST: [
+    { id: 'cameron_peak', title: 'Cameron Peak Fire', year: 2020, region: 'Larimer County', summary: 'Colorado\'s largest wildfire at roughly 208,000 acres burned much of the Cache la Poudre watershed above Fort Collins\' water supply. Summer storms in 2021 sent ash and debris into the river; utilities switched sources and spent years on sediment.', lesson: 'Protecting a water supply means managing the forest above it, years before the fire.', linkTo: 'Your fire in Troublesome Bench burned upstream of the reservoir, just as Cameron Peak burned above the Poudre intakes.' },
+    { id: 'east_troublesome', title: 'East Troublesome Fire', year: 2020, region: 'Grand County', summary: 'Ran about 17 miles in a single day into Grand Lake and Rocky Mountain National Park, ~193,000 acres.', lesson: 'Wind-driven fires outrun suppression; fuel treatment and evacuation planning matter more than crews on the day.' },
+    { id: 'marshall', title: 'Marshall Fire', year: 2021, region: 'Boulder County', summary: 'A December grass fire driven by 100+ mph winds destroyed more than 1,000 homes in Louisville and Superior.', lesson: 'The wildland-urban interface includes grassland suburbs, not just mountain forests.' },
+    { id: 'streamgages', title: 'Streamgages', year: 1889, region: 'Statewide', summary: 'The USGS and Colorado DWR gauge network provides near-real-time flow data that water managers and flood warnings depend on.', lesson: 'You cannot manage what you do not measure.' },
+    { id: 'shoshone', title: 'Shoshone Water Right', year: 1902, region: 'Glenwood Canyon', summary: 'A senior non-consumptive hydro right that keeps water flowing in the Colorado River; a 2024 purchase agreement by the Colorado River District aims to preserve it.', lesson: 'Non-consumptive rights can protect a river for everyone downstream.' }
+  ] };
+  WS.Flood = { TOOLS: {
+    mulch: { name: 'Straw mulch', desc: 'Covers bare burned soil so rain soaks in instead of running off; cuts sediment ~60% within its radius.', costM: 0.35, radius: 1 },
+    barrier: { name: 'Log barrier', desc: 'Straw wattles or felled logs on contour slow runoff and trap up to 300 t of sediment each.', costM: 0.15 },
+    debris_basin: { name: 'Debris basin', desc: 'Excavated basin on a channel below the scar; traps up to 4,000 t before the reservoir.', costM: 1.2, capacityTons: 4000 },
+    bank_stab: { name: 'Bank stabilisation', desc: 'Rock and willow along the river below the dam prevents bank erosion adding to the sediment load.', costM: 0.5 },
+    intake_protect: { name: 'Intake boom', desc: 'Curtain around the treatment intake; reduces ash reaching the plant.', costM: 0.8, max: 1 },
+    sensor: { name: 'Turbidity sensor', desc: 'A sensor upstream of the intake gives hours of warning — halving a contamination outage.', costM: 0.2 },
+    warning: { name: 'Flood warning', desc: 'Sirens and alerts in a neighbourhood cut injury risk 80%.', costM: 0.25 }
+  } };
+  WS.Projects = { effects: function () { return { thinnedZones: { 0: 0.76 }, fuelBreakZones: { 4: true }, hardenedZones: {} }; } };
+
+  /* ---- mock game facade (SPEC §11) ---- */
+  var game = {
+    state: state, world: world, formatters: C.fmt,
+    fundProject: function (id, target) { say('fundProject(' + id + ', ' + target + ')'); state.budget -= 1; return { ok: true, text: 'Funded ' + id }; },
+    setAllocation: function (s, f) { state.water.alloc[s] = f; say('setAllocation(' + s + ', ' + f.toFixed(2) + ')'); },
+    setRestriction: function (l) { state.water.restriction = l; say('setRestriction(' + l + ')'); },
+    setFirePolicy: function (p) { state.fire.policy = p; say('setFirePolicy(' + p + ')'); },
+    scheduleBurn: function (z) { state.projects.pendingBurn = { zoneId: z }; say('scheduleBurn(' + z + ')'); return { ok: true }; },
+    cancelBurn: function () { state.projects.pendingBurn = null; say('cancelBurn()'); },
+    endSeason: function () { say('endSeason()'); WS.UI.setPhase('live', { ticker: 'Season running…' }); WS.UI.setBusy(true); setTimeout(function () { WS.UI.setBusy(false); state.season = (state.season + 1) % 4; WS.UI.setPhase('plan'); WS.UI.refresh(); }, 1500); },
+    setSpeed: function (n) { say('setSpeed(' + n + ')'); }, setOverlay: function (m) { say('setOverlay(' + m + ')'); },
+    highlightZone: function (z) { say('highlightZone(' + z + ')'); }, focusZone: function (z) { say('focusZone(' + z + ')'); }, focusCell: function () {},
+    selectPlacementTool: function (t) { say('selectPlacementTool(' + t + ')'); }, finishPlacement: function () { say('finishPlacement()'); WS.UI.setPhase('plan'); },
+    openEvidence: function (topic) { say('openEvidence(' + topic + ')'); WS.UI.showEvidenceBoard(topic, game.getAdvisors(topic), { title: null }); },
+    openCaseStudy: function (id) { say('openCaseStudy(' + id + ')'); WS.UI.showCaseStudy(WS.CaseStudies.LIST.filter(function (c) { return c.id === id; })[0] || { id: id }); },
+    save: function () { say('save()'); return true; }, load: function () { say('load()'); return false; }, restart: function () { say('restart()'); },
+    getProjectList: function () {
+      var forest = world.zonesOf('forest'), hoods = world.zonesOf('neighborhood');
+      return [
+        { def: { id: 'streamgages', name: 'Streamgages', icon: '📡', category: 'monitor', costM: 1.5, upkeepM: 0.1, maxLevel: 1, targetType: 'global', summary: 'Real-time flow and snow telemetry.', detail: 'Colorado\'s DWR and USGS gauges give managers hourly flow data. Without them your readings carry ±25% uncertainty.', tradeoff: 'Money spent on data is money not spent on pipes.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'forest_thinning', name: 'Forest thinning', icon: '🪓', category: 'fire', costM: 1.8, upkeepM: 0, maxLevel: 6, targetType: 'forest', summary: 'Mechanically thin a sector to cut fuel ~45%.', detail: 'Thinning restores the open ponderosa structure that carried frequent low-intensity fire before 1900. Effect decays ~12%/yr as the stand regrows.', tradeoff: 'Costly per acre and needs a market for small-diameter wood.', seasonsAllowed: [0, 1, 2, 3] }, funded: true, level: 1, canFund: true, reason: '', targets: forest.map(function (z, i) { return { zoneId: z.id, name: z.name, funded: i === 0 }; }) },
+        { def: { id: 'prescribed_burn', name: 'Prescribed burn', icon: '🔥', category: 'fire', costM: 0.6, upkeepM: 0, maxLevel: 6, targetType: 'forest', summary: 'Burn a sector under controlled conditions.', detail: 'Reduces fuel ~60% for a fraction of thinning\'s cost. Windows are narrow: Spring and Fall only.', tradeoff: 'Smoke, and a small chance of escape.', seasonsAllowed: [1, 3] }, funded: false, level: 0, canFund: false, reason: 'Only in Spring/Fall', targets: forest.map(function (z) { return { zoneId: z.id, name: z.name, funded: false }; }) },
+        { def: { id: 'home_hardening', name: 'Home hardening', icon: '🏠', category: 'community', costM: 2.2, upkeepM: 0, maxLevel: 4, targetType: 'neighborhood', summary: 'Ember-resistant vents, roofs and defensible space.', detail: 'Most homes ignite from embers, not flame fronts. Hardening cuts the loss rate from ~55% to ~15% in a burning neighbourhood.', tradeoff: 'Slow to roll out; needs homeowner buy-in.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: hoods.map(function (z) { return { zoneId: z.id, name: z.name, funded: false }; }) },
+        { def: { id: 'reservoir_upgrade', name: 'Reservoir upgrade', icon: '🏗', category: 'water', costM: 6.5, upkeepM: 0.2, maxLevel: 2, targetType: 'global', summary: '+15% capacity, then a multi-level intake.', detail: 'A multi-level intake lets the plant draw from the cleanest layer when ash and algae stratify the pool.', tradeoff: 'Expensive; capacity is worthless in a dry year with nothing to store.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: true, reason: '', targets: [] },
+        { def: { id: 'wetland', name: 'Wetland restoration', icon: '🌿', category: 'flood', costM: 1.4, upkeepM: 0, maxLevel: 1, targetType: 'wetland', summary: 'Restore the floodplain wetland below the dam.', detail: 'Wetlands trap ~35% of sediment and shave ~30% off peak flows passing through them, while rebuilding elk and bird habitat.', tradeoff: 'Takes farmland out of production.', seasonsAllowed: [0, 1, 2, 3] }, funded: false, level: 0, canFund: false, reason: 'Needs $1.4M; budget short after upkeep', targets: [{ zoneId: 14, name: 'Bitterbrush Wetland', funded: false }] }
+      ];
+    },
+    getAdvisors: function (topic) {
+      var stor = history.map(function (x) { return x.storageAF; });
+      return [
+        { characterId: 'reyes', stance: 'urge', headline: 'Fuel in Kestrel Divide is at 80% — treat it now.', text: 'Fire danger is High with a D2 drought and fuels drying early. Untreated sectors above the reservoir are the ones that will hurt us twice.', evidence: { label: 'Fire danger', unit: 'index', series: history.map(function (x) { return x.fireDanger; }), current: 0.52, threshold: 0.6 } },
+        { characterId: 'jensen', stance: 'oppose', headline: 'Farms cannot take another short year.', text: 'Crop health is down to 71% and you are talking about spending on trees. Deliver the water first.', evidence: { label: 'Crop health', unit: '%', series: history.map(function (x) { return Math.round(x.cropHealth * 100); }), current: 71, threshold: 75 } },
+        { characterId: 'whitehorse', stance: 'caution', headline: 'The senior right is not negotiable.', text: 'Our right predates every ditch in this valley. Plan around it rather than hoping the reservoir bails you out.', evidence: { label: 'Storage', unit: 'AF', series: stor, current: 21500, threshold: 4000 } },
+        { characterId: 'natarajan', stance: 'support', headline: 'Streamgages would cut uncertainty from ±25% to ±5%.', text: 'Every allocation you make is built on estimates. A $1.5M gauge network is the cheapest risk reduction on the board.', evidence: { label: 'Streamflow', unit: 'cfs', series: history.map(function (x) { return x.streamflowCfs; }), current: 31, threshold: 14 } },
+        { characterId: 'ortiz', stance: 'caution', headline: 'Turbidity is climbing toward 0.5.', text: 'Fish kills follow when ash and sediment stay suspended through a low-flow summer. Keep the minimum flow and restore the wetland.', evidence: { label: 'Turbidity', unit: 'index', series: history.map(function (x) { return x.turbidity; }), current: 0.42, threshold: 0.5 } }
+      ];
+    },
+    listZones: function (type) { return world.zonesOf(type); }
+  };
+  window.game = game;
+  WS.UI.init(game);
+  WS.UI.setPhase('plan');
+
+  /* ---- dev buttons ---- */
+  var bar = document.getElementById('devbar');
+  function btn(label, fn) { var b = document.createElement('button'); b.textContent = label; b.onclick = fn; bar.appendChild(b); }
+  btn('Intro', function () { WS.UI.showIntro().then(function (r) { say('intro → ' + JSON.stringify(r)); }); });
+  btn('Event', function () {
+    WS.UI.showEventCard({ id: 'storm_forecast', title: 'Storm forecast over the burn scar', icon: '⛈', severity: 'crisis', text: 'The National Weather Service is calling for 2.1 inches in an hour over Troublesome Bench, where 4,120 acres burned last summer. Burned soils shed water like pavement; the creek below could run twenty times its normal flow.', source: 'After the 2020 fires, 2021 monsoon storms sent debris flows down Poudre Canyon and closed I-70 in Glenwood Canyon.',
+      choices: [{ label: 'Release the emergency fund and prepare', desc: 'Open the flood-prep toolbar with $2.5M for mulch, barriers and basins.', costM: 0 }, { label: 'Pre-emptively lower the reservoir', desc: 'Make room for sediment-laden inflow; lose 3,000 AF of stored water.', costM: 0.3, delta: { W: -3, P: 2 } }, { label: 'Hire a private crew for the intake', desc: 'Contractors boom the intake and stage pumps.', costM: 12 }] }).then(function (i) { say('event choice → ' + i); });
+  });
+  btn('Evidence', function () { game.openEvidence('budget'); });
+  btn('Report', function () {
+    WS.UI.showSeasonReport({ year: 2, season: 3, seasonName: 'Fall',
+      hydro: { inflowAF: 3100, availableAF: 22400, outflowAF: 8650, spillAF: 0, endStorageAF: 16850, storagePct: 0.40, deliveries: { households: 1580, farms: 900, fire: 600, hydro: 1500, recreation: 700, tribal: 375, wildlife: 2100, downstream: 2250 }, shortages: { farms: 480, recreation: 800, wildlife: 400 }, shortagePct: { farms: 0.35, recreation: 0.53, wildlife: 0.16 }, minFlowMet: false, legalOverride: true, cropHealthAvg: 0.66, hydroMWh: 1230, notes: ['Restriction: voluntary conservation trimmed household demand 7%.'] },
+      fire: null,
+      flood: { peakCfsReservoir: 2350, peakCfsTown: 1410, sedimentTons: 9800, sedimentToReservoir: 3900, ashToReservoir: 1200, trappedTons: 4700, floodedHouses: 6, damageM: 1.2, injuriesRisk: 0.1, contamination: { turbidityDelta: 0.3, ashDelta: 0.25, outageDays: 4 }, earlyWarning: true },
+      counterfactual: { damageM: 4.1, sedimentToReservoir: 8600 },
+      attribution: [{ label: 'Debris basin', preventedDamageM: 1.6, preventedSedimentTons: 3900 }, { label: 'Mulch', preventedDamageM: 0.9, preventedSedimentTons: 800 }],
+      burnResult: null,
+      outcomes: { before: { W: 66, E: 60, P: 71, F: 58, T: 63 }, after: { W: 62, E: 55, P: 70, F: 52, T: 61 }, delta: { W: -4, E: -5, P: -1, F: -6, T: -2 }, reasons: [{ key: 'W', text: 'Ash contamination forced a 4-day treatment outage', delta: -3 }, { key: 'T', text: 'Senior rights served by override', delta: -2 }] },
+      timeline: [{ text: 'A 2.1-inch storm over the 4,120-acre Troublesome Bench scar produced 2,350 cfs at the reservoir — versus ~120 cfs on unburned ground.', kind: 'flood' }, { text: 'Your debris basin trapped 3,900 t of sediment and cut damage at Riverbend from $4.1M to $1.2M.', kind: 'good' }, { text: 'Ash still reached the intake; the plant shut for 4 days. A sensor gave 6 hours of warning, halving the outage.', kind: 'bad' }, { text: 'Under-allocating the downstream delivery triggered a compact call; water was released anyway and trust fell.', kind: 'warn' }],
+      unlocked: ['cameron_peak'] }).then(function () { say('report closed'); });
+  });
+  btn('Case study', function () { WS.UI.showCaseStudy(WS.CaseStudies.LIST[0]); });
+  btn('Cases', function () { WS.UI.showCases(); });
+  btn('End', function () { WS.UI.showEnd({ R: 71.4, grade: { letter: 'B', title: 'Weathering It' }, outcomes: state.outcomes, highlights: ['Kept the tribal right whole every season.', 'One fire, 4,120 acres, three homes lost.', 'The debris basin paid for itself in a single storm.'], lessons: ['Fuel treatment above the reservoir is water-supply infrastructure.', 'Uncertainty is a cost; gauges are cheap.'], stats: state.stats }); });
+  btn('Help', function () { WS.UI.showHelp(); });
+  btn('Log', function () { WS.UI.showLog(); });
+  btn('Placement', function () {
+    var spec = { storm: { intensityIn: 2.1, durationHr: 1, turnsUntil: 1 }, daysUntil: 3, emergencyBudget: 2.5, selected: null, placed: {}, free: { mulch: 3 }, prep: { scarAcres: 4120, atRiskZones: [8, 6], predictedPeakCfs: 2350, predictedSedimentTons: 9800 } };
+    WS.UI.startPlacement(spec).then(function () { say('placement finished'); });
+    var origSel = game.selectPlacementTool;
+    game.selectPlacementTool = function (t) { origSel(t); spec.selected = t; spec.placed[t] = (spec.placed[t] || 0) + 1; spec.emergencyBudget = Math.max(0, spec.emergencyBudget - WS.Flood.TOOLS[t].costM); WS.UI.updatePlacement(spec); };
+  });
+  btn('Fire banner', function () { var on = WS.UI.els.fireBanner.hidden; WS.UI.showFireBanner(on ? { acres: 1240, zones: [0, 'Marshall Heights'], crewFocus: 'town' } : null); WS.UI.ticker(on ? 'Fire spreading in Cameron Ridge — 1,240 acres' : 'Fire contained.'); });
+  btn('Toasts', function () { ['info', 'good', 'warn', 'bad', 'event'].forEach(function (k, i) { setTimeout(function () { WS.UI.toast('This is a ' + k + ' toast about the watershed.', k); }, i * 250); }); });
+  btn('Flash', function () { WS.UI.flashOutcome('W'); WS.UI.flashOutcome('T'); });
+  btn('Busy', function () { WS.UI.setBusy(true); setTimeout(function () { WS.UI.setBusy(false); }, 2000); });
+  btn('Tutorial', function () {
+    var steps = [['These are your five outcomes. Hover any bar to see what feeds it.', '#hud-outcomes'], ['Conditions: this season\'s measurements. Ranges mean the readings are uncertain.', '#panel-left'], ['Actions: fund projects, allocate water, manage fire.', '#panel-right'], ['When you are ready, end the season and watch the watershed respond.', '#primary-btn']];
+    (function next(i) { if (i >= steps.length) { say('tutorial done'); return; } WS.UI.tutorialStep(steps[i][0], steps[i][1]).then(function (go) { if (go) next(i + 1); else say('tutorial skipped'); }); })(0);
+  });
+  btn('Uncertainty ±5%', function () { state.climate.uncertainty = 0.05; WS.UI.refresh(); });
+  btn('Empty history', function () { state.history = []; state.log = []; WS.UI.refresh(); });
+  btn('Queue 3 modals', function () { WS.UI.showHelp(); WS.UI.showCases(); WS.UI.showCaseStudy(WS.CaseStudies.LIST[2]); });
+})();
+</script>
+</body>
+</html>

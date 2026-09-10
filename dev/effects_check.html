@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watershed — effects check</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #223; font: 13px/1.4 system-ui, sans-serif; color: #eee; overflow: hidden; }
+  #host { position: absolute; inset: 0; }
+  #bar { position: absolute; left: 0; right: 0; top: 0; padding: 6px 8px; background: rgba(20,24,30,0.85); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; z-index: 2; }
+  #bar fieldset { border: 1px solid #556; border-radius: 6px; padding: 3px 6px; margin: 0; display: flex; gap: 4px; align-items: center; }
+  #bar legend { font-size: 11px; color: #aab; padding: 0 3px; }
+  button { background: #3a4656; color: #eee; border: 1px solid #667; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #4b5a6d; } button.on { background: #2f7fd0; border-color: #6fb0ff; }
+  input[type=range] { width: 90px; } select { font-size: 12px; }
+  #stats { position: absolute; left: 8px; bottom: 8px; background: rgba(20,24,30,0.8); padding: 6px 8px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre; z-index: 2; }
+  #hint { position: absolute; right: 8px; bottom: 8px; background: rgba(20,24,30,0.7); padding: 6px 8px; border-radius: 6px; font-size: 11px; color: #bcd; z-index: 2; }
+</style>
+</head>
+<body>
+<div id="host"></div>
+<div id="bar">
+  <fieldset><legend>Fire</legend>
+    <button id="fireOn">Ignite</button><button id="fireOff">Extinguish</button>
+  </fieldset>
+  <fieldset><legend>Weather</legend>
+    <button data-w="clear" class="on">clear</button><button data-w="rain">rain</button><button data-w="storm">storm</button>
+    <button data-w="snow">snow</button><button data-w="smoke">smoke</button><button data-w="haze">haze</button>
+    <label>int <input id="wInt" type="range" min="0" max="1" step="0.05" value="0.8"></label>
+  </fieldset>
+  <fieldset><legend>Wind</legend>
+    <label>dir <input id="wDir" type="range" min="0" max="6.28" step="0.05" value="0.8"></label>
+    <label>mph <input id="wMph" type="range" min="0" max="60" step="1" value="10"></label>
+  </fieldset>
+  <fieldset><legend>Overlay</legend>
+    <button data-o="none" class="on">none</button><button data-o="watershed">watershed</button><button data-o="fire">fire</button>
+    <button data-o="moisture">moisture</button><button data-o="burn">burn</button>
+  </fieldset>
+  <fieldset><legend>Flood</legend>
+    <button id="debrisPlay">Play debris frames</button><button id="debrisClear">Clear</button>
+  </fieldset>
+  <fieldset><legend>Markers</legend>
+    <button id="mkAll">Add all types</button><button id="mkClear">Clear</button><button id="hlToggle">Highlight zone</button>
+    <label>cursor <select id="curType"><option value="">off</option><option>mulch</option><option>barrier</option><option>debris_basin</option><option>bank_stab</option><option>intake_protect</option><option>sensor</option><option>warning</option><option>pin</option><option>fireStart</option></select></label>
+  </fieldset>
+</div>
+<div id="stats">…</div>
+<div id="hint">drag: orbit · shift/right-drag: pan · wheel: zoom · click with cursor type: place marker</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/rng.js"></script>
+<script>
+// Try the real world generator; fall back to an inline stub if src/world/terrain.js isn't there yet.
+(function () {
+  function next() {
+    var s = document.createElement('script'); s.src = '../src/render/effects.js';
+    s.onload = function () { window.__boot(); }; document.head.appendChild(s);
+  }
+  var t = document.createElement('script'); t.src = '../src/world/terrain.js';
+  t.onload = next; t.onerror = next; document.head.appendChild(t);
+})();
+
+window.__boot = function () {
+  var C = WS.C, N = C.N, NN = N * N, L = C.LAND, P = C.PALETTE;
+
+  // ---------------- stub world ----------------
+  function stubWorld(seed) {
+    var noise = WS.Noise.create(seed), rng = WS.RNG.create(seed);
+    var w = { seed: seed, N: N, cellM: C.CELL_M, elev: new Float32Array(NN), land: new Uint8Array(NN), slope: new Float32Array(NN), aspect: new Float32Array(NN),
+      fuel: new Float32Array(NN), moisture: new Float32Array(NN), burn: new Float32Array(NN), treeDensity: new Float32Array(NN), cropHealth: new Float32Array(NN),
+      habitat: new Float32Array(NN), flowDir: new Int32Array(NN), flowAcc: new Float32Array(NN), zone: new Int16Array(NN), zones: [], buildings: [], roads: [] };
+    w.idx = C.idx; w.xy = C.xy; w.inBounds = C.inBounds;
+    var x, y, i;
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = y * N + x; var nx = x / N, ny = y / N;
+      var g = Math.pow(Math.max(0, 1 - (nx * 0.55 + ny * 0.45)), 1.5);
+      w.elev[i] = 1980 + 1700 * g + 200 * noise.fbm(x / 24, y / 24, 4) + 120 * noise.ridged(x / 30 + 3, y / 30, 3) * g;
+    }
+    // reservoir basin
+    var rc = { x: 53, y: 61 }, res = [];
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      var d = Math.hypot(x - rc.x, y - rc.y); i = y * N + x;
+      if (d < 9) { w.elev[i] = Math.min(w.elev[i], 2185 - 3.5 * (9 - d)); w.land[i] = L.RESERVOIR; res.push(i); }
+    }
+    // river polyline
+    var path = [[12, 10], [22, 22], [34, 40], [46, 54], [53, 61], [62, 70], [76, 88], [96, 106], [118, 124]];
+    var elevAt = [3320, 3050, 2700, 2320, 2180, 2170, 2090, 2030, 1985];
+    var riverCells = [], riverMask = new Uint8Array(NN);
+    for (var s = 0; s < path.length - 1; s++) {
+      var a = path[s], b = path[s + 1], steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2);
+      for (var k = 0; k <= steps; k++) {
+        var t = k / steps, px = Math.round(a[0] + (b[0] - a[0]) * t), py = Math.round(a[1] + (b[1] - a[1]) * t), e = elevAt[s] + (elevAt[s + 1] - elevAt[s]) * t;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          var qx = px + dx, qy = py + dy; if (!C.inBounds(qx, qy)) continue; var qi = qy * N + qx;
+          if (w.land[qi] === L.RESERVOIR) continue;
+          var isCore = (dx === 0 && dy === 0) || s > 4;
+          w.elev[qi] = Math.min(w.elev[qi], e + (isCore ? 0 : 6));
+          if (isCore && !riverMask[qi]) { w.land[qi] = L.RIVER; riverMask[qi] = 1; riverCells.push(qi); }
+        }
+      }
+    }
+    // land use
+    var forestCells = [];
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = y * N + x; if (riverMask[i] || w.land[i] === L.RESERVOIR) continue;
+      var e2 = w.elev[i];
+      if (e2 > 3450) w.land[i] = L.ALPINE;
+      else if (e2 > 2200 && noise.fbm(x / 15, y / 15, 3) > -0.35) { w.land[i] = L.FOREST; forestCells.push(i); }
+      else if (x > 55 && y > 92) w.land[i] = L.FARM;
+      else if (x >= 70 && x <= 90 && y >= 66 && y <= 84) w.land[i] = ((x + y) % 7 === 0) ? L.ROAD : L.RESIDENTIAL;
+      else w.land[i] = L.SHRUB;
+      if (y === 75 && x >= 60 && x <= 100) w.land[i] = L.ROAD;
+    }
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = y * N + x; var f = w.land[i];
+      w.fuel[i] = f === L.FOREST ? 0.45 + 0.4 * (0.5 + 0.5 * noise.fbm(x / 9 + 7, y / 9, 3)) : (f === L.SHRUB ? 0.3 : 0);
+      w.moisture[i] = C.clamp(0.45 + 0.3 * noise.fbm(x / 20 + 11, y / 20 + 5, 3) + (f === L.FOREST ? 0.1 : 0), 0.05, 0.95);
+      w.treeDensity[i] = f === L.FOREST ? 0.4 + 0.6 * rng.next() : 0;
+      w.cropHealth[i] = f === L.FARM ? 0.85 : 0; w.habitat[i] = f === L.SHRUB ? 0.6 : 0.2;
+      var bd = Math.hypot(x - 34, y - 36); w.burn[i] = (bd < 11 && (f === L.FOREST || f === L.SHRUB)) ? C.clamp(0.95 - bd / 11 + 0.15 * noise.fbm(x / 5, y / 5, 2), 0, 1) : 0;
+      w.zone[i] = f === L.FOREST ? 0 : -1;
+    }
+    // slope, flowDir (D8 steepest descent), flowAcc
+    var order = new Int32Array(NN);
+    for (y = 0; y < N; y++) for (x = 0; x < N; x++) {
+      i = y * N + x; var best = -1, bestDrop = 0, ex = w.elev[i];
+      for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue; var xx = x + dx, yy = y + dy; if (!C.inBounds(xx, yy)) continue;
+        var drop = (ex - w.elev[yy * N + xx]) / ((dx && dy) ? 1.414 : 1);
+        if (drop > bestDrop) { bestDrop = drop; best = yy * N + xx; }
+      }
+      w.flowDir[i] = best; w.slope[i] = bestDrop / C.CELL_M; order[i] = i;
+    }
+    Array.prototype.sort.call(order, function (p, q) { return w.elev[q] - w.elev[p]; });
+    for (k = 0; k < NN; k++) { i = order[k]; w.flowAcc[i] += 1; if (w.flowDir[i] >= 0) w.flowAcc[w.flowDir[i]] += w.flowAcc[i]; }
+    var up = new Int8Array(NN); // 0 unknown, 1 yes, 2 no
+    w.isUpstreamOfReservoir = function (ci) {
+      var c = ci, guard = 0, stack = [];
+      while (c >= 0 && guard++ < NN) {
+        if (up[c]) break;
+        if (w.land[c] === L.RESERVOIR) { up[c] = 1; break; }
+        stack.push(c); c = w.flowDir[c];
+      }
+      var v = (c >= 0 && up[c] === 1) ? 1 : 2;
+      for (var q = 0; q < stack.length; q++) up[stack[q]] = v;
+      return v === 1;
+    };
+    w.zones = [{ id: 0, type: 'forest', name: 'Cameron Ridge (stub)', cells: Int32Array.from(forestCells), center: { x: 30, y: 30 }, upstreamOfReservoir: true }];
+    w.reservoir = { cells: Int32Array.from(res), center: rc, intake: { x: 60, y: 66 }, dam: { x: 62, y: 70 }, bedElev: 2155, spillElev: 2185 };
+    w.river = { path: path.map(function (p) { return { x: p[0], y: p[1] }; }) };
+    w.cellsOf = function (le) { var out = []; for (var q = 0; q < NN; q++) if (w.land[q] === le) out.push(q); return Int32Array.from(out); };
+    w.zoneById = function (id) { return w.zones[id] || null; };
+    return w;
+  }
+  var world = (WS.World && WS.World.generate) ? WS.World.generate(7) : stubWorld(7);
+  var usingStub = !(WS.World && WS.World.generate);
+
+  // ---------------- scene ----------------
+  var host = document.getElementById('host');
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = false;
+  host.appendChild(renderer.domElement);
+  var scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(P.fog, 0.0065); renderer.setClearColor(P.sky);
+  var camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.5, 600);
+  var sun = new THREE.DirectionalLight(P.sun, 1.1); sun.position.set(-40, 60, 30); scene.add(sun);
+  scene.add(new THREE.HemisphereLight(P.sky, 0x6b5a3a, 0.55)); scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+
+  // terrain: corner grid
+  var R = N + 1, corners = new Float32Array(R * R);
+  function cellElev(x, y) { x = C.clamp(x, 0, N - 1); y = C.clamp(y, 0, N - 1); return world.elev[y * N + x]; }
+  for (var vy = 0; vy <= N; vy++) for (var vx = 0; vx <= N; vx++)
+    corners[vy * R + vx] = (cellElev(vx - 1, vy - 1) + cellElev(vx, vy - 1) + cellElev(vx - 1, vy) + cellElev(vx, vy)) * 0.25;
+  var LAND_COL = {}; LAND_COL[L.RIVER] = P.waterDeep; LAND_COL[L.RESERVOIR] = P.waterDeep; LAND_COL[L.ALPINE] = P.alpine; LAND_COL[L.FOREST] = P.forest; LAND_COL[L.SHRUB] = P.shrub;
+  LAND_COL[L.FARM] = P.farm; LAND_COL[L.RESIDENTIAL] = P.residential; LAND_COL[L.CIVIC] = P.civic; LAND_COL[L.WETLAND] = P.wetland; LAND_COL[L.ROAD] = P.road; LAND_COL[L.RIPARIAN] = P.riparian;
+  var tpos = new Float32Array(NN * 18), tcol = new Float32Array(NN * 18), cc = new THREE.Color(), burnC = new THREE.Color(P.burnSevere), k = 0;
+  function corner(vx, vy) { return C.elevToScene(corners[vy * R + vx]); }
+  function pushV(vx, vy) { tpos[k * 3] = vx - N / 2; tpos[k * 3 + 1] = corner(vx, vy); tpos[k * 3 + 2] = vy - N / 2; tcol[k * 3] = cc.r; tcol[k * 3 + 1] = cc.g; tcol[k * 3 + 2] = cc.b; k++; }
+  for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
+    var i = y * N + x; cc.setHex(LAND_COL[world.land[i]] || P.shrub);
+    if (world.elev[i] > (world.snowlineElev || 2600) + 700) cc.setHex(P.snow);
+    if (world.burn[i] > 0.05) cc.lerp(burnC, world.burn[i]);
+    var j = 0.96 + 0.08 * Math.random(); cc.multiplyScalar(j); cc.convertSRGBToLinear();
+    pushV(x, y); pushV(x, y + 1); pushV(x + 1, y); pushV(x + 1, y); pushV(x, y + 1); pushV(x + 1, y + 1);
+  }
+  var tgeo = new THREE.BufferGeometry(); tgeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3)); tgeo.setAttribute('color', new THREE.BufferAttribute(tcol, 3)); tgeo.computeVertexNormals();
+  var terrain = new THREE.Mesh(tgeo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 })); scene.add(terrain);
+  function heightAt(sx, sz) {
+    var fx = C.clamp(sx + N / 2, 0, N - 0.001), fz = C.clamp(sz + N / 2, 0, N - 0.001), x0 = Math.floor(fx), z0 = Math.floor(fz), tx = fx - x0, tz = fz - z0;
+    var a = corner(x0, z0) * (1 - tx) + corner(x0 + 1, z0) * tx, b = corner(x0, z0 + 1) * (1 - tx) + corner(x0 + 1, z0 + 1) * tx;
+    return a * (1 - tz) + b * tz;
+  }
+
+  // orbit
+  var target = new THREE.Vector3(0, heightAt(0, 0), 0), yaw = 0.6, pitch = 0.9, dist = 90;
+  function placeCam() { camera.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * dist, target.y + Math.sin(pitch) * dist, target.z + Math.cos(yaw) * Math.cos(pitch) * dist); camera.lookAt(target); }
+  placeCam();
+  var drag = null, moved = 0;
+  host.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 }; moved = 0; });
+  addEventListener('pointerup', function (e) { if (drag && moved < 4) onClick(e); drag = null; });
+  addEventListener('pointermove', function (e) {
+    if (drag) {
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.pan) { var s = dist * 0.0018; target.x -= (Math.cos(yaw) * dx - Math.sin(yaw) * dy) * s; target.z -= (-Math.sin(yaw) * dx - Math.cos(yaw) * dy) * s; target.y = heightAt(target.x, target.z); }
+      else { yaw -= dx * 0.006; pitch = C.clamp(pitch + dy * 0.005, 0.38, 1.4); }
+      placeCam();
+    }
+    hover(e);
+  });
+  host.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  host.addEventListener('wheel', function (e) { dist = C.clamp(dist * (1 + e.deltaY * 0.001), 12, 220); placeCam(); }, { passive: true });
+  addEventListener('resize', function () { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+
+  // ---------------- effects ----------------
+  var fx = WS.Effects.init(scene, world, { heightAt: heightAt, camera: camera, renderer: renderer });
+  fx.onFogChange(function (f) { scene.fog.color.copy(f.color); scene.fog.density = f.density; renderer.setClearColor(f.skyTint); });
+  fx.setWind(0.8, 10);
+
+  // fire toy: expanding front
+  var fireR = 0, fireTimer = 0, fireOn = false, fc = { x: 34, y: 36 };
+  function fireStep() {
+    var burning = [], burned = [];
+    for (var yy = 0; yy < N; yy++) for (var xx = 0; xx < N; xx++) {
+      var ii = yy * N + xx, ld = world.land[ii]; if (ld !== L.FOREST && ld !== L.SHRUB) continue;
+      var d = Math.hypot(xx - fc.x, yy - fc.y);
+      if (d < fireR - 1.6) burned.push(ii); else if (d < fireR + 1.6) burning.push(ii);
+    }
+    fx.setFire(burning, burned);
+  }
+  document.getElementById('fireOn').onclick = function () { fireOn = true; fireR = 1; fireTimer = 0; fireStep(); };
+  document.getElementById('fireOff').onclick = function () { fireOn = false; fx.setFire([], []); };
+
+  // weather
+  var wInt = document.getElementById('wInt'), curWeather = 'clear';
+  document.querySelectorAll('[data-w]').forEach(function (b) {
+    b.onclick = function () { document.querySelectorAll('[data-w]').forEach(function (o) { o.classList.remove('on'); }); b.classList.add('on'); curWeather = b.dataset.w; fx.setWeather(curWeather, +wInt.value); };
+  });
+  wInt.oninput = function () { fx.setWeather(curWeather, +wInt.value); };
+  var wDir = document.getElementById('wDir'), wMph = document.getElementById('wMph');
+  wDir.oninput = wMph.oninput = function () { fx.setWind(+wDir.value, +wMph.value); };
+
+  // overlay
+  document.querySelectorAll('[data-o]').forEach(function (b) {
+    b.onclick = function () {
+      document.querySelectorAll('[data-o]').forEach(function (o) { o.classList.remove('on'); }); b.classList.add('on');
+      var t0 = performance.now(); fx.setOverlay(b.dataset.o, world, null); lastOverlayMs = (performance.now() - t0).toFixed(1);
+    };
+  });
+  var lastOverlayMs = '-';
+
+  // debris frames: particles start in the burn scar and walk down flowDir
+  var frames = null, frameI = 0, frameT = 0;
+  function makeFrames() {
+    var scar = []; for (var q = 0; q < NN; q++) if (world.burn[q] > 0.3) scar.push(q);
+    if (!scar.length) for (q = 0; q < NN; q++) if (world.land[q] === L.FOREST) scar.push(q);
+    var K = 1500, cur = new Int32Array(K), sed = new Float32Array(K), out = [];
+    for (var p = 0; p < K; p++) { cur[p] = scar[(Math.random() * scar.length) | 0]; sed[p] = C.clamp(world.burn[cur[p]] + Math.random() * 0.2, 0, 1); }
+    for (var f = 0; f < 32; f++) {
+      var pos = new Float32Array(K * 3);
+      for (p = 0; p < K; p++) {
+        var c = cur[p]; pos[p * 3] = c % N + (Math.random() - 0.5) * 0.6; pos[p * 3 + 1] = (c / N | 0) + (Math.random() - 0.5) * 0.6; pos[p * 3 + 2] = sed[p];
+        for (var st = 0; st < 2; st++) { var nx = world.flowDir[c]; if (nx >= 0 && world.land[nx] !== L.RESERVOIR) c = nx; }
+        cur[p] = c;
+      }
+      out.push({ positions: pos, count: K, reservoirTurbidity: f / 32 });
+    }
+    return out;
+  }
+  document.getElementById('debrisPlay').onclick = function () { frames = makeFrames(); frameI = 0; frameT = 0; fx.showDebris(frames[0]); };
+  document.getElementById('debrisClear').onclick = function () { frames = null; fx.clearDebris(); };
+
+  // markers
+  var TYPES = ['mulch', 'barrier', 'debris_basin', 'bank_stab', 'intake_protect', 'sensor', 'warning', 'pin', 'fireStart'], nextId = 100;
+  document.getElementById('mkAll').onclick = function () { TYPES.forEach(function (t, n) { fx.addMarker('demo_' + t, t, 66 + n * 2, 88); }); };
+  document.getElementById('mkClear').onclick = function () { fx.clearMarkers(); };
+  var hlOn = false;
+  document.getElementById('hlToggle').onclick = function () {
+    hlOn = !hlOn; var z = world.zones && world.zones[0];
+    fx.setHighlight(hlOn && z ? Array.prototype.slice.call(z.cells, 0, 3000) : null, 0xffd24a);
+  };
+  var curType = document.getElementById('curType'), ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hoverCell = null;
+  function pick(e) {
+    ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera);
+    var hit = ray.intersectObject(terrain)[0]; if (!hit) return null; return C.sceneToCell(hit.point.x, hit.point.z);
+  }
+  function hover(e) { if (!curType.value) { fx.setPlacementCursor(null); return; } hoverCell = pick(e); if (hoverCell) fx.setPlacementCursor(curType.value, hoverCell.x, hoverCell.y); }
+  function onClick(e) { if (e.target !== renderer.domElement || !curType.value) return; var c = pick(e); if (c) fx.addMarker('m' + (nextId++), curType.value, c.x, c.y); }
+  curType.onchange = function () { if (!curType.value) fx.setPlacementCursor(null); };
+
+  // loop
+  var stats = document.getElementById('stats'), last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (fireOn) { fireTimer += dt; if (fireTimer > 0.6) { fireTimer = 0; fireR = Math.min(fireR + 1, 15); fireStep(); } }
+    if (frames) { frameT += dt; if (frameT >= 0.125) { frameT -= 0.125; frameI++; if (frameI < frames.length) fx.showDebris(frames[frameI]); else if (frameI > frames.length + 16) { frames = null; fx.clearDebris(); } } }
+    fx.update(dt, camera);
+    renderer.render(scene, camera);
+    fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+    var s = fx.stats();
+    stats.textContent = 'fps ' + fps + '  draw ' + renderer.info.render.calls + '  tris ' + renderer.info.render.triangles + '\nworld: ' + (usingStub ? 'inline stub' : 'WS.World') +
+      '\nflames ' + s.flames + ' embers ' + s.embers + ' smoke ' + s.smoke + ' fireCells ' + s.fireCells + '\nrain ' + s.rain + ' snow ' + s.snow + ' fog ' + s.fog.toFixed(4) +
+      '\ndebris ' + s.debris + ' lines ' + s.lines + ' markers ' + s.markers + ' hl ' + s.highlight + '\noverlay rebuild ' + lastOverlayMs + ' ms';
+  }
+  requestAnimationFrame(loop);
+  window.fx = fx; window.world = world; window.renderer = renderer; window.scene = scene; window.camera = camera;
+};
+</script>
+</body>
+</html>
