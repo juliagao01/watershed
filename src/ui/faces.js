@@ -24,7 +24,7 @@
   var DEFAULT = { body: 'female', skin: 's2', hair: 'short', hairColor: 'h2', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' };
   /** Human-readable labels for the creator UI. */
   var LABELS = {
-    body: 'Body', skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory',
+    body: 'Gender', skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory',
     values: { female: 'Female', male: 'Male', short: 'Short', buzz: 'Buzz', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', braids: 'Braids', bald: 'Bald', afro: 'Afro', wavy: 'Wavy',
       round: 'Round', almond: 'Almond', narrow: 'Narrow', soft: 'Soft', straight: 'Straight', arched: 'Arched', smile: 'Smile', neutral: 'Neutral', grin: 'Grin',
       none: 'None', stubble: 'Stubble', beard: 'Beard', moustache: 'Moustache', square: 'Square', sun: 'Sunglasses', cap: 'Cap', widebrim: 'Wide brim', beanie: 'Beanie', helmet: 'Fire helmet', hardhat: 'Hard hat',

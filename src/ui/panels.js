@@ -336,7 +336,7 @@
   }
 
   /* ================================================================== CHARACTER CREATOR */
-  var CREATOR_LABELS = { body: 'Body', skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory' };
+  var CREATOR_LABELS = { body: 'Gender', skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory' };
   var THUMB_PX = 46, ZOOM_KINDS = { eyes: true, brows: true, mouth: true, facialHair: true, glasses: true };
   var CREATOR_ORDER = ['body', 'skin', 'hair', 'hairColor', 'eyes', 'brows', 'mouth', 'facialHair', 'glasses', 'hat', 'outfit', 'accessory'];
   var SWATCH_KINDS = { skin: 1, hairColor: 1, outfit: 1 };
