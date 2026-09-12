@@ -337,6 +337,7 @@
 
   /* ================================================================== CHARACTER CREATOR */
   var CREATOR_LABELS = { skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory' };
+  var THUMB_PX = 46, ZOOM_KINDS = { eyes: true, brows: true, mouth: true, facialHair: true, glasses: true };
   var CREATOR_ORDER = ['skin', 'hair', 'hairColor', 'eyes', 'brows', 'mouth', 'facialHair', 'glasses', 'hat', 'outfit', 'accessory'];
   var SWATCH_KINDS = { skin: 1, hairColor: 1, outfit: 1 };
   function optLabel(kind, id) {
@@ -366,8 +367,18 @@
       portrait = UI.portrait(face, 128, { title: 'Portrait preview' });
       portraitBox.appendChild(portrait);
     }
+    var thumbSrc = null; /* offscreen portrait canvas reused for every thumbnail */
+    function drawThumb(b) {
+      if (!F || !b._thumb) return;
+      var spec = {}; for (var k in face) spec[k] = face[k]; spec[b._kind] = b.dataset.value;
+      if (!thumbSrc) { thumbSrc = document.createElement('canvas'); thumbSrc.width = thumbSrc.height = 192; }
+      try { F.draw(thumbSrc, spec, { bg: null }); } catch (e) { return; }
+      var cv = b._thumb, g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+      if (ZOOM_KINDS[b._kind]) g.drawImage(thumbSrc, 40, 24, 112, 112, 0, 0, cv.width, cv.height);   /* eyes / mouth / glasses… zoomed to the face */
+      else g.drawImage(thumbSrc, 0, 0, 192, 192, 0, 0, cv.width, cv.height);
+    }
     function syncButtons() {
-      for (var kind in buttons) buttons[kind].forEach(function (b) { var on = b.dataset.value === face[kind]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      for (var kind in buttons) buttons[kind].forEach(function (b) { var on = b.dataset.value === face[kind]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); drawThumb(b); });
     }
     function setFace(next) { face = F ? F.normalize(next) : (next || {}); renderPortrait(); syncButtons(); emit(); }
     function pick(kind, id) { var n = {}; for (var k in face) n[k] = face[k]; n[kind] = id; setFace(n); }
@@ -385,10 +396,13 @@
             group.appendChild(b); return b;
           });
         } else {
-          group = h('div', { class: 'seg mini', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
+          /* picture pickers: each option is a small portrait of the CURRENT character with that option applied
+             (face details are shown zoomed in). Labels live in the tooltip / aria-label only. */
+          group = h('div', { class: 'seg mini thumbs', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
           buttons[kind] = list.map(function (id) {
-            var b = h('button', { type: 'button', 'aria-pressed': 'false' }, optLabel(kind, id));
-            b.dataset.value = id;
+            var cv = h('canvas', { class: 'opt-thumb', width: THUMB_PX * 2, height: THUMB_PX * 2, 'aria-hidden': 'true' });
+            var b = h('button', { type: 'button', class: 'thumb', 'aria-pressed': 'false', 'aria-label': (CREATOR_LABELS[kind] || kind) + ': ' + optLabel(kind, id), 'data-tip': optLabel(kind, id) }, [cv]);
+            b.dataset.value = id; b._thumb = cv; b._kind = kind;
             b.addEventListener('click', function () { pick(kind, id); });
             group.appendChild(b); return b;
           });
