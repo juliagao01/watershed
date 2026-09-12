@@ -12,6 +12,30 @@
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
   function isPlain(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v); }
 
+  /* ---- SPEC3 §C: player avatar ---- */
+  var PLAYER_NAME_MAX = 24, PLAYER_DEFAULT_NAME = 'Director Rivera', PLAYER_TITLE = 'Water-Resilience Director';
+  // Fixed, sensible default look (ids from SPEC3 §A): a field director with a cap and a clipboard.
+  var DEFAULT_FACE = { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'cap', outfit: 'o1', accessory: 'clipboard' };
+  function defaultFace() { var f = {}; for (var k in DEFAULT_FACE) if (Object.prototype.hasOwnProperty.call(DEFAULT_FACE, k)) f[k] = DEFAULT_FACE[k]; return f; }
+  function defaultPlayer() { return { name: PLAYER_DEFAULT_NAME, face: defaultFace(), title: PLAYER_TITLE }; }
+  function normalizeFace(face, base) {
+    var out = defaultFace(), src, k;
+    if (isPlain(base)) for (k in base) if (Object.prototype.hasOwnProperty.call(base, k) && typeof base[k] === 'string') out[k] = base[k];
+    if (isPlain(face)) for (k in face) if (Object.prototype.hasOwnProperty.call(face, k) && typeof face[k] === 'string') out[k] = face[k];
+    // WS.Faces (SPEC3 §A) knows the option space; when it is loaded it fixes invalid ids so the spec always renders.
+    if (WS.Faces && typeof WS.Faces.normalize === 'function') { try { src = WS.Faces.normalize(out); if (isPlain(src)) out = src; } catch (e) { /* keep out */ } }
+    return out;
+  }
+  /** normalizePlayer(p, base?) → { name, face, title }: name trimmed / ≤ 24 chars (fallback default), face filled from `base` then defaults. */
+  function normalizePlayer(p, base) {
+    base = isPlain(base) ? base : defaultPlayer();
+    p = isPlain(p) ? p : {};
+    var raw = (p.name != null) ? p.name : base.name;
+    var name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, PLAYER_NAME_MAX).trim();
+    if (!name) name = PLAYER_DEFAULT_NAME;
+    return { name: name, face: normalizeFace(p.face, base.face), title: PLAYER_TITLE };
+  }
+
   /** Full default state for the given opts. Every field in SPEC §3 is present. */
   function defaults(opts) {
     opts = opts || {};
@@ -38,7 +62,8 @@
       unlockedCases: [], seenCases: [],
       flags: {},
       stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
-      lastSeasonReport: null
+      lastSeasonReport: null,
+      player: defaultPlayer()   // SPEC3 §C: set from the intro creator (main.js), carried by saves
     };
   }
 
@@ -77,6 +102,8 @@
 
   var State = WS.State = {
     defaults: defaults,
+    defaultPlayer: defaultPlayer,
+    normalizePlayer: normalizePlayer,
 
     /** create({seed, years, mode}) -> state */
     create: function (opts) {
@@ -124,6 +151,7 @@
         s.water.delivered[k] = Math.max(0, num(s.water.delivered[k], 0));
         s.water.shortage[k] = Math.max(0, num(s.water.shortage[k], 0));
       }
+      s.player = normalizePlayer(s.player);
       return s;
     },
 

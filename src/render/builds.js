@@ -2,6 +2,8 @@
    on the map (siren poles, gauges, pivots, beaver dams, tanks, cabinets ...). Export WS.Builds. Browser only (THREE r128).
      WS.Builds.init(scene, world, { props, fx, heightAt, camera }) → builds
      builds.play(projectId, targetZoneId, state) → Promise<void>   // 3–5 s scene; unknown ids resolve at once; never throws
+                                      // (SPEC3 §C) first runs the player figure to ~2 cells from the site (2.5 s cap → teleport),
+                                      // keeps it facing the site with action 'point' during the scene, clears the action after
      builds.installed(state, world)   // (re)create every persistent installation from state.projects.funded (idempotent)
      builds.update(dt)                // animation: pivots rotate, sirens blink, scenes advance
      builds.siteFor(projectId, targetZoneId) → { x, y, dist } | null   // cell to fly the camera to before play()
@@ -947,9 +949,40 @@
         } catch (e) { if (WS.DEBUG) console.error('[Builds] play failed', e); finish(); }
       });
     }
+    // ---- player approach (SPEC3 §C): the director runs to a spot ~2 cells from the site, faces it and points for the scene
+    var PLAYER_CAP_MS = 2500, PLAYER_STAND = 2;
+    function hasPlayer() { return !!(props && typeof props.movePlayerTo === 'function' && typeof props.playerObject === 'function' && props.playerObject()); }
+    function standSpot(site) {
+      var pp = (typeof props.playerPosition === 'function') ? props.playerPosition() : null;
+      var ang0 = pp ? Math.atan2(pp.y - site.y, pp.x - site.x) : 0.8, k, a, x, y, l;
+      for (k = 0; k < 8; k++) {                                     // nearest side first, then fan out around the site
+        a = ang0 + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 0.8;
+        x = site.x + Math.cos(a) * PLAYER_STAND; y = site.y + Math.sin(a) * PLAYER_STAND;
+        l = landXY(x, y);
+        if (l >= 0 && !isWater(l)) return { x: x, y: y };
+      }
+      return null;
+    }
+    function approach(id, zid) {
+      var site = null, spot = null, timer = null;
+      try { if (hasPlayer()) { site = siteFor(id, zid); spot = site ? standSpot(site) : null; } } catch (e) { spot = null; }
+      if (!spot) return Promise.resolve();
+      var face = { x: site.x, y: site.y };
+      var walk = Promise.resolve().then(function () { return props.movePlayerTo(spot.x, spot.y, { run: true, face: face }); });
+      var cap = new Promise(function (res) { timer = setTimeout(function () { res('late'); }, PLAYER_CAP_MS); });
+      return Promise.race([walk, cap]).then(function (r) {
+        if (timer) clearTimeout(timer);
+        if (r === 'late' && typeof props.teleportPlayer === 'function') props.teleportPlayer(spot.x, spot.y, { face: face });
+        if ((r === true || r === 'late') && typeof props.setPlayerAction === 'function') props.setPlayerAction('point');
+      }).catch(function () { if (timer) clearTimeout(timer); });
+    }
+    function clearPlayerAction() { try { if (hasPlayer() && typeof props.setPlayerAction === 'function') props.setPlayerAction(null); } catch (e) { /* ignore */ } }
     function play(projectId, zoneId, state) {
       var id = String(projectId || ''), zid = (zoneId == null || zoneId === '') ? null : +zoneId;
-      var p = queue.then(function () { return runScene(id, zid, state); }).catch(function () {});
+      var p = queue.then(function () { return approach(id, zid); })
+        .then(function () { return runScene(id, zid, state); })
+        .catch(function () {})
+        .then(clearPlayerAction);
       queue = p;
       return p;
     }

@@ -23,6 +23,7 @@
   var lastWind = { dir: 0.8, mph: 8 };
   var broken = { water: false, props: false, fx: false, builds: false };
   var bound = false;
+  var lastPlayer = null;   // {spec, name} — re-applied after (re)init so setPlayer may be called in any order
 
   function num(v, d) { v = +v; return isFinite(v) ? v : d; }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -301,6 +302,7 @@
       builds = guard('Builds.init', function () { return WS.Builds.init(ctx.scene, world, { props: props, fx: fx, heightAt: heightAt, camera: ctx.camera }); }) || null;
       if (builds && builds.installed) guard('builds.installed', function () { builds.installed(state, world); });
     }
+    if (lastPlayer && props && props.setPlayer) guard('props.setPlayer', function () { props.setPlayer(lastPlayer.spec, lastPlayer.name); });
 
     // initial state
     R.setSeason(season, seasonClimate);
@@ -367,6 +369,41 @@
     if (!ctx) return;
     var a = advisorOf(id); if (!a || !a.position) return;
     ctx.focus(a.position.x, a.position.z, dist == null ? 22 : num(dist, 22), { smooth: true });
+  };
+
+  /* ---------- player avatar (SPEC3 §C) ---------- */
+  function playerObj() {
+    if (!props || typeof props.playerObject !== 'function') return null;
+    return guard('props.playerObject', function () { return props.playerObject(); }) || null;
+  }
+  R.setPlayer = function (spec, name) {      // build/rebuild the director figure; remembered and re-applied across init()
+    lastPlayer = { spec: spec || null, name: name == null ? 'Director' : String(name) };
+    if (props && props.setPlayer) guard('props.setPlayer', function () { props.setPlayer(lastPlayer.spec, lastPlayer.name); });
+  };
+  R.movePlayerTo = function (x, y, opts) {   // → Promise<bool>: true on arrival, false when cancelled / no player
+    if (!props || typeof props.movePlayerTo !== 'function' || !playerObj()) return Promise.resolve(false);
+    try { return Promise.resolve(props.movePlayerTo(num(x, 0), num(y, 0), opts || {})).catch(function () { return false; }); }
+    catch (err) { console.error('[Renderer] movePlayerTo failed:', err); return Promise.resolve(false); }
+  };
+  R.teleportPlayer = function (x, y, opts) { if (props && props.teleportPlayer && playerObj()) guard('props.teleportPlayer', function () { props.teleportPlayer(num(x, 0), num(y, 0), opts || {}); }); };
+  R.setPlayerAction = function (kind) { if (props && props.setPlayerAction) guard('props.setPlayerAction', function () { props.setPlayerAction(kind == null ? null : String(kind)); }); };
+  R.getPlayerPosition = function () {        // {x, y (fractional cells), sx, sz, i, walking, heading} | null
+    if (!props || typeof props.playerPosition !== 'function') return null;
+    return guard('props.playerPosition', function () { return props.playerPosition(); }) || null;
+  };
+  /* screen position of the player's head: { sx, sy, x, y, visible, dist } or null when there is no player / no scene */
+  R.playerScreenPos = function () {
+    if (!ctx) return null;
+    var o = playerObj(); if (!o || !o.position) return null;
+    var p = ctx.project(o.position.x, o.position.y + 2.0, o.position.z);
+    var dist = ctx.camera ? ctx.camera.position.distanceTo(o.position) : 0;
+    var vis = !!p.visible && p.sx >= 0 && p.sy >= 0 && p.sx <= ctx._w && p.sy <= ctx._h;
+    return { sx: p.sx, sy: p.sy, x: p.sx, y: p.sy, visible: vis, dist: dist };
+  };
+  R.flyToPlayer = function (dist) {
+    if (!ctx) return;
+    var o = playerObj(); if (!o || !o.position) return;
+    ctx.focus(o.position.x, o.position.z, dist == null ? 20 : num(dist, 20), { smooth: true });
   };
 
   /* ---------- tactical mode (SPEC2 §C) ---------- */

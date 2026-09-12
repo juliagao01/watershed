@@ -28,7 +28,20 @@
     <button id="talk">Talk: next advisor</button><button id="alert">Alert: toggle current</button><button id="fly">Fly to current</button>
     <span id="who"></span>
   </div>
-  <div class="hint">click the map: logs <code>advisorAt</code> hits below</div>
+  <div style="margin-top:4px;border-top:1px solid #556;padding-top:4px">
+    <b>Player</b>
+    <select id="preset"></select>
+    <input id="pname" value="Director Rivera" size="13">
+    <button id="setplayer">Set</button><button id="randplayer">Random</button>
+  </div>
+  <div>
+    <label><input type="checkbox" id="walkclick" checked> click → walk</label>
+    <label><input type="checkbox" id="run"> run</label>
+    <button data-act="point">point</button><button data-act="radio">radio</button><button data-act="dig">dig</button><button data-act="wave">wave</button><button data-act="">idle</button>
+    <button id="flyplayer">Fly to player</button>
+  </div>
+  <div id="pstat" style="font-family:ui-monospace,monospace;font-size:11px"></div>
+  <div class="hint">click the map: walks the player there (when enabled) and logs <code>advisorAt</code> hits below</div>
   <div id="log" style="white-space:pre;font-family:ui-monospace,monospace;font-size:11px;max-height:120px;overflow:auto"></div>
   <div id="stats"></div>
   <div id="err"></div>
@@ -40,6 +53,54 @@
 <script src="../src/world/terrain.js" onerror="window.__noTerrain = true"></script>
 <script src="../src/sim/advisors.js" onerror="window.__noAdvisors = true"></script>
 <script src="../src/render/props.js"></script>
+<script>
+/* WS.Faces loader: src/ui/faces.js is another agent's deliverable and may not exist yet. The server's directory listing
+   tells us whether it is there (no 404 noise); otherwise a small dev stand-in draws a simple face so the texture path is
+   still exercised. Add ?mockfaces=1 to force the stand-in. */
+window.__facesReady = (function () {
+  var forceMock = /[?&]mockfaces=1/.test(location.search);
+  function mock() {
+    if (window.WS && WS.Faces) return;
+    var HEX = { skin: { s1: '#f6d3b8', s2: '#e8b894', s3: '#c98f66', s4: '#a56a45', s5: '#7a4a2e', s6: '#4d2f1e' },
+      hairColor: { h1: '#2b1d14', h2: '#5a3a22', h3: '#a3652f', h4: '#d9b06a', h5: '#b5b5b5', h6: '#c0392b' },
+      outfit: { o1: '#2f6fb3', o2: '#c0392b', o3: '#2e8b57', o4: '#e2a93b', o5: '#6b4fbb', o6: '#444' } };
+    var DEF = { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' };
+    var cache = {};
+    window.WS = window.WS || {};
+    WS.Faces = {
+      _devMock: true,
+      OPTIONS: { skin: Object.keys(HEX.skin).map(function (k) { return { id: k, hex: HEX.skin[k] }; }), hair: ['short', 'buzz', 'curly', 'long', 'ponytail', 'bun', 'braids', 'bald', 'afro', 'wavy'],
+        hairColor: Object.keys(HEX.hairColor).map(function (k) { return { id: k, hex: HEX.hairColor[k] }; }), eyes: ['round', 'almond', 'narrow'], brows: ['soft', 'straight', 'arched'], mouth: ['smile', 'neutral', 'grin'],
+        facialHair: ['none', 'stubble', 'beard', 'moustache'], glasses: ['none', 'round', 'square', 'sun'], hat: ['none', 'cap', 'widebrim', 'beanie', 'helmet', 'hardhat'],
+        outfit: Object.keys(HEX.outfit).map(function (k) { return { id: k, hex: HEX.outfit[k] }; }), accessory: ['none', 'clipboard', 'binoculars', 'radio', 'scarf'] },
+      hexOf: function (kind, id) { return (HEX[kind] && HEX[kind][id]) || '#888888'; },
+      normalize: function (s) { var o = {}; for (var k in DEF) o[k] = (s && s[k]) || DEF[k]; return o; },
+      random: function () { var o = {}, O = WS.Faces.OPTIONS; for (var k in O) { var v = O[k][Math.floor(Math.random() * O[k].length)]; o[k] = v.id || v; } return o; },
+      draw: function (cv, spec, opts) {
+        var s = WS.Faces.normalize(spec), g = cv.getContext('2d'), W = cv.width, H = cv.height, u = W / 64;
+        g.clearRect(0, 0, W, H); if (opts && opts.bg) { g.fillStyle = opts.bg; g.fillRect(0, 0, W, H); }
+        g.fillStyle = HEX.outfit[s.outfit]; g.beginPath(); g.ellipse(32 * u, 66 * u, 26 * u, 16 * u, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = HEX.skin[s.skin]; g.beginPath(); g.ellipse(32 * u, 30 * u, 19 * u, 23 * u, 0, 0, Math.PI * 2); g.fill();
+        if (s.hair !== 'bald') { g.fillStyle = HEX.hairColor[s.hairColor]; g.beginPath(); g.ellipse(32 * u, 14 * u, 20 * u, 10 * u, 0, Math.PI, Math.PI * 2); g.fill(); }
+        g.fillStyle = '#2a201a'; g.beginPath(); g.arc(24 * u, 30 * u, 2.6 * u, 0, Math.PI * 2); g.arc(40 * u, 30 * u, 2.6 * u, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#3a2a22'; g.lineWidth = 2 * u; g.lineCap = 'round'; g.beginPath();
+        if (s.mouth === 'neutral') { g.moveTo(26 * u, 41 * u); g.lineTo(38 * u, 41 * u); } else g.arc(32 * u, 38 * u, 7 * u, 0.3, Math.PI - 0.3); g.stroke();
+        if (s.glasses !== 'none') { g.strokeStyle = '#222'; g.lineWidth = 1.5 * u; g.strokeRect(18 * u, 25 * u, 11 * u, 9 * u); g.strokeRect(35 * u, 25 * u, 11 * u, 9 * u); }
+      },
+      dataURL: function (spec, size, opts) {
+        var key = JSON.stringify([spec, size, opts]); if (cache[key]) return cache[key];
+        var cv = document.createElement('canvas'); cv.width = cv.height = size || 64; WS.Faces.draw(cv, spec, opts);
+        return (cache[key] = cv.toDataURL());
+      }
+    };
+  }
+  if (forceMock) { mock(); return Promise.resolve('mock'); }
+  return fetch('../src/ui/').then(function (r) { return r.ok ? r.text() : ''; }).then(function (listing) {
+    if (!/faces\.js/.test(listing)) throw new Error('faces.js not present');
+    return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = '../src/ui/faces.js'; s.onload = function () { res('real'); }; s.onerror = rej; document.head.appendChild(s); });
+  }).catch(function () { mock(); return 'mock'; }).then(function (kind) { if (!WS.Faces) { mock(); kind = 'mock'; } return kind; });
+})();
+</script>
 <script>
 (function () {
   'use strict';
@@ -219,7 +280,7 @@
   var props = WS.Props.build(world, scene, { heightAt: heightAt, camera: camera, viewHeight: function () { return innerHeight; } });
   var buildMs = performance.now() - t0;
   props.setWind(state.climate.windDirRad, state.climate.windMph);
-  window.__props = props; window.__world = world; window.__state = state; window.__camera = camera; // console debugging
+  window.__props = props; window.__world = world; window.__state = state; window.__camera = camera; window.__renderer = renderer; // console debugging
 
   // ------------------------------------------------------------ camera orbit
   var target = new THREE.Vector3(C.toScene(84, 74, 0).x, heightAt(C.toScene(84, 74, 0).x, C.toScene(84, 74, 0).z), C.toScene(84, 74, 0).z), yaw = 0.6, pitch = 0.9, dist = 50;
@@ -279,7 +340,37 @@
     var hitId = props.advisorHit(rc), h = rc.intersectObject(terrain)[0];
     var atId = h ? props.advisorAt(h.point.x, h.point.z, 1.2) : null;
     log('click → advisorHit=' + hitId + '  advisorAt=' + atId + (h ? '  @ ' + h.point.x.toFixed(1) + ',' + h.point.z.toFixed(1) : ''));
+    if (h && document.getElementById('walkclick').checked && props.playerObject()) {
+      var cell = C.sceneToCell(h.point.x, h.point.z), runOn = document.getElementById('run').checked, t0w = performance.now();
+      props.movePlayerTo(cell.x, cell.y, { run: runOn }).then(function (ok) { log((runOn ? 'ran' : 'walked') + ' to ' + cell.x + ',' + cell.y + ' → ' + ok + ' in ' + ((performance.now() - t0w) / 1000).toFixed(1) + ' s'); });
+    }
   });
+
+  // ------------------------------------------------------------ player (SPEC3 §C)
+  var PRESETS = {
+    ranger: { skin: 's3', hair: 'short', hairColor: 'h1', glasses: 'none', hat: 'widebrim', outfit: 'o3', accessory: 'binoculars' },
+    engineer: { skin: 's2', hair: 'bun', hairColor: 'h2', glasses: 'round', hat: 'hardhat', outfit: 'o4', accessory: 'clipboard' },
+    captain: { skin: 's5', hair: 'buzz', hairColor: 'h1', glasses: 'sun', hat: 'helmet', outfit: 'o2', accessory: 'radio' },
+    scientist: { skin: 's1', hair: 'long', hairColor: 'h4', glasses: 'square', hat: 'none', outfit: 'o1', accessory: 'scarf' },
+    afro: { skin: 's4', hair: 'afro', hairColor: 'h1', glasses: 'none', hat: 'beanie', outfit: 'o5', accessory: 'none' },
+    ponytail: { skin: 's2', hair: 'ponytail', hairColor: 'h3', glasses: 'none', hat: 'cap', outfit: 'o6', accessory: 'clipboard' },
+    braids: { skin: 's6', hair: 'braids', hairColor: 'h1', glasses: 'round', hat: 'none', outfit: 'o3', accessory: 'radio' },
+    curly: { skin: 's3', hair: 'curly', hairColor: 'h6', glasses: 'none', hat: 'none', outfit: 'o4', accessory: 'none' }
+  };
+  var presetEl = document.getElementById('preset'), pstatEl = document.getElementById('pstat'), curSpec = PRESETS.ranger;
+  Object.keys(PRESETS).forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = k; presetEl.appendChild(o); });
+  function applyPlayer(spec) { curSpec = spec; props.setPlayer(spec, document.getElementById('pname').value); log('setPlayer ' + JSON.stringify(spec)); }
+  presetEl.addEventListener('change', function () { applyPlayer(PRESETS[presetEl.value]); });
+  document.getElementById('setplayer').addEventListener('click', function () { applyPlayer(PRESETS[presetEl.value]); });
+  document.getElementById('randplayer').addEventListener('click', function () { applyPlayer(WS.Faces && WS.Faces.random ? WS.Faces.random() : PRESETS.captain); });
+  document.querySelectorAll('[data-act]').forEach(function (b) { b.addEventListener('click', function () { props.setPlayerAction(b.dataset.act || null); log('action ' + (b.dataset.act || 'null')); }); });
+  document.getElementById('flyplayer').addEventListener('click', function () { var o = props.playerObject(); if (o) { target.copy(o.position); dist = 18; placeCam(); } });
+  window.__facesReady.then(function (kind) {
+    log('WS.Faces: ' + kind);
+    applyPlayer(PRESETS.ranger);
+    var o = props.playerObject(); if (o) { target.copy(o.position); dist = 20; placeCam(); }
+  });
+  window.__setPlayer = applyPlayer; window.__presets = PRESETS;
   props.advisors().forEach(function (a) { var c = C.sceneToCell(a.position.x, a.position.z); log(a.id + ' home cell ' + c.x + ',' + c.y + ' land=' + C.LAND_NAMES[world.land[c.y * N + c.x]]); });
 
   // ------------------------------------------------------------ loop
@@ -294,6 +385,8 @@
         'props draw calls ' + props.stats.drawCalls + '   instances ' + props.stats.instances + '\n' +
         props.meshes.map(function (m) { return m.name + ':' + (m.count == null ? 'mesh' : m.count); }).join('  ') + '\n' +
         'season ' + C.SEASONS[state.season] + '  moisture ' + state.climate.soilMoisturePct + '%  fire cells ' + fireCells.length + '  wind ' + state.climate.windMph + ' mph';
+      var pp = props.playerPosition();
+      pstatEl.textContent = pp ? ('player @ ' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + '  ' + (pp.walking ? 'walking' : 'idle') + '  land=' + C.LAND_NAMES[world.land[pp.i]] + '  faces=' + (WS.Faces ? (WS.Faces._devMock ? 'mock' : 'real') : 'none')) : 'no player';
     }
     requestAnimationFrame(loop);
   }

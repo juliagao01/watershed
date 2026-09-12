@@ -118,6 +118,39 @@ function policy(log) {
     assert(Array.isArray(core) && core.length === 8 && core.indexOf('forest_thinning') >= 0 && core.indexOf('warning_system') >= 0, 'getCoreProjects returns the 8 core ids');
     assert(g.game.getCrisis() === null && g.game.isPaused() === false && g.game.selectTactic('dozer') === null, 'no crisis outside a fire/storm: selectTactic/getCrisis/isPaused are inert');
   }
+
+  /* ---------------------------------------------------------------- SPEC3 §C: player avatar — state, intro hook, saves, facade */
+  {
+    const g0 = WS.Game.createHeadless({ seed: 2, years: 4, decide: policy() });
+    const p0 = g0.state.player;
+    assert(p0 && typeof p0.name === 'string' && p0.name.length > 0 && p0.face && typeof p0.face === 'object' && typeof p0.face.skin === 'string' && typeof p0.face.hair === 'string' && p0.title === 'Water-Resilience Director', 'state.player exists with name/face/title after createHeadless (' + p0.name + ')');
+    // decide.intro stands in for the browser intro creator: its { player } lands in state, normalised
+    const dec = policy();
+    dec.intro = () => ({ player: { name: '  Dr. Ada   Lovelace-of-the-Watershed-County  ', face: { skin: 's5', hair: 'braids', hat: 'hardhat', accessory: 'radio' } } });
+    const g1 = WS.Game.createHeadless({ seed: 2, years: 4, decide: dec });
+    const n1 = g1.state.player.name;
+    assert(n1.indexOf('Dr. Ada Lovelace') === 0 && n1.length <= 24 && n1 === n1.trim() && n1.indexOf('  ') < 0, 'decide.intro player name is trimmed, whitespace-collapsed and capped at 24 chars ("' + n1 + '")');
+    assert(g1.state.player.face.skin === 's5' && g1.state.player.face.hair === 'braids' && g1.state.player.face.hat === 'hardhat' && g1.state.player.face.accessory === 'radio' && typeof g1.state.player.face.eyes === 'string' && typeof g1.state.player.face.outfit === 'string', 'decide.intro face spec kept, missing parts filled from the default spec');
+    await g1.runSeason(); await g1.runSeason();
+    assert(g1.state.player.name === n1 && g1.state.player.face.hat === 'hardhat', 'player unchanged after two seasons of play');
+    const blob = g1.save();
+    const g2 = WS.Game.createHeadless({ seed: 2, years: 4, decide: policy(), save: blob });
+    assert(JSON.stringify(g2.state.player) === JSON.stringify(g1.state.player), 'player survives serialize → deserialize');
+    const p3 = g2.game.setPlayer({ hat: 'widebrim', glasses: 'sun' }, 'Walt Jr.');
+    assert(p3 && p3.name === 'Walt Jr.' && p3.face.hat === 'widebrim' && p3.face.glasses === 'sun' && p3.face.skin === 's5' && g2.state.player.name === 'Walt Jr.', 'game.setPlayer(spec, name) updates state (spec merged over the current face)');
+    assert(g2.game.setPlayer(null, '   ').name === 'Director Rivera' && g2.state.player.face.hat === 'widebrim', 'blank name falls back to the default; omitted spec keeps the face');
+    assert(g2.game.getPlayer().face.hat === 'widebrim' && g2.game.focusPlayer() === undefined && g2.game.getPlayerPosition() === null, 'getPlayer / focusPlayer / getPlayerPosition are inert headless');
+    await g2.runSeason();
+    const blob2 = g2.save();
+    assert(WS.Game.createHeadless({ seed: 9, years: 4, decide: policy() }).load(blob2).state.player.face.hat === 'widebrim', 'edited player carried by a later save/load');
+    // a pre-SPEC3 save (no player) gets the default player
+    const old = JSON.parse(blob), st = JSON.parse(old.state); delete st.player; old.state = JSON.stringify(st);
+    const g4 = WS.Game.createHeadless({ seed: 2, years: 4, decide: policy(), save: JSON.stringify(old) });
+    assert(g4.state.player && g4.state.player.name === 'Director Rivera' && typeof g4.state.player.face.skin === 'string' && g4.state.player.title === 'Water-Resilience Director', 'a save without player gets the default player');
+    // the headless renderer adapter carries the SPEC3 facade as no-ops
+    const r = g4.game.renderer;
+    assert(['setPlayer', 'movePlayerTo', 'playerScreenPos', 'flyToPlayer', 'setPlayerAction', 'getPlayerPosition'].every(f => typeof r[f] === 'function') && r.movePlayerTo(1, 1, {}) === undefined, 'renderer adapter exposes the player facade (no-ops headless)');
+  }
   if (HAS2.tactics && HAS.World && HAS.Hydrology) {
     // decide.tactics: at step 3 cut a dozer ring at Chebyshev radius 3 around the ignition cell
     let calls = 0, ringCells = 0, fireReport = null, fireSeed = null;

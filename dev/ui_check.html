@@ -10,6 +10,7 @@
   #canvas-host { background: radial-gradient(ellipse at 40% 60%, #3b7fb0 0, #35643a 18%, #5c6b3a 40%, #b3a45e 62%, #9a948c 85%, #d9e3ec 100%); }
   #devbar { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; max-width: 900px; justify-content: center; }
   #devbar button { font: 12px/1.2 system-ui, sans-serif; padding: 4px 8px; background: #fbf6ea; color: #1b1f22; border: 1px solid #8a7a4a; border-radius: 6px; cursor: pointer; }
+  body.modal-open #devbar, body.modal-open #devout { display: none; } /* keep the dev strip off the modals */
   #devout { position: fixed; top: 178px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
 </style>
 </head>
@@ -19,6 +20,7 @@
 <div id="devout">mock game loaded</div>
 <script src="../src/core/constants.js"></script>
 <script src="../src/core/rng.js"></script>
+<script src="../src/ui/faces.js"></script>
 <script src="../src/ui/hud.js"></script>
 <script src="../src/ui/panels.js"></script>
 <script>
@@ -74,18 +76,22 @@
     ],
     timeline: [{ turn: 6, year: 2, season: 2, entries: [{ text: 'A century of suppression left Troublesome Bench at 78% fuel load; the lightning strike found dry, dense fuel and ran 4,120 acres in three days.', kind: 'fire' }, { text: 'Your thinning in Cameron Ridge slowed the western flank; the fire stopped at the treated boundary.', kind: 'good' }] }],
     history: history, unlockedCases: ['cameron_peak', 'streamgages'], seenCases: ['streamgages'],
-    flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0.04, hydroMWh: 1800, recreationVisits: 42000 }, lastSeasonReport: null
+    flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0.04, hydroMWh: 1800, recreationVisits: 42000 }, lastSeasonReport: null,
+    /* v3: the player character (normally set from the intro creator) */
+    player: { name: 'Director Rivera', face: WS.Faces.PRESETS[0].face, title: 'Water-Resilience Director' }
   };
 
   /* ---- mock sim modules used by the UI (spec'd APIs only) ---- */
+  /* faces per SPEC3 §B (same specs as src/sim/advisors.js) */
   WS.Advisors = { CHARACTERS: [
-    { id: 'reyes', name: 'Capt. Dolores Reyes', role: 'Wildland fire captain', color: '#ff7a33', avatarEmoji: '🚒' },
-    { id: 'jensen', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#d4a24c', avatarEmoji: '🤠' },
-    { id: 'whitehorse', name: 'Naomi Whitehorse', role: 'Tribal water representative', color: '#e9c46a', avatarEmoji: '🪶' },
-    { id: 'natarajan', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#4aa3df', avatarEmoji: '🔬' },
-    { id: 'lee', name: 'Marcus Lee', role: 'Resident, Marshall Heights', color: '#8f8b82', avatarEmoji: '🏡' },
-    { id: 'ortiz', name: 'Dr. Ana Ortiz', role: 'Wildlife biologist', color: '#6fbf73', avatarEmoji: '🦌' }
+    { id: 'reyes', name: 'Capt. Dolores Reyes', role: 'Wildland fire captain', color: '#ff7a33', avatarEmoji: '🚒', face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'almond', brows: 'straight', mouth: 'neutral', facialHair: 'none', glasses: 'none', hat: 'helmet', outfit: 'o4', accessory: 'radio' } },
+    { id: 'jensen', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#d4a24c', avatarEmoji: '🤠', face: { skin: 's3', hair: 'short', hairColor: 'h5', eyes: 'narrow', brows: 'straight', mouth: 'neutral', facialHair: 'moustache', glasses: 'none', hat: 'widebrim', outfit: 'o2', accessory: 'none' } },
+    { id: 'whitehorse', name: 'Naomi Whitehorse', role: 'Tribal water representative', color: '#e9c46a', avatarEmoji: '🪶', face: { skin: 's3', hair: 'long', hairColor: 'h1', eyes: 'almond', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o3', accessory: 'scarf' } },
+    { id: 'natarajan', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#4aa3df', avatarEmoji: '🔬', face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'round', brows: 'arched', mouth: 'smile', facialHair: 'none', glasses: 'round', hat: 'none', outfit: 'o1', accessory: 'clipboard' } },
+    { id: 'lee', name: 'Marcus Lee', role: 'Resident, Marshall Heights', color: '#8f8b82', avatarEmoji: '🏡', face: { skin: 's4', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'grin', facialHair: 'stubble', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' } },
+    { id: 'ortiz', name: 'Dr. Ana Ortiz', role: 'Wildlife biologist', color: '#6fbf73', avatarEmoji: '🦌', face: { skin: 's2', hair: 'ponytail', hairColor: 'h3', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'sun', hat: 'none', outfit: 'o3', accessory: 'binoculars' } }
   ] };
+  WS.Advisors.byId = function (id) { return WS.Advisors.CHARACTERS.filter(function (c) { return c.id === id; })[0] || null; };
   WS.CaseStudies = { LIST: [
     { id: 'cameron_peak', title: 'Cameron Peak Fire', year: 2020, region: 'Larimer County', summary: 'Colorado\'s largest wildfire at roughly 208,000 acres burned much of the Cache la Poudre watershed above Fort Collins\' water supply. Summer storms in 2021 sent ash and debris into the river; utilities switched sources and spent years on sediment.', lesson: 'Protecting a water supply means managing the forest above it, years before the fire.', linkTo: 'Your fire in Troublesome Bench burned upstream of the reservoir, just as Cameron Peak burned above the Poudre intakes.' },
     { id: 'east_troublesome', title: 'East Troublesome Fire', year: 2020, region: 'Grand County', summary: 'Ran about 17 miles in a single day into Grand Lake and Rocky Mountain National Park, ~193,000 acres.', lesson: 'Wind-driven fires outrun suppression; fuel treatment and evacuation planning matter more than crews on the day.' },
@@ -152,7 +158,10 @@
         { characterId: 'ortiz', stance: 'caution', headline: 'Turbidity is climbing toward 0.5.', text: 'Fish kills follow when ash and sediment stay suspended through a low-flow summer. Keep the minimum flow and restore the wetland.', evidence: { label: 'Turbidity', unit: 'index', series: history.map(function (x) { return x.turbidity; }), current: 0.42, threshold: 0.5 } }
       ];
     },
-    listZones: function (type) { return world.zonesOf(type); }
+    listZones: function (type) { return world.zonesOf(type); },
+    /* v3: player + advisor facade */
+    focusPlayer: function () { say('focusPlayer()'); },
+    askAdvisor: function (id) { say('askAdvisor(' + id + ')'); var i = WS.Advisors.CHARACTERS.map(function (c) { return c.id; }).indexOf(id); showAdvisorBubble(i < 0 ? 0 : i); WS.UI.moveBubble(window.innerWidth * 0.5, window.innerHeight * 0.55, true); }
   };
   var tac = { spec: null, timer: null };
   window.game = game;
@@ -162,7 +171,32 @@
   /* ---- dev buttons ---- */
   var bar = document.getElementById('devbar');
   function btn(label, fn) { var b = document.createElement('button'); b.textContent = label; b.onclick = fn; bar.appendChild(b); }
-  btn('Intro', function () { WS.UI.showIntro().then(function (r) { say('intro → ' + JSON.stringify(r)); }); });
+  btn('Intro', function () { WS.UI.showIntro().then(function (r) { say('intro → ' + JSON.stringify(r)); if (r && r.player) { state.player = { name: r.player.name, face: r.player.face, title: 'Water-Resilience Director' }; WS.UI.refresh(); } }); });
+  /* ---- v3: faces ---- */
+  btn('Faces gallery', function () {
+    WS.UI.modal({ icon: '🧑', eyebrow: 'Faces check', title: 'Advisors + 12 random', className: 'wide', render: function (body) {
+      var grid = document.createElement('div'); grid.className = 'faces-gallery';
+      function cell(face, label, sub, expr) { var d = document.createElement('div'); d.className = 'fg'; d.appendChild(WS.UI.portrait(face, 96, { expression: expr })); var b = document.createElement('b'); b.textContent = label; d.appendChild(b); if (sub) { var s2 = document.createElement('span'); s2.textContent = sub; d.appendChild(s2); } grid.appendChild(d); }
+      WS.Advisors.CHARACTERS.forEach(function (c) { cell(c.face, c.name.replace(/^(Capt\.|Dr\.)\s*/, ''), c.role); });
+      var r2 = WS.RNG.create(42);
+      for (var i = 0; i < 12; i++) { var f = WS.Faces.random(r2); cell(f, 'Random ' + (i + 1), f.hair + ' · ' + f.hat + ' · ' + f.accessory, ['neutral', 'worried', 'happy'][i % 3]); }
+      body.appendChild(grid);
+      var t0 = performance.now(), cv = document.createElement('canvas'); cv.width = cv.height = 96;
+      for (var k = 0; k < 40; k++) WS.Faces.draw(cv, WS.Advisors.CHARACTERS[k % 6].face, { expression: 'happy' });
+      var ms = (performance.now() - t0) / 40;
+      var p = document.createElement('p'); p.className = 'small dim'; p.style.marginTop = '10px'; p.textContent = 'draw() at 96 px: ' + ms.toFixed(2) + ' ms average over 40 draws · dataURL cache entries: ' + WS.Faces._cacheSize();
+      body.appendChild(p); say('faces draw ' + ms.toFixed(2) + ' ms @96px');
+    } });
+  });
+  btn('Creator', function () {
+    WS.UI.modal({ icon: '🪪', eyebrow: 'Character creator', title: 'Your character', className: 'wide', render: function (body, close) {
+      var cr = WS.UI.characterCreator({ name: state.player.name, face: state.player.face }, function (p) { say('creator → ' + p.name + ' ' + JSON.stringify(p.face)); });
+      body.appendChild(cr.el);
+      var b = document.createElement('button'); b.className = 'primary'; b.type = 'button'; b.textContent = 'Use this character';
+      b.onclick = function () { var p = cr.get(); state.player = { name: p.name, face: p.face, title: 'Water-Resilience Director' }; WS.UI.refresh(); close(p); };
+      body.appendChild(b);
+    } });
+  });
   btn('Event', function () {
     WS.UI.showEventCard({ id: 'storm_forecast', title: 'Storm forecast over the burn scar', icon: '⛈', severity: 'crisis', text: 'The National Weather Service is calling for 2.1 inches in an hour over Troublesome Bench, where 4,120 acres burned last summer. Burned soils shed water like pavement; the creek below could run twenty times its normal flow.', source: 'After the 2020 fires, 2021 monsoon storms sent debris flows down Poudre Canyon and closed I-70 in Glenwood Canyon.',
       choices: [{ label: 'Release the emergency fund and prepare', desc: 'Open the flood-prep toolbar with $2.5M for mulch, barriers and basins.', costM: 0 }, { label: 'Pre-emptively lower the reservoir', desc: 'Make room for sediment-laden inflow; lose 3,000 AF of stored water.', costM: 0.3, delta: { W: -3, P: 2 } }, { label: 'Hire a private crew for the intake', desc: 'Contractors boom the intake and stage pumps.', costM: 12 }] }).then(function (i) { say('event choice → ' + i); });

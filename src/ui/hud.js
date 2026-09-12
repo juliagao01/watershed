@@ -105,6 +105,49 @@
     return value === undefined ? null : value;
   };
 
+  /* ------------------------------------------------------------------ portraits (WS.Faces) */
+  /** UI.portrait(spec, size, opts) → <canvas class="portrait"> (HiDPI-crisp). opts: { expression:'neutral'|'worried'|'happy', bg: hex|null, title } */
+  UI.portrait = function (spec, size, opts) {
+    size = Math.max(12, Math.round(Number(size) || 40)); opts = opts || {};
+    var dpr = Math.min(3, Math.max(1, Number(root.devicePixelRatio) || 1));
+    var c = h('canvas', { class: 'portrait', width: Math.round(size * dpr), height: Math.round(size * dpr), role: opts.title ? 'img' : null, 'aria-label': opts.title || null, 'aria-hidden': opts.title ? null : 'true' });
+    c.style.width = size + 'px'; c.style.height = size + 'px';
+    try { if (WS.Faces && typeof WS.Faces.draw === 'function') WS.Faces.draw(c, spec, { expression: opts.expression, bg: opts.bg === undefined ? '#efe4d0' : opts.bg }); }
+    catch (e) { console.error('portrait failed', e); }
+    return c;
+  };
+  /** Advisor character by id (WS.Advisors.byId or a CHARACTERS scan) → object|null */
+  UI.characterById = function (id) {
+    if (id == null) return null;
+    var A = WS.Advisors || {};
+    try { if (typeof A.byId === 'function') { var c = A.byId(id); if (c) return c; } } catch (e) { /* ignore */ }
+    var list = A.CHARACTERS || [];
+    if (!Array.isArray(list)) list = Object.keys(list).map(function (k) { return list[k]; });
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+    return null;
+  };
+  /** Face spec for a bubble spec / character / recommendation ({face} directly, else looked up by id/characterId) → spec|null */
+  UI.faceOf = function (o) {
+    if (!o || typeof o !== 'object') return null;
+    if (o.face && typeof o.face === 'object') return o.face;
+    var ch = UI.characterById(o.id != null ? o.id : o.characterId);
+    return (ch && ch.face && typeof ch.face === 'object') ? ch.face : null;
+  };
+  /** Player (game.state.player) → { name, face, title } with defaults, or null when no player has been created yet. */
+  UI.player = function () {
+    var p = st().player;
+    if (!p || typeof p !== 'object') return null;
+    return { name: String(p.name || 'Director'), face: (p.face && typeof p.face === 'object') ? p.face : (WS.Faces ? WS.Faces.DEFAULT : {}), title: String(p.title || 'Water-Resilience Director') };
+  };
+  /** Small "portrait + name + title" badge for the player (report headers, case-study links). size defaults to 28. Returns null when there is no player. */
+  UI.playerBadge = function (size, opts) {
+    var p = UI.player(); if (!p) return null; opts = opts || {};
+    return h('div', { class: 'player-badge' + (opts.className ? ' ' + opts.className : '') }, [
+      UI.portrait(p.face, size || 28, { expression: opts.expression, title: p.name }),
+      opts.nameless ? null : h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), opts.noTitle ? null : h('div', { class: 'pt' }, p.title)])
+    ]);
+  };
+
   /* ------------------------------------------------------------------ text trimming (player feedback: less text) */
   /** Split prose into sentences (keeps the terminal punctuation). Abbreviations like "Dr." / "Capt." / "U.S." and decimals stay intact. */
   UI.sentences = function (text) {
@@ -279,7 +322,7 @@
 
   /* ------------------------------------------------------------------ modal queue */
   var modalQueue = [], modalActive = null;
-  /** opts: { title, eyebrow, icon, className, critical, render(body, close), foot(footEl, close), onClose } → Promise */
+  /** opts: { title, eyebrow, icon, head:<element>, className, critical, render(body, close), foot(footEl, close), onClose } → Promise */
   UI.modal = function (opts) {
     return new Promise(function (resolve) { modalQueue.push({ opts: opts || {}, resolve: resolve }); pumpModal(); });
   };
@@ -307,7 +350,8 @@
     if (o.title || o.icon || o.eyebrow) {
       modal.appendChild(h('div', { class: 'mhead' }, [
         o.icon ? h('div', { class: 'micon' }, o.icon) : null,
-        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, o.eyebrow) : null, o.title || ''])
+        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, o.eyebrow) : null, o.title || '']),
+        (o.head && o.head.nodeType) ? h('div', { class: 'head-extra' }, o.head) : null   /* e.g. the player's portrait badge */
       ]));
     }
     if (!o.critical) modal.appendChild(h('button', { class: 'close ghost', type: 'button', 'aria-label': 'Close', onclick: function () { close(undefined); } }, '×'));
@@ -372,14 +416,17 @@
     E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
     /* crisis chip: shown in the top bar while a fire/storm is fought live */
     E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, '🚨'), h('span', { class: 'txt' }, '')]);
+    /* player portrait chip (far left): portrait + name + title; click flies the camera to the player figure */
+    E.playerChip = h('button', { id: 'player-chip', class: 'player-chip', type: 'button', hidden: true, 'data-tip': 'Your character — click to fly to where they are' });
+    E.playerChip.addEventListener('click', function () { UI.callGame('focusPlayer'); });
+    E.playerChipKey = '';
+    E.topbar.appendChild(E.playerChip);
     E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
     ui.appendChild(E.topbar);
 
     /* evidence topic menu (popover) */
-    E.evidenceMenu = h('div', { id: 'evidence-menu', class: 'menu', hidden: true, role: 'menu' }, [h('div', { class: 'label' }, 'Ask the advisors about…')].concat(
-      UI.EVIDENCE_TOPICS.map(function (t) {
-        return h('button', { type: 'button', role: 'menuitem', onclick: function () { UI.toggleEvidenceMenu(false); UI.callGame('openEvidence', [t[0]]); } }, t[1]);
-      })));
+    E.evidenceMenu = h('div', { id: 'evidence-menu', class: 'menu advisors-menu', hidden: true, role: 'menu' });
+    UI.buildEvidenceMenu();
     ui.appendChild(E.evidenceMenu);
     document.addEventListener('click', function () { UI.toggleEvidenceMenu(false); });
 
@@ -516,17 +563,45 @@
       p[2].style.display = visible ? 'inline-flex' : 'none';
     });
   };
-  /** Toggle the advisor-topic popover. `anchor` (optional) is the button it hangs from; defaults to the top-bar Evidence button. */
+  /** (Re)build the Advisors popover: each advisor with a 24 px portrait (click → game.askAdvisor), then the Evidence Board topics. */
+  UI.buildEvidenceMenu = function () {
+    var m = UI.els.evidenceMenu; if (!m) return;
+    clear(m);
+    var list = (WS.Advisors && WS.Advisors.CHARACTERS) || [];
+    if (!Array.isArray(list)) list = Object.keys(list).map(function (k) { return list[k]; });
+    if (list.length) {
+      m.appendChild(h('div', { class: 'label' }, 'Advisors'));
+      list.forEach(function (ch) {
+        if (!ch) return;
+        var face = UI.faceOf(ch);
+        m.appendChild(h('button', { type: 'button', role: 'menuitem', class: 'adv-row', style: { '--adv': ch.color || '#4aa3df' }, 'data-advisor': ch.id || '', onclick: function () {
+          UI.toggleEvidenceMenu(false);
+          if (UI.game && typeof UI.game.askAdvisor === 'function') UI.callGame('askAdvisor', [ch.id]);
+          else UI.callGame('openEvidence', [UI.EVIDENCE_TOPICS[0][0]]);
+        } }, [
+          face ? UI.portrait(face, 24) : h('span', { class: 'av', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+          h('div', { class: 'grow' }, [h('div', { class: 'an' }, ch.name || 'Advisor'), ch.role ? h('div', { class: 'ar' }, ch.role) : null])
+        ]));
+      });
+      m.appendChild(h('hr', { class: 'rule' }));
+    }
+    m.appendChild(h('div', { class: 'label' }, 'Ask everyone about…'));
+    UI.EVIDENCE_TOPICS.forEach(function (t) {
+      m.appendChild(h('button', { type: 'button', role: 'menuitem', onclick: function () { UI.toggleEvidenceMenu(false); UI.callGame('openEvidence', [t[0]]); } }, t[1]));
+    });
+  };
+  /** Toggle the advisor popover. `anchor` (optional) is the button it hangs from; defaults to the top-bar Advisors button. */
   UI.toggleEvidenceMenu = function (force, anchor) {
     var m = UI.els.evidenceMenu; if (!m) return false;
     var wasOpen = !m.hidden;
     var open = force == null ? !wasOpen : !!force;
     m.hidden = !open;
     if (open) {
+      UI.buildEvidenceMenu();   /* advisors may have loaded after init; portraits are cheap (6 × 24 px) */
       var a = (anchor && anchor.getBoundingClientRect) ? anchor : UI.els.btnEvidence;
       var r = a.getBoundingClientRect();
       m.style.top = (r.bottom + 6) + 'px';
-      m.style.left = Math.max(8, Math.min(window.innerWidth - 216, r.left)) + 'px';
+      m.style.left = Math.max(8, Math.min(window.innerWidth - 266, r.left)) + 'px';
       var first = m.querySelector('button'); if (first) first.focus();
     }
     return wasOpen && !open;
@@ -667,6 +742,7 @@
     E.score.querySelector('.g').textContent = g.letter;
     E.score.querySelector('.title').textContent = g.title || 'Resilience score';
     var cs = document.getElementById('cond-season'); if (cs) cs.textContent = seasonStr + ' · Y' + fin(s.year, 1);
+    UI.renderPlayerChip();
     if (s.phase && s.phase !== UI._phase && !UI._primaryOverride) UI._phase = s.phase;
     UI.updatePrimary();
     E.phaseChip.className = 'chip phase-chip ' + UI._phase;
@@ -677,6 +753,21 @@
     if (fire && typeof fire === 'object' && E.fireBanner.hidden && isFinite(Number(fire.acres)) && !UI.tacticalVisible()) UI.showFireBanner(fire);
     if (!fire && !E.fireBanner.hidden && UI._phase !== PH.LIVE) UI.showFireBanner(null);
     UI.syncPanelToggles();
+  };
+
+  /** Top-bar player chip: rebuilt only when name/title/face change. Hidden until state.player exists. */
+  UI.renderPlayerChip = function () {
+    var E = UI.els, chip = E.playerChip; if (!chip) return;
+    var p = UI.player();
+    if (!p) { chip.hidden = true; E.playerChipKey = ''; return; }
+    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face);
+    if (key === E.playerChipKey && !chip.hidden) return;
+    E.playerChipKey = key;
+    clear(chip);
+    chip.appendChild(UI.portrait(p.face, 28, { title: p.name }));
+    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), h('div', { class: 'pt' }, p.title)]));
+    chip.setAttribute('aria-label', p.name + ', ' + p.title + ' — fly to your character');
+    chip.hidden = false;
   };
 
   /* ------------------------------------------------------------------ Conditions panel */
@@ -1118,8 +1209,10 @@
     el.style.setProperty('--adv', color);
     el.dataset.advisor = spec.id || '';
     el.appendChild(h('span', { class: 'tail', 'aria-hidden': 'true' }));
+    /* 40 px portrait (WS.Faces) replaces the emoji dot; the emoji stays as a fallback when no face is known */
+    var face = UI.faceOf(spec);
     el.appendChild(h('div', { class: 'who' }, [
-      spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null,
+      face ? UI.portrait(face, 40, { expression: spec.expression }) : (spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null),
       h('div', { class: 'grow' }, [h('div', { class: 'name' }, spec.name || 'Advisor'), spec.role ? h('div', { class: 'role' }, spec.role) : null]),
       h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: function () { UI.hideBubble(); } }, '×')
     ]));

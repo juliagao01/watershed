@@ -335,6 +335,81 @@
     return Math.round(n / cells.length * 100);
   }
 
+  /* ================================================================== CHARACTER CREATOR */
+  var CREATOR_LABELS = { skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory' };
+  var CREATOR_ORDER = ['skin', 'hair', 'hairColor', 'eyes', 'brows', 'mouth', 'facialHair', 'glasses', 'hat', 'outfit', 'accessory'];
+  var SWATCH_KINDS = { skin: 1, hairColor: 1, outfit: 1 };
+  function optLabel(kind, id) {
+    var L = (WS.Faces && WS.Faces.LABELS && WS.Faces.LABELS.values) || {};
+    if (L[id]) return L[id];
+    return String(id).charAt(0).toUpperCase() + String(id).slice(1);
+  }
+  /**
+   * "Your character" panel. initial: { name, face }. onChange(player) fires on every edit.
+   * Returns { el, get() → { name, face }, set(player) }.
+   */
+  UI.characterCreator = function (initial, onChange) {
+    var F = WS.Faces;
+    initial = initial || {};
+    var name = String(initial.name || 'Director Rivera');
+    var face = F ? F.normalize(initial.face) : (initial.face || {});
+    var el = h('div', { class: 'creator', role: 'group', 'aria-label': 'Your character' });
+    var portrait = null, portraitBox = h('div', { class: 'pbox' });
+    var nameInput = h('input', { type: 'text', id: 'creator-name', value: name, maxlength: 28, 'aria-label': 'Character name', placeholder: 'Your name' });
+    nameInput.addEventListener('input', function () { name = nameInput.value; emit(); });
+    var rows = h('div', { class: 'c-rows' });
+    var buttons = {};   /* kind → [button] */
+    function emit() { if (typeof onChange === 'function') { try { onChange(get()); } catch (e) { console.error(e); } } }
+    function get() { return { name: (String(name || '').trim() || 'Director Rivera').slice(0, 28), face: F ? F.normalize(face) : face }; }
+    function renderPortrait() {
+      clear(portraitBox);
+      portrait = UI.portrait(face, 128, { title: 'Portrait preview' });
+      portraitBox.appendChild(portrait);
+    }
+    function syncButtons() {
+      for (var kind in buttons) buttons[kind].forEach(function (b) { var on = b.dataset.value === face[kind]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    }
+    function setFace(next) { face = F ? F.normalize(next) : (next || {}); renderPortrait(); syncButtons(); emit(); }
+    function pick(kind, id) { var n = {}; for (var k in face) n[k] = face[k]; n[kind] = id; setFace(n); }
+    if (!F) { el.appendChild(h('p', { class: 'muted small' }, 'Portraits unavailable (faces.js not loaded).')); }
+    else {
+      CREATOR_ORDER.forEach(function (kind) {
+        var list = F.OPTIONS[kind] || []; if (!list.length) return;
+        var group;
+        if (SWATCH_KINDS[kind]) {
+          group = h('div', { class: 'swatches', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
+          buttons[kind] = list.map(function (o) {
+            var b = h('button', { type: 'button', class: 'swatch', style: { '--c': o.hex }, 'data-value': o.id, 'aria-label': (CREATOR_LABELS[kind] || kind) + ' ' + o.id.replace(/^\D+/, ''), 'data-tip': o.hex, 'aria-pressed': 'false' });
+            b.dataset.value = o.id;
+            b.addEventListener('click', function () { pick(kind, o.id); });
+            group.appendChild(b); return b;
+          });
+        } else {
+          group = h('div', { class: 'seg mini', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
+          buttons[kind] = list.map(function (id) {
+            var b = h('button', { type: 'button', 'aria-pressed': 'false' }, optLabel(kind, id));
+            b.dataset.value = id;
+            b.addEventListener('click', function () { pick(kind, id); });
+            group.appendChild(b); return b;
+          });
+        }
+        rows.appendChild(h('div', { class: 'crow', 'data-kind': kind }, [h('span', { class: 'k' }, CREATOR_LABELS[kind] || kind), group]));
+      });
+    }
+    var presets = h('div', { class: 'presets', role: 'group', 'aria-label': 'Presets' }, ((F && F.PRESETS) || []).slice(0, 4).map(function (p) {
+      var b = h('button', { type: 'button', 'data-tip': 'Start from the ' + p.name.toLowerCase() + ' preset' }, p.name);
+      b.addEventListener('click', function () { setFace(p.face); });
+      return b;
+    }));
+    var rand = h('button', { type: 'button', class: 'rand', 'data-tip': 'Roll a random look' }, '🎲 Randomise');
+    rand.addEventListener('click', function () { if (F) setFace(F.random(null)); });
+    el.appendChild(h('div', { class: 'c-title' }, [h('span', { class: 'label' }, 'Your character'), h('span', { class: 'hint' }, 'This is who walks the watershed and gives the orders.')]));
+    el.appendChild(h('div', { class: 'c-left' }, [portraitBox, nameInput, rand, presets]));
+    el.appendChild(rows);
+    renderPortrait(); syncButtons();
+    return { el: el, get: get, set: function (p) { p = p || {}; if (p.name != null) { name = String(p.name); nameInput.value = name; } if (p.face) setFace(p.face); else emit(); } };
+  };
+
   /* ================================================================== INTRO */
   UI.showIntro = function () {
     return UI.modal({
@@ -362,10 +437,16 @@
         var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Seed'), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, '🎲')]), h('div', { class: 'hint small dim', style: { marginTop: '4px' } }, 'Same seed, same world and weather.')]);
         var tutOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Guidance'), h('label', {}, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), 'Show tutorial hints']),
           h('div', { class: 'hint small dim' }, 'Coach marks on the first turn. Skippable.')]);
+        /* "Your character": live 128 px portrait, name, pickers, Randomise, presets. Remembered in localStorage (guarded by UI.pref). */
+        var remembered = UI.pref('player');
+        var creator = UI.characterCreator({ name: (remembered && remembered.name) || 'Director Rivera', face: (remembered && remembered.face) || (WS.Faces && WS.Faces.PRESETS && WS.Faces.PRESETS[0].face) || null });
+        body.appendChild(creator.el);
         body.appendChild(h('div', { class: 'opts' }, [yearsOpt, modeOpt, seedOpt, tutOpt]));
         body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } }, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
           var raw = (seedInput.value || '').trim(); var seed = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : (raw || String(Date.now()));
-          close({ years: years, mode: mode, seed: seed, tutorial: tutorial });
+          var player = creator.get();
+          UI.pref('player', player);
+          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player });
         } }, 'Begin ▶')));
       }
     });
@@ -424,6 +505,7 @@
     return { id: rec.characterId, name: rec.name || rec.characterId || 'Advisor', role: rec.role || '', color: rec.color || '#4aa3df', avatarEmoji: rec.avatarEmoji || '🧑' };
   }
   var STANCE_LABEL = { urge: 'Urges action', support: 'Supports', caution: 'Cautions', oppose: 'Opposes' };
+  var STANCE_EXPR = { urge: 'worried', support: 'happy', caution: 'neutral', oppose: 'worried' };
   UI.showEvidenceBoard = function (topic, recs, opts) {
     opts = opts || {}; recs = safeList(recs);
     var topicName = (UI.EVIDENCE_TOPICS.filter(function (t) { return t[0] === topic; })[0] || [topic, String(topic || 'Decision')])[1];
@@ -436,8 +518,9 @@
         recs.forEach(function (rec) {
           rec = rec || {}; var ch = characterFor(rec), ev = rec.evidence || null;
           var card = h('div', { class: 'advisor', 'data-advisor': ch.id || '' }, [
-            h('div', { class: 'who' }, [
-              h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+            h('div', { class: 'who', style: { '--adv': ch.color || '#4aa3df' } }, [
+              /* 56 px portrait; the stance sets the expression. Emoji dot only when no face is known. */
+              UI.faceOf(ch) ? UI.portrait(UI.faceOf(ch), 56, { expression: STANCE_EXPR[rec.stance] || 'neutral', title: ch.name }) : h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
               h('div', { class: 'grow' }, [h('div', { class: 'name' }, ch.name || 'Advisor'), h('div', { class: 'role' }, ch.role || '')]),
               h('span', { class: 'chip ' + (rec.stance || 'support') }, STANCE_LABEL[rec.stance] || rec.stance || 'says')
             ]),
@@ -474,6 +557,7 @@
     var year = report.year != null ? report.year : s.year;
     return UI.modal({
       icon: ['❄', '🌱', '☀', '🍂'][fin(report.season != null ? report.season : s.season) & 3], eyebrow: 'Season report', title: seasonLabel + ', Year ' + fin(year, 1), className: 'wide report', critical: true,
+      head: UI.playerBadge(28),
       render: function (body, close) {
         /* headline stat tiles (water + any crisis) */
         var cap = fin((s.reservoir || {}).capacityAF, 42000);
@@ -627,7 +711,12 @@
         var linkText = '';
         try { linkText = (typeof cs.linkTo === 'function') ? cs.linkTo(game && game.state) : (cs.linkTo || ''); } catch (e) { linkText = ''; }
         if (typeof linkText !== 'string') linkText = '';
-        if (linkText) body.appendChild(h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), linkText]));
+        if (linkText) {
+          var pl = UI.player();
+          body.appendChild(pl
+            ? h('div', { class: 'case-link with-portrait' }, [UI.portrait(pl.face, 28, { title: pl.name }), h('div', {}, [h('b', {}, 'Linked to what ' + pl.name + ' just experienced'), linkText])])
+            : h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), linkText]));
+        }
         if (cs.sources) body.appendChild(h('p', { class: 'small dim', style: { marginTop: '10px' } }, String(cs.sources)));
       },
       foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', onclick: function () { close(); } }, 'Close')); }
@@ -713,6 +802,7 @@
     }
     return UI.modal({
       icon: mode === 'storm' ? '🌊' : '🔥', eyebrow: 'After-action report', title: report.title || (mode === 'storm' ? 'Storm defense' : 'Fire response'), className: 'wide afteraction ' + mode, critical: true,
+      head: UI.playerBadge(28, { expression: 'worried' }),
       render: function (body) {
         if (report.headline) body.appendChild(h('p', { class: 'lead' }, String(report.headline)));
         if (stats.length) body.appendChild(h('div', { class: 'kv' }, stats.map(function (x) {

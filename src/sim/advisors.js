@@ -11,16 +11,22 @@
   // ---------------------------------------------------------------- characters
   var CHARACTERS = [
     { id: 'dolores', name: 'Capt. Dolores Reyes', role: 'Wildland Fire Captain', color: '#d9532b', avatarEmoji: '🚒',
+      face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'almond', brows: 'straight', mouth: 'neutral', facialHair: 'none', glasses: 'none', hat: 'helmet', outfit: 'o4', accessory: 'radio' },
       bio: 'Twenty-two seasons on engines and hand crews. Blunt, operational, allergic to wishful thinking. Measures every plan in crew-hours, fuel loads and the distance from a fire station.' },
     { id: 'walt', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#b9863c', avatarEmoji: '🤠',
+      face: { skin: 's3', hair: 'short', hairColor: 'h5', eyes: 'narrow', brows: 'straight', mouth: 'neutral', facialHair: 'moustache', glasses: 'none', hat: 'widebrim', outfit: 'o2', accessory: 'none' },
       bio: 'Third-generation cattle and hay operator holding a decree older than the town. Pragmatic about senior water rights, hay prices and what a dry summer does to a herd. Distrusts studies that cost more than ditches.' },
     { id: 'naomi', name: 'Naomi Whitehorse', role: 'Tribal Water Representative', color: '#7b4fa8', avatarEmoji: '🪶',
+      face: { skin: 's3', hair: 'long', hairColor: 'h1', eyes: 'almond', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o3', accessory: 'scarf' },
       bio: 'Represents a Ute-descended community whose reserved water right predates every other decree in the valley and was quantified in a treaty-era settlement. Speaks of the river as a relative with obligations flowing both ways. Written respectfully and generally; she speaks for no real tribe.' },
     { id: 'priya', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#2f7fb8', avatarEmoji: '📈',
+      face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'round', brows: 'arched', mouth: 'smile', facialHair: 'none', glasses: 'round', hat: 'none', outfit: 'o1', accessory: 'clipboard' },
       bio: 'Runs the basin water-supply forecast. Cites measurements first, models second, and always says how uncertain the number is. Would rather fund a streamgage than an opinion.' },
     { id: 'marcus', name: 'Marcus Lee', role: 'Resident and Parent, Marshall Heights', color: '#3f9a6a', avatarEmoji: '🏡',
+      face: { skin: 's4', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'grin', facialHair: 'stubble', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' },
       bio: 'Two kids at the elementary school, a mortgage in the wildland-urban interface and a water bill he reads line by line. Cares about smoke days, school closures and whether the lawn ban is really necessary.' },
     { id: 'ana', name: 'Dr. Ana Ortiz', role: 'Wildlife Biologist', color: '#5a8a3a', avatarEmoji: '🦌',
+      face: { skin: 's2', hair: 'ponytail', hairColor: 'h3', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'sun', hat: 'none', outfit: 'o3', accessory: 'binoculars' },
       bio: 'State wildlife biologist for the district. Counts elk on winter range, snorkels the creek for native cutthroat trout, and argues for instream flows and riparian habitat that have no lawyer of their own.' }
   ];
   var CHAR_BY_ID = {};

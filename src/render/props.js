@@ -23,6 +23,16 @@
      props.setRoofStyle(zoneId, 'metal'|'default', frac=1) // roofs of the first frac of houses in the zone
      props.housesInZone(zoneId) → [{i, x, y, z, rot, s, cell}] (scene coords)
      props.setCropsCleared(cells)     // crop rows in these cells hidden (full set; [] restores all)
+     -- player avatar (SPEC3 §C) --
+     props.setPlayer(spec, name)      // build/rebuild the director figure from a WS.Faces spec (parts swapped, old ones disposed)
+     props.movePlayerTo(x, y, {run, face:{x,y}, maxSecs}) → Promise<bool>  // walk (4 cells/s; run 7) over terrain; straight line when clear,
+                                      //   a water target snaps to the nearest dry cell; maxSecs (optional) teleports the rest of the way on expiry;
+                                      //   else an A* route around water (smoothed to straight legs); per-step heading fan as safety;
+                                      //   resolves true on arrival, false when cancelled by a newer call / teleport
+     props.teleportPlayer(x, y, {face:{x,y}})
+     props.playerPosition()           // {x, y (fractional cells), sx, sz, i, walking, heading} | null
+     props.setPlayerAction('point'|'radio'|'dig'|'wave'|null)
+     props.playerObject()             // THREE.Group | null (position live)
      props.dispose()
 */
 (function () {
@@ -57,7 +67,9 @@
     return { group: null, meshes: [], stats: { instances: 0, drawCalls: 0 }, refresh: noop, setSeason: noop, update: noop, setFire: noop, setWind: noop, dispose: noop,
       setCamera: noop, advisors: function () { return []; }, setAdvisorTalking: noop, setAdvisorAlert: noop, advisorAt: function () { return null; }, advisorHit: function () { return null; },
       treesInCell: function () { return 0; }, dropTree: function () { return false; }, setThinnedZones: noop, clearCells: function () { return 0; }, setRoofStyle: function () { return 0; },
-      housesInZone: function () { return []; }, setCropsCleared: noop };
+      housesInZone: function () { return []; }, setCropsCleared: noop,
+      setPlayer: function () { return null; }, movePlayerTo: function () { return Promise.resolve(false); }, teleportPlayer: noop,
+      playerPosition: function () { return null; }, setPlayerAction: noop, playerObject: function () { return null; } };
   }
 
   // ------------------------------------------------------------------ build
@@ -801,11 +813,11 @@
       g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r);
       g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
     }
-    function makeTagSprite(ch) {
+    function makeTagSprite(ch, labelOverride, register) {
       if (typeof document === 'undefined') return null;
       var cv = document.createElement('canvas'); cv.width = 320; cv.height = 80;
       var g = cv.getContext('2d'); if (!g) return null;
-      var label = (ch.avatarEmoji || '') + ' ' + firstName(ch.name);
+      var label = labelOverride != null ? String(labelOverride) : (ch.avatarEmoji || '') + ' ' + firstName(ch.name);
       g.font = 'bold 40px system-ui, -apple-system, "Segoe UI", sans-serif'; g.textBaseline = 'middle';
       var tw = Math.min(300, g.measureText(label).width + 40), x0 = (320 - tw) / 2;
       g.fillStyle = 'rgba(18,22,28,0.82)'; roundRect(g, x0, 6, tw, 68, 20); g.fill();
@@ -815,7 +827,7 @@
       if ('encoding' in tex && THREE.sRGBEncoding != null) tex.encoding = THREE.sRGBEncoding;
       var sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
       var sp = new THREE.Sprite(sm); sp.center.set(0.5, 0); sp.renderOrder = 30; sp.frustumCulled = false;
-      materials.push(sm); geometries.push({ dispose: function () { tex.dispose(); } });
+      if (register !== false) { materials.push(sm); geometries.push({ dispose: function () { tex.dispose(); } }); }
       return sp;
     }
     var alertMat = (function () {
@@ -859,8 +871,8 @@
       var rot = fin(b.rot, 0), x = fin(b.x, N / 2) + Math.sin(rot) * dist, y = fin(b.y, N / 2) + Math.cos(rot) * dist;
       return walkableNear(x, y, 4, [LAND.ROAD, LAND.CIVIC, LAND.RESIDENTIAL, LAND.FARM]);
     }
+    var townC = (world.townCenter && isFinite(world.townCenter.x)) ? world.townCenter : ((findZone('civic', /./) || {}).center || { x: N / 2, y: N / 2 });
     function homeFor(id) {
-      var townC = (world.townCenter && isFinite(world.townCenter.x)) ? world.townCenter : ((findZone('civic', /./) || {}).center || { x: N / 2, y: N / 2 });
       var spot = null, b, list, k, z;
       switch (id) {
         case 'dolores': // the WUI fire station = the station farthest from the civic core
@@ -952,13 +964,16 @@
       return sp;
     })();
 
+    var _cam = { has: false, x: 0, y: 0, z: 0, tanHalf: 0.4142, viewH: 800 };
+    function readCam() {
+      _cam.has = !!camera;
+      if (!_cam.has) return;
+      _cam.x = camera.position.x; _cam.y = camera.position.y; _cam.z = camera.position.z;
+      _cam.tanHalf = camera.isPerspectiveCamera ? Math.tan(fin(camera.fov, 45) * Math.PI / 360) : 0.4142;
+      _cam.viewH = Math.max(100, fin(viewHeightFn(), 800));
+    }
     function updateAdvisors(dt) {
-      var k, a, camX = 0, camY = 0, camZ = 0, tanHalf = 0.4142, viewH = 800, hasCam = !!camera;
-      if (hasCam) {
-        camX = camera.position.x; camY = camera.position.y; camZ = camera.position.z;
-        if (camera.isPerspectiveCamera) tanHalf = Math.tan(fin(camera.fov, 45) * Math.PI / 360);
-        viewH = Math.max(100, fin(viewHeightFn(), 800));
-      }
+      var k, a, camX = _cam.x, camY = _cam.y, camZ = _cam.z, tanHalf = _cam.tanHalf, viewH = _cam.viewH, hasCam = _cam.has;
       for (k = 0; k < advisors.length; k++) {
         a = advisors[k];
         // --- wander
@@ -1019,6 +1034,327 @@
       if (!raycaster || typeof raycaster.intersectObjects !== 'function' || !advMeshes.length) return null;
       var hits = raycaster.intersectObjects(advMeshes, false);
       return (hits && hits.length) ? (hits[0].object.userData.advisorId || null) : null;
+    }
+
+    // ================================================================= PLAYER (SPEC3 §C) — the director's avatar
+    // One figure built from the advisor part kit: merged body (torso, head, hair cap, hat, glasses band, chest accessory)
+    // + two legs + two 2-segment arms as separate meshes so it can stride / point / hold a radio, a curved face patch on
+    // the front of the head textured with the WS.Faces portrait, and a name-tag sprite. ≤ 8 draw calls, one figure.
+    var PLAYER_SCALE = 1.08, PLAYER_WALK = 4.0, PLAYER_RUN = 7.0, PLAYER_TURN = 9, PLAYER_LOOKAHEAD = 0.7, PLAYER_STUCK_S = 1.0;
+    var PLAYER_OFFS = [0, 0.8, -0.8, 1.5, -1.5, 2.2, -2.2];           // heading offsets tried when the next cell is water (last pair backs out of bays)
+    var FACE_CROP = { rx: 0.72, ry: 0.72, ox: 0.14, oy: 0.26 };         // portrait region shown on the head (head-and-shoulders → head)
+    var FACE_FALLBACK = {                                               // colour tables when WS.Faces is absent
+      skin: { s1: '#f6d3b8', s2: '#e8b894', s3: '#c98f66', s4: '#a56a45', s5: '#7a4a2e', s6: '#4d2f1e' },
+      hairColor: { h1: '#2b1d14', h2: '#5a3a22', h3: '#a3652f', h4: '#d9b06a', h5: '#b5b5b5', h6: '#c0392b' },
+      outfit: { o1: '#2f6fb3', o2: '#c0392b', o3: '#2e8b57', o4: '#e2a93b', o5: '#6b4fbb', o6: '#444444' }
+    };
+    var playerMat = mat({ emissive: 0xffffff, emissiveIntensity: 0.05 }); materials.push(playerMat);
+    var playerGroup = new THREE.Group(); playerGroup.name = 'player'; group.add(playerGroup);
+    var player = null;
+
+    function faceHex(kind, id, dflt) {
+      var F = WS.Faces;
+      if (F && typeof F.hexOf === 'function') { try { var h = F.hexOf(kind, id); if (h) return String(h); } catch (e) { /* fallthrough */ } }
+      if (typeof id === 'string' && id.charAt(0) === '#') return id;
+      var t = FACE_FALLBACK[kind]; return (t && t[id]) || dflt;
+    }
+    function pcol(hex, mul) { var c = hexToRgb(hex); mul = mul == null ? 1 : mul; return [Math.min(1, c[0] * mul), Math.min(1, c[1] * mul), Math.min(1, c[2] * mul)]; }
+    function normSpec(spec) {
+      var F = WS.Faces, s = (spec && typeof spec === 'object') ? spec : {};
+      if (F && typeof F.normalize === 'function') { try { var n = F.normalize(s); if (n && typeof n === 'object') s = n; } catch (e) { /* keep */ } }
+      var o = {};
+      for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) o[k] = s[k];
+      o.skin = o.skin || 's3'; o.hair = o.hair || 'short'; o.hairColor = o.hairColor || 'h1'; o.glasses = o.glasses || 'none';
+      o.hat = o.hat || 'none'; o.outfit = o.outfit || 'o1'; o.accessory = o.accessory || 'none';
+      return o;
+    }
+    function playerColours(s) {
+      var outfit = faceHex('outfit', s.outfit, '#2f6fb3'), skinHex = faceHex('skin', s.skin, '#c98f66');
+      return { skinHex: skinHex, outfitHex: outfit, skin: pcol(skinHex, 1.04), hair: pcol(faceHex('hairColor', s.hairColor, '#2b1d14')),
+        torso: pcol(outfit, 1.1), sleeve: pcol(outfit, 0.92), trim: pcol(outfit, 0.72), pants: [0.24, 0.26, 0.32], shoes: [0.15, 0.12, 0.1] };
+    }
+    /** merged body: torso, neck, head, hair silhouette, hat, glasses band, chest accessory (legs/arms are separate) */
+    function playerBodyGeo(s, c) {
+      var p = [], hair = c.hair, hatOn = s.hat && s.hat !== 'none', hs = s.hair;
+      p.push(part(BOX, c.torso, 0, 0.94, 0, 0, 0.44, 0.62, 0.27), part(BOX, c.trim, 0, 0.655, 0, 0, 0.46, 0.07, 0.29));
+      p.push(part(CYL8, c.skin, 0, 1.27, 0, 0, 0.14, 0.08, 0.14), part(SPH, c.skin, 0, 1.44, 0, 0, 0.34, 0.36, 0.34));
+      // hair: ten styles collapsed to a few silhouettes (big styles shrink to a short cap under a hat)
+      if (hatOn && (hs === 'afro' || hs === 'curly' || hs === 'wavy')) hs = 'short';
+      switch (hs) {
+        case 'bald': break;
+        case 'buzz': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.345, 0.24, 0.345)); break;
+        case 'afro': p.push(part(SPH, hair, 0, 1.53, -0.03, 0, 0.54, 0.5, 0.54)); break;
+        case 'long': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.37, 0.28, 0.37), part(BOX, hair, 0, 1.27, -0.15, 0, 0.3, 0.52, 0.1)); break;
+        case 'braids': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.37, 0.27, 0.37), part(BOX, hair, 0.15, 1.2, -0.08, 0, 0.07, 0.5, 0.07), part(BOX, hair, -0.15, 1.2, -0.08, 0, 0.07, 0.5, 0.07)); break;
+        case 'bun': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36), part(SPH, hair, 0, hatOn ? 1.5 : 1.6, hatOn ? -0.2 : -0.17, 0, 0.16, 0.14, 0.16)); break;
+        case 'ponytail': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36), part(BOX, hair, 0, 1.3, -0.2, 0, 0.09, 0.42, 0.09, 0.35)); break;
+        case 'curly': p.push(part(SPH, hair, 0, 1.51, -0.02, 0, 0.41, 0.3, 0.41), part(SPH, hair, 0.15, 1.45, -0.08, 0, 0.16, 0.16, 0.16), part(SPH, hair, -0.15, 1.45, -0.08, 0, 0.16, 0.16, 0.16)); break;
+        case 'wavy': p.push(part(SPH, hair, 0, 1.5, -0.03, 0, 0.38, 0.28, 0.39), part(BOX, hair, 0, 1.36, -0.13, 0, 0.32, 0.2, 0.1)); break;
+        default: p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36)); // short
+      }
+      var hc;
+      switch (s.hat) {
+        case 'cap': hc = pcol(c.outfitHex, 0.85); p.push(part(SPH, hc, 0, 1.53, 0, 0, 0.4, 0.3, 0.4), part(BOX, hc, 0, 1.5, 0.23, 0, 0.3, 0.03, 0.2)); break;
+        case 'widebrim': hc = [0.42, 0.3, 0.18]; p.push(part(CYL8, hc, 0, 1.64, 0, 0, 0.3, 0.2, 0.3), part(CYL8, hc, 0, 1.55, 0, 0, 0.68, 0.035, 0.68)); break;
+        case 'beanie': hc = pcol(c.outfitHex, 0.7); p.push(part(SPH, hc, 0, 1.57, 0, 0, 0.4, 0.34, 0.4), part(CYL8, pcol(c.outfitHex, 0.5), 0, 1.5, 0, 0, 0.41, 0.08, 0.41)); break;
+        case 'helmet': hc = [0.85, 0.16, 0.14]; p.push(part(SPH, hc, 0, 1.55, 0, 0, 0.43, 0.32, 0.43), part(CYL8, hc, 0, 1.45, 0.02, 0, 0.52, 0.04, 0.56), part(BOX, [0.95, 0.95, 0.5], 0, 1.56, 0.19, 0, 0.12, 0.08, 0.02)); break;
+        case 'hardhat': hc = [1, 0.8, 0.16]; p.push(part(SPH, hc, 0, 1.55, 0, 0, 0.42, 0.3, 0.42), part(CYL8, hc, 0, 1.47, 0.03, 0, 0.5, 0.035, 0.52)); break;
+      }
+      if (s.glasses && s.glasses !== 'none') {
+        var gc = s.glasses === 'sun' ? [0.06, 0.06, 0.08] : [0.18, 0.18, 0.2], gh = s.glasses === 'sun' ? 0.06 : 0.03;
+        p.push(part(BOX, gc, 0, 1.465, 0.185, 0, 0.3, gh, 0.02), part(BOX, gc, 0.155, 1.465, 0.07, 0, 0.012, 0.014, 0.22), part(BOX, gc, -0.155, 1.465, 0.07, 0, 0.012, 0.014, 0.22));
+      }
+      if (s.accessory === 'binoculars') {
+        p.push(part(BOX, [0.15, 0.12, 0.1], 0, 1.16, 0.135, 0, 0.3, 0.02, 0.02));
+        p.push(part(CYL8, [0.1, 0.1, 0.12], 0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2), part(CYL8, [0.1, 0.1, 0.12], -0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2));
+      } else if (s.accessory === 'scarf') {
+        var sc = (s.outfit === 'o2' || s.outfit === 'o6') ? [0.2, 0.7, 0.7] : [0.85, 0.24, 0.2];
+        p.push(part(CYL8, sc, 0, 1.24, 0, 0, 0.32, 0.1, 0.32), part(BOX, sc, 0.1, 1.05, 0.15, 0, 0.1, 0.32, 0.03, 0, 0.15));
+      }
+      return mergeParts(p);
+    }
+    /** limb geometries, pivot at the joint, hanging down -y (leg: hip; upper arm: shoulder; forearm: elbow, hand + hand-held prop) */
+    function playerLegGeo(c) { return mergeParts([part(BOX, c.pants, 0, -0.31, 0, 0, 0.15, 0.62, 0.17), part(BOX, c.shoes, 0, -0.61, 0.02, 0, 0.16, 0.07, 0.22)]); }
+    function playerUpperArmGeo(c) { return mergeParts([part(BOX, c.sleeve, 0, -0.15, 0, 0, 0.13, 0.32, 0.14)]); }
+    function playerForearmGeo(c, held) {
+      var p = [part(BOX, c.sleeve, 0, -0.14, 0, 0, 0.125, 0.28, 0.135), part(BOX, c.skin, 0, -0.33, 0, 0, 0.11, 0.1, 0.11)];
+      if (held === 'clipboard') p.push(part(BOX, [0.5, 0.36, 0.22], 0, -0.36, 0.11, 0, 0.2, 0.26, 0.02), part(BOX, [0.97, 0.97, 0.97], 0, -0.365, 0.125, 0, 0.16, 0.2, 0.01), part(BOX, [0.3, 0.3, 0.32], 0, -0.25, 0.12, 0, 0.06, 0.03, 0.03));
+      else if (held === 'radio') p.push(part(BOX, [0.12, 0.12, 0.14], 0, -0.36, 0.08, 0, 0.07, 0.15, 0.05), part(CYL8, [0.1, 0.1, 0.1], 0.02, -0.21, 0.08, 0, 0.012, 0.16, 0.012), part(BOX, [0.9, 0.3, 0.2], 0, -0.31, 0.11, 0, 0.03, 0.02, 0.01));
+      return mergeParts(p);
+    }
+    /** curved patch on the front of the head (±54° wide, ±57° tall) so the portrait wraps instead of floating as a card */
+    function playerFaceGeo() {
+      var g = new THREE.SphereGeometry(0.5, 12, 10, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 1.0, 2.0);
+      g.scale(0.353, 0.374, 0.353); g.translate(0, 1.44, 0);
+      return g;
+    }
+    function fallbackFaceURL(skinHex) {
+      if (typeof document === 'undefined') return null;
+      var cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+      var g = cv.getContext('2d'); if (!g) return null;
+      g.fillStyle = skinHex; g.beginPath(); g.ellipse(32, 30, 22, 26, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2a201a'; g.beginPath(); g.arc(23, 27, 3.2, 0, Math.PI * 2); g.arc(41, 27, 3.2, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#3a2a22'; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.arc(32, 36, 8, 0.25, Math.PI - 0.25); g.stroke();
+      try { return cv.toDataURL(); } catch (e) { return null; }
+    }
+    function loadPlayerFace(P, s, skinHex) {
+      var gen = ++P.gen, url = null, F = WS.Faces;
+      if (F && typeof F.dataURL === 'function') { try { url = F.dataURL(s, 64, { bg: null }); } catch (e) { url = null; } }
+      if (!url) url = fallbackFaceURL(skinHex);
+      if (!url || typeof Image === 'undefined') return;
+      var img = new Image();
+      img.onload = function () {
+        if (gen !== P.gen || player !== P || !P.faceMat) return;
+        var tex = new THREE.Texture(img);
+        tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+        if ('encoding' in tex && THREE.sRGBEncoding != null) tex.encoding = THREE.sRGBEncoding;
+        tex.repeat.set(FACE_CROP.rx, FACE_CROP.ry); tex.offset.set(FACE_CROP.ox, FACE_CROP.oy);
+        tex.needsUpdate = true;
+        if (P.faceTex) P.faceTex.dispose();
+        P.faceTex = tex; P.faceMat.map = tex; P.faceMat.needsUpdate = true; P.face.visible = true;
+      };
+      img.src = url;
+    }
+    function disposePlayerParts(P) {
+      var k;
+      while (P.obj.children.length) P.obj.remove(P.obj.children[0]);
+      for (k = 0; k < P.geoms.length; k++) P.geoms[k].dispose();
+      P.geoms.length = 0;
+      if (P.faceTex) { P.faceTex.dispose(); P.faceTex = null; }
+      if (P.faceMat) { P.faceMat.dispose(); P.faceMat = null; }
+      if (P.tag) { if (P.tag.parent) P.tag.parent.remove(P.tag); if (P.tag.material) { if (P.tag.material.map) P.tag.material.map.dispose(); P.tag.material.dispose(); } P.tag = null; }
+      P.body = P.legL = P.legR = P.armL = P.armR = P.foreL = P.foreR = P.face = null;
+    }
+    function buildPlayerParts(P, s, name) {
+      var c = playerColours(s), o = P.obj;
+      function mesh(g, shadow) { var m = new THREE.Mesh(g, playerMat); m.castShadow = shadow !== false; m.receiveShadow = false; m.frustumCulled = false; m.userData.player = true; P.geoms.push(g); return m; }
+      P.body = mesh(playerBodyGeo(s, c)); o.add(P.body);
+      var legG = playerLegGeo(c);
+      P.legL = new THREE.Mesh(legG, playerMat); P.legR = new THREE.Mesh(legG, playerMat); P.geoms.push(legG);
+      P.legL.position.set(0.1, 0.64, 0); P.legR.position.set(-0.1, 0.64, 0);
+      P.legL.castShadow = P.legR.castShadow = true; P.legL.frustumCulled = P.legR.frustumCulled = false; o.add(P.legL, P.legR);
+      var upG = playerUpperArmGeo(c);
+      P.armL = new THREE.Group(); P.armR = new THREE.Group(); P.foreL = new THREE.Group(); P.foreR = new THREE.Group();
+      P.armL.position.set(0.29, 1.19, 0); P.armR.position.set(-0.29, 1.19, 0); P.foreL.position.set(0, -0.3, 0); P.foreR.position.set(0, -0.3, 0);
+      var uL = new THREE.Mesh(upG, playerMat), uR = new THREE.Mesh(upG, playerMat); P.geoms.push(upG);
+      uL.castShadow = uR.castShadow = true; uL.frustumCulled = uR.frustumCulled = false;
+      // figure faces +z; its right hand is at -x. Radio in the right hand, clipboard in the left.
+      var fL = mesh(playerForearmGeo(c, s.accessory === 'clipboard' ? 'clipboard' : null)), fR = mesh(playerForearmGeo(c, s.accessory === 'radio' ? 'radio' : null));
+      P.armL.add(uL, P.foreL); P.foreL.add(fL); P.armR.add(uR, P.foreR); P.foreR.add(fR); o.add(P.armL, P.armR);
+      P.faceMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x202020, transparent: true, alphaTest: 0.4 });
+      P.face = mesh(playerFaceGeo(), false); P.face.material = P.faceMat; P.face.visible = false; o.add(P.face);
+      P.tag = makeTagSprite({ name: name, color: c.outfitHex, avatarEmoji: '★' }, '★ ' + name, false);
+      if (P.tag) playerGroup.add(P.tag);
+      loadPlayerFace(P, s, c.skinHex);
+    }
+    function playerOk(sx, sz) {
+      if (Math.abs(sx) > N / 2 - 0.6 || Math.abs(sz) > N / 2 - 0.6) return false;
+      var l = landOf(cellAtScene(sx, sz));
+      return l >= 0 && l !== LAND.RIVER && l !== LAND.RESERVOIR;
+    }
+    /** A* over the cell grid (8-connected, water blocked, no corner cutting) → smoothed list of scene-space waypoints, or null.
+        Runs once per movePlayerTo; typed arrays are reused with a generation stamp so nothing is allocated per call but the path. */
+    var ROUTE_MAX_NODES = 24000;
+    var routeG = new Float32Array(NN), routeF = new Float32Array(NN), routeFrom = new Int32Array(NN), routeSeen = new Int32Array(NN), routeClosed = new Int32Array(NN), routeGen = 0;
+    var routeHeap = new Int32Array(NN + 1), routeHeapN = 0;
+    function routeOk(i) { var l = world.land[i]; return l !== LAND.RIVER && l !== LAND.RESERVOIR; }
+    function heapPush(i) {
+      var k = routeHeapN++; routeHeap[k] = i;
+      while (k > 0) { var pa = (k - 1) >> 1; if (routeF[routeHeap[pa]] <= routeF[routeHeap[k]]) break; var t = routeHeap[pa]; routeHeap[pa] = routeHeap[k]; routeHeap[k] = t; k = pa; }
+    }
+    function heapPop() {
+      var top = routeHeap[0], last = routeHeap[--routeHeapN], k = 0; routeHeap[0] = last;
+      for (;;) { var l = k * 2 + 1, r = l + 1, m = k; if (l < routeHeapN && routeF[routeHeap[l]] < routeF[routeHeap[m]]) m = l; if (r < routeHeapN && routeF[routeHeap[r]] < routeF[routeHeap[m]]) m = r; if (m === k) break; var t = routeHeap[m]; routeHeap[m] = routeHeap[k]; routeHeap[k] = t; k = m; }
+      return top;
+    }
+    function routeCells(from, to) {
+      if (from < 0 || to < 0 || from === to || !routeOk(to) || !routeOk(from)) return null;
+      var gen = ++routeGen, tx = to % N, ty = (to / N) | 0, expanded = 0;
+      routeHeapN = 0; routeG[from] = 0; routeF[from] = Math.hypot(tx - from % N, ty - ((from / N) | 0)); routeFrom[from] = -1; routeSeen[from] = gen; heapPush(from);
+      while (routeHeapN > 0) {
+        var cur = heapPop(); if (routeClosed[cur] === gen) continue; routeClosed[cur] = gen;
+        if (cur === to) break;
+        if (++expanded > ROUTE_MAX_NODES) return null;
+        var cx = cur % N, cy = (cur / N) | 0, dx, dy;
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          var nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          var ni = ny * N + nx; if (routeClosed[ni] === gen || !routeOk(ni)) continue;
+          if (dx && dy && (!routeOk(cy * N + nx) || !routeOk(ny * N + cx))) continue;   // no cutting a water corner
+          var ng = routeG[cur] + ((dx && dy) ? 1.41421 : 1);
+          if (routeSeen[ni] === gen && ng >= routeG[ni]) continue;
+          routeSeen[ni] = gen; routeG[ni] = ng; routeF[ni] = ng + Math.hypot(tx - nx, ty - ny); routeFrom[ni] = cur; heapPush(ni);
+        }
+      }
+      if (routeClosed[to] !== gen) return null;
+      var cells = []; for (var c = to; c >= 0; c = routeFrom[c]) cells.push(c);
+      cells.reverse(); return cells;
+    }
+    function playerLineClear(x0, z0, x1, z1) {
+      var d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / 0.35)), k;
+      for (k = 1; k <= n; k++) { var t = k / n; if (!playerOk(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t)) return false; }
+      return true;
+    }
+    /** waypoints (scene xz) from the player to (tx,tz): straight when clear, else A* cells string-pulled into straight legs */
+    function playerRoute(P, tx, tz) {
+      if (playerLineClear(P.x, P.z, tx, tz)) return [{ x: tx, z: tz }];
+      var cells = routeCells(cellAtScene(P.x, P.z), cellAtScene(tx, tz));
+      if (!cells) return null;
+      var pts = [{ x: P.x, z: P.z }], k;
+      for (k = 1; k < cells.length - 1; k++) pts.push({ x: sceneX(cells[k] % N), z: sceneZ((cells[k] / N) | 0) });
+      pts.push({ x: tx, z: tz });
+      var out = [], anchor = pts[0], i = 0;
+      while (i < pts.length - 1) {                       // furthest waypoint visible from the anchor
+        var j = pts.length - 1;
+        while (j > i + 1 && !playerLineClear(anchor.x, anchor.z, pts[j].x, pts[j].z)) j--;
+        out.push(pts[j]); anchor = pts[j]; i = j;
+      }
+      return out;
+    }
+    function dryNear(cx, cy, r) {
+      cx = clamp(Math.round(cx), 0, N - 1); cy = clamp(Math.round(cy), 0, N - 1);
+      var best = null, bd = Infinity, dx, dy, x, y, l, d;
+      for (dy = -r; dy <= r; dy++) for (dx = -r; dx <= r; dx++) {
+        x = cx + dx; y = cy + dy; if (x < 0 || y < 0 || x >= N || y >= N) continue;
+        l = world.land[y * N + x]; if (l === LAND.RIVER || l === LAND.RESERVOIR) continue;
+        d = dx * dx + dy * dy; if (d < bd) { bd = d; best = { x: x, y: y }; }
+      }
+      return best;
+    }
+    function playerArrive(P, ok) {
+      var r = P.resolve; P.resolve = null; P.walking = false;
+      if (P.faceAt) { P.headTarget = Math.atan2(P.faceAt.sx - P.x, P.faceAt.sz - P.z); P.faceAt = null; }
+      if (r) { try { r(ok); } catch (e) { /* ignore */ } }
+    }
+    function playerCancel(P) { if (P.resolve) { var r = P.resolve; P.resolve = null; P.walking = false; try { r(false); } catch (e) { /* ignore */ } } P.walking = false; }
+    function faceOf(opts) { return (opts && opts.face && isFinite(+opts.face.x) && isFinite(+opts.face.y)) ? { sx: sceneX(+opts.face.x), sz: sceneZ(+opts.face.y) } : null; }
+    function lerpTo(cur, tgt, k) { return cur + (tgt - cur) * k; }
+    function updatePlayer(dt) {
+      var P = player; if (!P) return;
+      var walking = P.walking, step = 0, dx, dz, d;
+      if (walking) {
+        var wp = (P.route && P.wp < P.route.length) ? P.route[P.wp] : null, gx = wp ? wp.x : P.tx, gz = wp ? wp.z : P.tz;
+        dx = gx - P.x; dz = gz - P.z; d = Math.hypot(dx, dz);
+        P.elapsed += dt;
+        if (wp && P.wp < P.route.length - 1 && d < 0.2) { P.wp++; wp = P.route[P.wp]; gx = wp.x; gz = wp.z; dx = gx - P.x; dz = gz - P.z; d = Math.hypot(dx, dz); }
+        if (d < 0.06 || P.elapsed > P.maxT) { P.x = P.tx; P.z = P.tz; playerArrive(P, true); walking = false; }
+        else {
+          step = Math.min(d, P.speed * dt);
+          var want = Math.atan2(dx, dz), moved = false, k, h, la = Math.min(PLAYER_LOOKAHEAD, d);
+          for (k = 0; k < PLAYER_OFFS.length; k++) {
+            h = want + PLAYER_OFFS[k] * P.detour;
+            var nx = P.x + Math.sin(h) * step, nz = P.z + Math.cos(h) * step;
+            if (!playerOk(nx, nz) || !playerOk(P.x + Math.sin(h) * la, P.z + Math.cos(h) * la)) continue;
+            P.x = nx; P.z = nz; P.headTarget = h; moved = true;
+            if (k > 0 && (k % 2) === 0) P.detour = -P.detour;   // keep skirting the water on the side that worked
+            break;
+          }
+          if (moved) { P.stuck = 0; P.cycle += step * (P.speed > 5 ? 4.2 : 5.4); }
+          else { P.stuck += dt; if (P.stuck > PLAYER_STUCK_S) { P.x = P.tx; P.z = P.tz; playerArrive(P, true); walking = false; } }
+        }
+      }
+      var dh = P.headTarget - P.heading; while (dh > Math.PI) dh -= 6.283185; while (dh < -Math.PI) dh += 6.283185;
+      P.heading += dh * Math.min(1, dt * PLAYER_TURN);
+      // --- pose targets (ux/uz: upper-arm rotation x/z, fx/fz: forearm rotation x/z, lg: leg rotation x)
+      var L = P.pose.L, R = P.pose.R, act = walking ? 'walk' : (P.action || 'idle'), t = time, rate = Math.min(1, dt * 10);
+      var tL = P.tmpL, tR = P.tmpR, bob = 0, tilt = 0, roll = 0, sy = 1, run = P.speed > 5;
+      tL.ux = 0; tL.uz = 0.08; tL.fx = -0.05; tL.fz = 0; tL.lg = 0; tR.ux = 0; tR.uz = -0.08; tR.fx = -0.05; tR.fz = 0; tR.lg = 0;
+      switch (act) {
+        case 'walk': {
+          var sw = Math.sin(P.cycle), amp = run ? 1.0 : 0.7;
+          tL.ux = -sw * amp * 0.7; tL.fx = -0.35 - (run ? 0.5 : 0); tL.lg = sw * amp * 0.75;
+          tR.ux = sw * amp * 0.7; tR.fx = -0.35 - (run ? 0.5 : 0); tR.lg = -sw * amp * 0.75;
+          bob = (run ? 0.05 : 0.035) * Math.abs(sw); tilt = run ? 0.14 : 0.05; roll = 0.03 * sw; rate = Math.min(1, dt * 30);
+          break;
+        }
+        case 'point': tR.ux = -1.35 + 0.05 * Math.sin(t * 3); tR.uz = -0.1; tR.fx = -0.1; break;
+        case 'radio': tR.ux = -1.2; tR.uz = -0.35; tR.fx = -2.25; tL.ux = 0.1; break;
+        case 'dig': {
+          var dg = Math.sin(t * 6);
+          tL.ux = tR.ux = -0.85 + 0.45 * dg; tL.fx = tR.fx = -0.7 - 0.2 * dg; tL.uz = 0.05; tR.uz = -0.05;
+          tilt = 0.25 + 0.08 * dg; bob = 0.02 * Math.abs(dg); sy = 0.97;
+          break;
+        }
+        case 'wave': tR.ux = -2.9; tR.uz = 0.35; tR.fx = -0.25; tR.fz = 0.45 * Math.sin(t * 9); break;
+        default: bob = 0.008 * Math.sin(t * 1.8); sy = 1 + 0.012 * Math.sin(t * 1.8);
+      }
+      L.ux = lerpTo(L.ux, tL.ux, rate); L.uz = lerpTo(L.uz, tL.uz, rate); L.fx = lerpTo(L.fx, tL.fx, rate); L.fz = lerpTo(L.fz, tL.fz, rate); L.lg = lerpTo(L.lg, tL.lg, rate);
+      R.ux = lerpTo(R.ux, tR.ux, rate); R.uz = lerpTo(R.uz, tR.uz, rate); R.fx = lerpTo(R.fx, tR.fx, rate); R.fz = lerpTo(R.fz, tR.fz, rate); R.lg = lerpTo(R.lg, tR.lg, rate);
+      if (P.armL) {
+        P.armL.rotation.set(L.ux, 0, L.uz); P.foreL.rotation.set(L.fx, 0, L.fz); P.legL.rotation.x = L.lg;
+        P.armR.rotation.set(R.ux, 0, R.uz); P.foreR.rotation.set(R.fx, 0, R.fz); P.legR.rotation.x = R.lg;
+      }
+      var baseY = hAt(P.x, P.z), o = P.obj;
+      o.position.set(P.x, baseY + bob, P.z); o.rotation.set(tilt, P.heading, roll); o.scale.set(PLAYER_SCALE, PLAYER_SCALE * sy, PLAYER_SCALE);
+      // --- name tag (same sizing rule as the advisors)
+      if (P.tag) {
+        var dist = _cam.has ? Math.hypot(_cam.x - P.x, _cam.y - baseY, _cam.z - P.z) : 60;
+        var h2 = clamp(ADV_TAG_PX * 2 * dist * _cam.tanHalf / _cam.viewH, ADV_TAG_MIN_H, ADV_TAG_MAX_H), show = dist <= ADV_TAG_MAX_DIST;
+        P.tag.visible = show;
+        if (show) { P.tag.scale.set(h2 * 4, h2, 1); P.tag.position.set(P.x, baseY + 1.85 * PLAYER_SCALE, P.z); }
+      }
+    }
+    function setPlayer(spec, name) {
+      var s = normSpec(spec), nm = String(name == null || name === '' ? 'Director' : name);
+      if (!player) {
+        var hall = bldgsOf('town_hall')[0], spot = hall ? frontOf(hall, 1.8) : null;   // start in front of the town hall, else a street near the civic core
+        if (!spot) spot = walkableNear(townC.x, townC.y, 20, [LAND.ROAD]) || walkableNear(townC.x, townC.y, 20, null) || { x: N / 2, y: N / 2 };
+        player = { obj: new THREE.Group(), geoms: [], x: sceneX(spot.x), z: sceneZ(spot.y), heading: Math.PI, headTarget: Math.PI, walking: false, tx: 0, tz: 0,
+          speed: PLAYER_WALK, resolve: null, action: null, cycle: 0, detour: 1, stuck: 0, elapsed: 0, maxT: 0, faceAt: null, gen: 0, spec: s, name: nm, route: null, wp: 0,
+          pose: { L: { ux: 0, uz: 0.08, fx: -0.05, fz: 0, lg: 0 }, R: { ux: 0, uz: -0.08, fx: -0.05, fz: 0, lg: 0 } },
+          tmpL: { ux: 0, uz: 0, fx: 0, fz: 0, lg: 0 }, tmpR: { ux: 0, uz: 0, fx: 0, fz: 0, lg: 0 },
+          body: null, legL: null, legR: null, armL: null, armR: null, foreL: null, foreR: null, face: null, faceMat: null, faceTex: null, tag: null };
+        player.obj.name = 'player'; player.obj.userData.player = true; playerGroup.add(player.obj);
+      } else disposePlayerParts(player);
+      player.spec = s; player.name = nm;
+      buildPlayerParts(player, s, nm);
+      updatePlayer(0);
+      return player.obj;
+    }
+    function playerPosition() {
+      if (!player) return null;
+      var cx = player.x / C.RENDER.CELL + N / 2 - 0.5, cy = player.z / C.RENDER.CELL + N / 2 - 0.5;
+      return { x: cx, y: cy, sx: player.x, sz: player.z, i: cellAtScene(player.x, player.z), walking: player.walking, heading: player.heading };
     }
 
     // ================================================================= STATE
@@ -1186,7 +1522,7 @@
           try { var lv = world.reservoir.levelForStorage(fin(state.reservoir.storageAF, 0)); if (isFinite(lv)) birdBaseY = C.elevToScene(lv); } catch (e) { /* keep */ }
         }
         props.stats.instances = conifers.n + aspens.n + snags.count + sage.n + houses.n * 2 + barnCount + crops.n + hayMesh.count + fenceMesh.count + people.n + elk.n + trucks.n + cars.n + birds.n + advisors.length;
-        props.stats.drawCalls = meshes.filter(function (m) { return m.count == null || m.count > 0; }).length;
+        props.stats.drawCalls = meshes.filter(function (m) { return m.count == null || m.count > 0; }).length + (player ? 8 : 0);
       },
 
       setSeason: function (seasonIdx, o) {
@@ -1208,6 +1544,36 @@
       setAdvisorAlert: function (id, on) { var a = advById[id]; if (a) { a.alertOn = !!on; if (a.alert && !a.alertOn) a.alert.visible = false; } },
       advisorAt: advisorAt,
       advisorHit: advisorHit,
+
+      /* ---- player avatar (SPEC3 §C) ---- */
+      setPlayer: setPlayer,
+      movePlayerTo: function (x, y, opts) {
+        if (!player) return Promise.resolve(false);
+        var P = player, gx = clamp(fin(+x, N / 2), 0, N - 1), gy = clamp(fin(+y, N / 2), 0, N - 1);
+        var gl = landOf(clamp(Math.round(gy), 0, N - 1) * N + clamp(Math.round(gx), 0, N - 1));
+        if (gl === LAND.RIVER || gl === LAND.RESERVOIR) { var dryC = dryNear(gx, gy, 8); if (dryC) { gx = dryC.x; gy = dryC.y; } }   // never aim at water
+        var tx = sceneX(gx), tz = sceneZ(gy);
+        playerCancel(P);
+        P.tx = tx; P.tz = tz; P.speed = (opts && opts.run) ? PLAYER_RUN : PLAYER_WALK; P.elapsed = 0; P.stuck = 0; P.faceAt = faceOf(opts);
+        var d0 = Math.hypot(tx - P.x, tz - P.z), route = null, len = d0, k;
+        try { route = playerRoute(P, tx, tz); } catch (e) { route = null; }
+        if (route) { len = 0; var px = P.x, pz = P.z; for (k = 0; k < route.length; k++) { len += Math.hypot(route[k].x - px, route[k].z - pz); px = route[k].x; pz = route[k].z; } }
+        P.route = route; P.wp = 0; P.detour = 1;
+        P.maxT = len / P.speed * (route ? 1.6 : 2.5) + 3;   // never walks forever: teleports when badly blocked (no route / stuck)
+        if (opts && isFinite(+opts.maxSecs) && +opts.maxSecs > 0) P.maxT = Math.min(P.maxT, +opts.maxSecs);   // caller's cap → teleport on expiry
+        P.walking = true;
+        return new Promise(function (resolve) { P.resolve = resolve; if (d0 < 0.06) { P.x = tx; P.z = tz; playerArrive(P, true); } });
+      },
+      teleportPlayer: function (x, y, opts) {
+        if (!player) return;
+        var P = player; playerCancel(P);
+        P.x = sceneX(clamp(fin(+x, N / 2), 0, N - 1)); P.z = sceneZ(clamp(fin(+y, N / 2), 0, N - 1));
+        var f = faceOf(opts); if (f) P.heading = P.headTarget = Math.atan2(f.sx - P.x, f.sz - P.z);
+        updatePlayer(0);
+      },
+      playerPosition: playerPosition,
+      setPlayerAction: function (kind) { if (player) player.action = (kind === 'point' || kind === 'radio' || kind === 'dig' || kind === 'wave') ? kind : null; },
+      playerObject: function () { return player ? player.obj : null; },
 
       /* houses standing in currently burning cells flicker toward orange (instanceColor only — no geometry work) */
       setBurningCells: function (cells) {
@@ -1353,8 +1719,10 @@
           birdMesh.setMatrixAt(k, _o.matrix);
         }
         if (birds.n) birdMesh.instanceMatrix.needsUpdate = true;
-        // advisors (six named figures)
+        // advisors (six named figures) + the player figure
+        readCam();
         updateAdvisors(dt);
+        updatePlayer(dt);
       },
 
       /* ---- build-scene hooks (WS.Builds) ---- */
@@ -1450,6 +1818,7 @@
       dispose: function () {
         try { if (group.parent) group.parent.remove(group); } catch (e) { /* ignore */ }
         var k;
+        if (player) { playerCancel(player); disposePlayerParts(player); playerGroup.remove(player.obj); player = null; }
         for (k = 0; k < geometries.length; k++) geometries[k].dispose();
         for (k = 0; k < materials.length; k++) materials[k].dispose();
         for (k = 0; k < baseGeoms.length; k++) baseGeoms[k].dispose();

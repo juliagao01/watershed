@@ -68,8 +68,21 @@
       fire: { policy: 'managed', activeFire: null, seasonAcres: 0, totalAcres: 0, structuresLost: 0, fires: [], smokeDays: 0 },
       projects: { funded: {}, pendingBurn: null }, mitigations: [], pendingStorm: null, scheduled: [], log: [], timeline: [], history: [],
       unlockedCases: [], seenCases: [], flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
-      lastSeasonReport: null
+      lastSeasonReport: null,
+      player: normalizePlayer(null, null)
     };
+  }
+  /* SPEC3 §C: player record { name, face, title }. WS.State owns the rules (name trimmed / ≤ 24 chars, face spec filled);
+     this mirror only runs when WS.State is missing. */
+  var FALLBACK_FACE = { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'cap', outfit: 'o1', accessory: 'clipboard' };
+  function normalizePlayer(p, base) {
+    if (has('State', 'normalizePlayer')) { var r = call('State', 'normalizePlayer', p, base); if (r) return r; }
+    p = (p && typeof p === 'object') ? p : {};
+    base = (base && typeof base === 'object') ? base : {};
+    var name = String(p.name != null ? p.name : (base.name != null ? base.name : '')).replace(/\s+/g, ' ').trim().slice(0, 24).trim() || 'Director Rivera';
+    var face = Object.assign({}, FALLBACK_FACE, (base.face && typeof base.face === 'object') ? base.face : {}, (p.face && typeof p.face === 'object') ? p.face : {});
+    if (has('Faces', 'normalize')) face = call('Faces', 'normalize', face) || face;
+    return { name: name, face: face, title: 'Water-Resilience Director' };
   }
 
   /* ------------------------------------------------------------------ adapters */
@@ -77,7 +90,9 @@
   var RENDER_FNS = ['init', 'setSeason', 'refreshWorld', 'setReservoir', 'setRiverFlow', 'setFire', 'setWeather', 'setWind', 'showDebris', 'clearDebris',
     'setOverlay', 'setHighlight', 'addMarker', 'removeMarker', 'clearMarkers', 'setPlacementCursor', 'flyTo', 'flyToZone', 'setTimeOfDay', 'onCellClick', 'onCellHover', 'getStats', 'dispose',
     // SPEC2 §C tactical APIs (guarded: a v1 renderer simply ignores them)
-    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone', 'playBuild'];
+    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone', 'playBuild',
+    // SPEC3 §C player figure facade (guarded: a renderer without a player figure ignores them; movePlayerTo then resolves at once)
+    'setPlayer', 'movePlayerTo', 'playerScreenPos', 'flyToPlayer', 'setPlayerAction', 'getPlayerPosition'];
   function makeRenderer(real) {
     var r = { real: !!real };
     RENDER_FNS.forEach(function (fn) {
@@ -172,6 +187,87 @@
       try { var ls = storage(); if (ls) ls.setItem('watershed.save', game.serialize()); } catch (e) { warn('autosave failed', e); }
     }
 
+    /* ---------------------------------------------------- SPEC3 §C: the player figure in the world */
+    // Every call is guarded (no renderer / no player figure → no-op) and fire-and-forget: the turn loop never waits on a walk.
+    // `moving` mirrors the last movePlayerTo promise, capped at 2.5 s (a newer call cancels the older one, whose promise may never settle).
+    var PLAYER = { moving: false, seq: 0, pointTimer: null, action: null };
+    var PLAYER_WALK_CAP_MS = 2500;
+    function playerAct(kind) {
+      if (headless || !has('Renderer', 'setPlayerAction')) return;
+      PLAYER.action = kind || null;
+      renderer.setPlayerAction(PLAYER.action);
+    }
+    function playerGo(pos, opts, thenAction) {
+      if (headless || !pos || !isFinite(pos.x) || !isFinite(pos.y) || !has('Renderer', 'movePlayerTo')) { if (thenAction !== undefined) playerAct(thenAction); return Promise.resolve(false); }
+      var seq = ++PLAYER.seq;
+      PLAYER.moving = true;
+      var walk;
+      try { walk = Promise.resolve(renderer.movePlayerTo(pos.x | 0, pos.y | 0, opts || {})); } catch (e) { walk = Promise.resolve(false); }
+      var cap = new Promise(function (res) { setTimeout(function () { res('cap'); }, PLAYER_WALK_CAP_MS); });
+      function settle(arrived) { if (PLAYER.seq !== seq) return false; PLAYER.moving = false; if (thenAction !== undefined) playerAct(thenAction); return arrived; }
+      return Promise.race([walk, cap]).then(function (r) { return settle(r !== 'cap'); }, function () { return settle(false); });
+    }
+    function playerPoint() {
+      // an order: point for 1.5 s, then back to the radio (or the mop-up wave) while the crisis lasts
+      if (headless || !has('Renderer', 'setPlayerAction')) return;
+      if (PLAYER.pointTimer) clearTimeout(PLAYER.pointTimer);
+      playerAct('point');
+      PLAYER.pointTimer = setTimeout(function () { PLAYER.pointTimer = null; playerAct(crisis ? (crisis.mopUp ? 'wave' : 'radio') : null); }, 1500);
+    }
+    function playerClearAction() { if (PLAYER.pointTimer) { clearTimeout(PLAYER.pointTimer); PLAYER.pointTimer = null; } playerAct(null); }
+    function nearestLand(x, y, types, maxR) {
+      // nearest cell (Chebyshev rings, Euclidean tie-break) whose land type is in `types`, within maxR of (x,y); null when none
+      if (!world || !world.land) return null;
+      var N = C.N, ok = {}; types.forEach(function (t) { ok[t] = 1; });
+      for (var d = 0; d <= maxR; d++) {
+        var best = null, bd = Infinity;
+        for (var dy = -d; dy <= d; dy++) for (var dx = -d; dx <= d; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
+          var cx = x + dx, cy = y + dy;
+          if (!C.inBounds(cx, cy) || !ok[world.land[cy * N + cx]]) continue;
+          var e = dx * dx + dy * dy; if (e < bd) { bd = e; best = { x: cx, y: cy }; }
+        }
+        if (best) return best;
+      }
+      return null;
+    }
+    function civicCorePos() {
+      if (!world) return null;
+      var z = zonesOf(world, 'civic')[0];
+      if (z && z.center && isFinite(z.center.x)) return { x: z.center.x | 0, y: z.center.y | 0 };
+      if (world.townCenter && isFinite(world.townCenter.x)) return { x: world.townCenter.x | 0, y: world.townCenter.y | 0 };
+      return null;
+    }
+    function townHallPos() {
+      // the road/civic cell in front of the town hall (so the figure is not inside the building); fallback: civic core centre
+      if (!world) return null;
+      var b = (world.buildings || []).filter(function (bb) { return bb && bb.type === 'town_hall' && isFinite(bb.x) && isFinite(bb.y); })[0];
+      if (!b) return civicCorePos();
+      var L = C.LAND, spot = nearestLand(b.x | 0, b.y | 0, [L.ROAD], 3);
+      return spot || { x: b.x | 0, y: b.y | 0 };
+    }
+    function commandPostFor(startCell) {
+      // Incident command post: the nearest road / civic / residential cell at Chebyshev distance 8..20 from the ignition
+      // (searched ring by ring outward, so the post is close enough to see the fire but not in it); fallback: the town hall.
+      if (!world || !world.land || startCell == null || !(startCell >= 0)) return townHallPos();
+      var L = C.LAND, N = C.N, sp = C.xy(startCell | 0), ok = {}; ok[L.ROAD] = 1; ok[L.CIVIC] = 1; ok[L.RESIDENTIAL] = 1;
+      for (var d = 8; d <= 20; d++) {
+        var best = null, bd = Infinity;
+        for (var dy = -d; dy <= d; dy++) for (var dx = -d; dx <= d; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
+          var cx = sp.x + dx, cy = sp.y + dy;
+          if (!C.inBounds(cx, cy) || !ok[world.land[cy * N + cx]]) continue;
+          var e = dx * dx + dy * dy; if (e < bd) { bd = e; best = { x: cx, y: cy }; }
+        }
+        if (best) return best;
+      }
+      return townHallPos();
+    }
+    function pushPlayerToRenderer() {
+      if (headless || !state || !state.player) return;
+      renderer.setPlayer(state.player.face, state.player.name);
+    }
+
     /* ---------------------------------------------------- world / state construction */
     function build(o) {
       var seed = (o.seed == null) ? 1 : o.seed;
@@ -183,6 +279,7 @@
       if (!state.flags) state.flags = {};
       if (!state.stats) state.stats = {};
       state.tutorial = !!o.tutorial;
+      state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
       endCrisis();
       ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false;
@@ -203,6 +300,7 @@
       if (!st) throw new Error('save file could not be parsed');
       build({ seed: st.seed, years: st.years, mode: st.mode, tutorial: false });
       state = st; game.state = state; state.timeline = state.timeline || []; state.flags = state.flags || {};
+      state.player = normalizePlayer(state.player, null);   // saves made before SPEC3 get the default player
       if (world && blob.layers) Object.keys(blob.layers).forEach(function (k) {
         var src = blob.layers[k]; if (!src) return;
         if (!world[k]) world[k] = new Float32Array(src.length);
@@ -309,6 +407,7 @@
       for (var i = 0; i < cards.length; i++) { await playCard(cards[i], turnRng.fork('cards')); refresh(); }
 
       setPhase(PH.PLAN, { year: state.year, season: seasonName(state.season) });
+      playerGo(townHallPos(), { run: false }, null);   // SPEC3 §C: planning happens at the town hall (fire-and-forget walk)
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
@@ -381,6 +480,7 @@
       if (!crisis) return;
       crisis.paused = false; resumeCrisis();
       crisis = null;
+      playerClearAction();
       renderer.setTacticalMode(false);
       renderer.setPlacementCursor(null);
       renderer.setHighlight(null, null);
@@ -484,6 +584,7 @@
           if (zc >= 0) { var p3 = C.xy(zc); renderer.addMarker(type + '-' + target, type === 'engine' ? 'engine' : 'evac', p3.x, p3.y); }
           renderer.pulseZone(+target, type === 'engine' ? 0xff3b30 : 0xffd166);
         } else if (type === 'mutual_aid') { ui.alert('Mutual aid is rolling — +10 crew points', 'good'); }
+        if (type === 'dozer' || type === 'retardant' || type === 'engine' || type === 'evacuate') playerPoint();   // SPEC3 §C: the director points the order out
         if (res.text) { ui.ticker(res.text); log(res.text, 'info'); }
         crisis.actions.push({ type: type, step: crisis.step, cost: num(res.cost), cells: cells.length, target: (type === 'dozer') ? null : target, text: res.text || '' });
       }
@@ -568,6 +669,7 @@
       crisis = { mode: 'fire', fireSim: fireSim, tactics: tac, paused: false, selected: headless ? null : 'dozer', step: 0, maxSteps: Math.max(1, num(fireSim.maxSteps, 60)), threat: null,
                  alerted: {}, dig: {}, actions: [], startName: startName, lastPaintCell: null, holdStep: -99, resume: null };
       setPhase(PH.FIRE, { crisis: 'fire', acres: 0, name: startName, origin: origin });
+      playerGo(commandPostFor(start), { run: true }, 'radio');   // SPEC3 §C: run to the incident command post, radio in hand on arrival
       renderer.setTacticalMode(true);
       renderer.setFire(burningArr, []);
       crisis.threat = call('Fire', 'threat', fireSim, state, world) || fallbackThreat(fireSim, burningArr, 0);
@@ -617,6 +719,7 @@
       // "Mop-up — fire contained", then the after-action card. Cosmetic only — the sim is already done.
       if (crisis) {
         crisis.mopUp = true; crisis.paused = false; resumeCrisis();
+        if (!PLAYER.pointTimer) playerAct('wave');   // SPEC3 §C: mop-up → wave (a pending point timer lands on 'wave' itself)
         ui.alert('Fire contained — crews are mopping up', 'good');
         ui.ticker('Mop-up — fire contained at ' + fmtN(acres) + ' acres');
         pushTactical();
@@ -767,6 +870,7 @@
       var m = { type: type, x: x, y: y, i: i, costM: cost };
       state.mitigations.push(m);
       renderer.addMarker('mit-' + state.mitigations.length, type, x, y);
+      if (!PLAYER.moving) playerGo({ x: x, y: y }, { run: false }, null);   // SPEC3 §C: walk to the placement (first one, then whenever idle)
       ui.updatePlacement(placementSpec());
       return { ok: true, mitigation: m };
     }
@@ -940,6 +1044,7 @@
       var pre = (mitigations || []).slice(), live = [];
       var tactical = liveToolsAvailable();
       setPhase(tactical ? PH.STORM : PH.FLOOD, { storm: storm, crisis: tactical ? 'storm' : null });
+      playerGo(civicCorePos(), { run: true }, 'radio');   // SPEC3 §C: storm → the civic core, on the radio
       renderer.setWeather('storm', 1);
       ui.ticker('Storm over the burn scar — ' + num(storm.intensityIn).toFixed(1) + ' in of rain');
       // 1. first pass: the storm with only the pre-storm measures — its frames/floodTimeline are what the player watches and fights
@@ -1252,6 +1357,7 @@
       state.lastSeasonReport = stripTyped(report);
       stats.turns++;
       setPhase(PH.REPORT, { report: report });
+      playerGo(townHallPos(), { run: false }, null);   // SPEC3 §C: season report → back at the town hall, no action
       ui.setBusy(false);
       pushReservoirVisual();
       refresh();
@@ -1393,6 +1499,7 @@
       if (paintUnsub) { try { paintUnsub(); } catch (e) { } paintUnsub = null; }
       if (clickUnsub) { try { clickUnsub(); } catch (e) { } clickUnsub = null; }
       renderer.init(game.container, world, state);
+      pushPlayerToRenderer();   // SPEC3 §C: the player figure right after init (start / load / restart all pass through here)
       var cu = renderer.onCellClick(game.handleCellClick); clickUnsub = (typeof cu === 'function') ? cu : null;
       if (has('Renderer', 'onCellPaint')) { var pu = renderer.onCellPaint(onPaint); paintUnsub = (typeof pu === 'function') ? pu : function () { }; }
       subscribeAdvisors();   // 3D advisor avatars → speech bubbles (no-op when the renderer has no onAdvisorClick)
@@ -1501,6 +1608,29 @@
     };
     game.getProjectList = function () { return call('Projects', 'listFor', state, world) || []; };
     game.getAdvisors = function (topic) { return call('Advisors', 'getRecommendations', state, world, topic) || []; };
+
+    /* ---- SPEC3 §C: player facade ---- */
+    /** Fly the camera to the player figure (HUD portrait chip). */
+    game.focusPlayer = function () { if (headless) return; renderer.flyToPlayer(); };
+    /** { name, face, title } (a copy). */
+    game.getPlayer = function () { return (state && state.player) ? JSON.parse(JSON.stringify(state.player)) : normalizePlayer(null, null); };
+    /** setPlayer(spec, name) — the "edit character" path: updates state and the 3D figure; either argument may be omitted to keep the current value. */
+    game.setPlayer = guardSync('setPlayer', function (spec, name) {
+      if (!state) return null;
+      var patch = {};
+      if (spec && typeof spec === 'object') patch.face = spec;
+      if (name != null) patch.name = name;
+      state.player = normalizePlayer(patch, state.player);
+      pushPlayerToRenderer();
+      refresh();
+      return game.getPlayer();
+    });
+    /** Player figure position in cell coords ({x,y}) or null when the renderer has no figure. */
+    game.getPlayerPosition = function () {
+      if (headless || !has('Renderer', 'getPlayerPosition')) return null;
+      var p = renderer.getPlayerPosition();
+      return (p && isFinite(p.x) && isFinite(p.y)) ? { x: p.x, y: p.y } : null;
+    };
 
     /* ---------------------------------------------------- ADVISORS: 3D avatars in town → speech bubbles */
     // Renderer API (built concurrently; every call is guarded, so a renderer without avatars simply never shows bubbles):
@@ -1692,7 +1822,10 @@
     /** createHeadless({seed, years, mode, decide, save}) → { state, world, game, runSeason(), runAll(), save(), load(str), stats() } */
     createHeadless: function (o) {
       o = o || {};
-      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: o.decide || {}, save: o.save || null });
+      // `player` (or decide.intro() → { player }) stands in for the browser intro creator (SPEC3 §C)
+      var dec = o.decide || {}, player = o.player || null;
+      if (!player && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = (ir && ir.player) || null; } catch (e) { player = null; } }
+      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player });
       var drv = {
         game: g,
         runSeason: function () { return g.runSeason().then(function (r) { drv.state = g.state; drv.world = g.world; return r; }); },
@@ -1722,7 +1855,8 @@
           try { intro = await game.ui.showIntro(); } catch (e) { intro = null; }
           intro = intro || {};
           var seed = (intro.seed === '' || intro.seed == null) ? Math.floor(Math.random() * 1e6) : (isFinite(+intro.seed) ? +intro.seed : intro.seed);
-          game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false });
+          game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false,
+                       player: (intro.player && typeof intro.player === 'object') ? intro.player : null });   // SPEC3 §C: the intro's character creator
           game.initRenderer(host);   // re-inits the renderer for the real world and (re)subscribes cell click + paint exactly once
           await game.ui.init(game);
           game.ui.refresh();

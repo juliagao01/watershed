@@ -187,8 +187,8 @@ input[type="range"] { width: 100%; accent-color: var(--water); height: 22px; mar
 .hud-block .v { font-size: 15px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hud-block .v .em { color: var(--ink-3); font-weight: 500; font-size: 12px; }
 .hud-block .v.neg { color: var(--danger); }
-.outcomes { display: flex; gap: 10px; flex: 1 1 320px; min-width: 0; justify-content: center; }
-.outcome { display: flex; flex-direction: column; gap: 3px; min-width: 0; max-width: 120px; flex: 1 1 0; cursor: default; }
+.outcomes { display: flex; gap: 10px; flex: 1 1 320px; min-width: 280px; justify-content: center; }
+.outcome { display: flex; flex-direction: column; gap: 3px; min-width: 48px; max-width: 120px; flex: 1 1 0; cursor: default; }
 .outcome .t { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
 .outcome .t .k { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outcome .t .n { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -793,7 +793,65 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
 .advisor-hint .x:hover:not(:disabled) { color: var(--ink); background: var(--panel-3); }
 @media (max-width: 1100px) { .advisor-hint { left: 10px; } }
 
+/* ---- v3: portraits (WS.Faces), player chip, character creator ---- */
+canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background: #efe4d0; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.3); }
+.player-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; border-radius: 999px; flex: 0 0 auto; max-width: 240px;
+  background: var(--panel-2); border: 1px solid var(--hair-2); text-align: left; white-space: nowrap;
+}
+.player-chip:hover:not(:disabled) { border-color: rgba(233, 196, 106, 0.7); background: rgba(233, 196, 106, 0.1); }
+.player-chip .portrait { box-shadow: 0 0 0 2px var(--trust); }
+.player-chip .pn { font-weight: 600; font-size: 12.5px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+.player-chip .pt { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); line-height: 1.15; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+.player-badge { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.player-badge .pn { font-weight: 600; font-size: 12.5px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.player-badge .pt { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); line-height: 1.15; white-space: nowrap; }
+.modal .mhead .head-extra { flex: 0 0 auto; margin-left: auto; padding-left: 12px; margin-right: 26px; }
+.modal.critical .mhead .head-extra { margin-right: 0; }
+.menu.advisors-menu { min-width: 250px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: thin; }
+.menu .adv-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; text-align: left; white-space: nowrap; }
+.menu .adv-row .an { font-weight: 600; font-size: 12.5px; line-height: 1.15; }
+.menu .adv-row .ar { font-size: 10.5px; color: var(--ink-3); line-height: 1.15; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.menu .adv-row .portrait { box-shadow: 0 0 0 2px var(--adv, var(--hair-2)); }
+.menu hr.rule { margin: 4px 6px; }
+.bubble .who .portrait { width: 40px; height: 40px; box-shadow: 0 0 0 2px var(--adv, #4aa3df), 0 1px 3px rgba(0, 0, 0, 0.25); }
+.advisor .who .portrait { box-shadow: 0 0 0 2px var(--adv, var(--hair-2)); }
+.case-link.with-portrait { display: flex; align-items: flex-start; gap: 10px; }
+.case-link.with-portrait .portrait { margin-top: 1px; box-shadow: 0 0 0 2px var(--trust); }
+.case-link.with-portrait > div { min-width: 0; }
+/* character creator (intro "Your character") */
+.creator { display: grid; grid-template-columns: 168px 1fr; gap: 14px; align-items: start; background: var(--panel-2); border: 1px solid var(--hair); border-radius: 12px; padding: 12px; margin: 0 0 12px; }
+.creator .c-left { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.creator .c-left .portrait { width: 128px; height: 128px; box-shadow: 0 0 0 3px var(--trust), 0 10px 30px rgba(0, 0, 0, 0.4); }
+.creator .c-left input[type="text"] { width: 100%; text-align: center; font-weight: 600; }
+.creator .c-left .presets { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.creator .c-left .presets button, .creator .c-left .rand { font-size: 11px; padding: 3px 8px; }
+.creator .c-left .rand { width: 100%; }
+.creator .c-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; min-width: 0; }
+.creator .crow { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.creator .crow .k { margin: 0; }
+.creator .seg.mini { flex-wrap: wrap; border: 0; gap: 3px; overflow: visible; }
+.creator .seg.mini button { border: 1px solid var(--hair-2); border-radius: 6px; font-size: 11px; padding: 3px 7px; }
+.creator .seg.mini button.active { border-color: rgba(233, 196, 106, 0.8); background: rgba(233, 196, 106, 0.16); color: #fbe9b5; }
+.creator .swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.creator .swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); background: var(--c, #888); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.creator .swatch:hover:not(:disabled) { background: var(--c, #888); border-color: rgba(255, 255, 255, 0.5); }
+.creator .swatch.active { border-color: var(--trust); box-shadow: 0 0 0 2px rgba(233, 196, 106, 0.45); background: var(--c, #888); }
+.creator .c-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; grid-column: 1 / -1; }
+.creator .c-title .hint { font-size: 11.5px; color: var(--ink-3); }
+@media (max-width: 760px) { .creator { grid-template-columns: 1fr; } .creator .c-rows { grid-template-columns: 1fr; } }
+/* faces gallery (dev + help) */
+.faces-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.faces-gallery .fg { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; font-size: 11px; color: var(--ink-2); }
+.faces-gallery .fg .portrait { width: 96px; height: 96px; }
+.faces-gallery .fg b { color: var(--ink); font-size: 12px; }
+
 /* ---- responsive ------------------------------------------------- */
+@media (max-width: 1640px) {
+  .player-chip .pt { display: none; }
+  .player-chip .pn { max-width: 120px; }
+  .brand .sub { display: none; }
+}
 @media (max-width: 1400px) {
   :root { --side-w: 290px; }
   .outcome { min-width: 56px; }
@@ -1809,6 +1867,30 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
   function isPlain(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v); }
 
+  /* ---- SPEC3 §C: player avatar ---- */
+  var PLAYER_NAME_MAX = 24, PLAYER_DEFAULT_NAME = 'Director Rivera', PLAYER_TITLE = 'Water-Resilience Director';
+  // Fixed, sensible default look (ids from SPEC3 §A): a field director with a cap and a clipboard.
+  var DEFAULT_FACE = { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'cap', outfit: 'o1', accessory: 'clipboard' };
+  function defaultFace() { var f = {}; for (var k in DEFAULT_FACE) if (Object.prototype.hasOwnProperty.call(DEFAULT_FACE, k)) f[k] = DEFAULT_FACE[k]; return f; }
+  function defaultPlayer() { return { name: PLAYER_DEFAULT_NAME, face: defaultFace(), title: PLAYER_TITLE }; }
+  function normalizeFace(face, base) {
+    var out = defaultFace(), src, k;
+    if (isPlain(base)) for (k in base) if (Object.prototype.hasOwnProperty.call(base, k) && typeof base[k] === 'string') out[k] = base[k];
+    if (isPlain(face)) for (k in face) if (Object.prototype.hasOwnProperty.call(face, k) && typeof face[k] === 'string') out[k] = face[k];
+    // WS.Faces (SPEC3 §A) knows the option space; when it is loaded it fixes invalid ids so the spec always renders.
+    if (WS.Faces && typeof WS.Faces.normalize === 'function') { try { src = WS.Faces.normalize(out); if (isPlain(src)) out = src; } catch (e) { /* keep out */ } }
+    return out;
+  }
+  /** normalizePlayer(p, base?) → { name, face, title }: name trimmed / ≤ 24 chars (fallback default), face filled from `base` then defaults. */
+  function normalizePlayer(p, base) {
+    base = isPlain(base) ? base : defaultPlayer();
+    p = isPlain(p) ? p : {};
+    var raw = (p.name != null) ? p.name : base.name;
+    var name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, PLAYER_NAME_MAX).trim();
+    if (!name) name = PLAYER_DEFAULT_NAME;
+    return { name: name, face: normalizeFace(p.face, base.face), title: PLAYER_TITLE };
+  }
+
   /** Full default state for the given opts. Every field in SPEC §3 is present. */
   function defaults(opts) {
     opts = opts || {};
@@ -1835,7 +1917,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       unlockedCases: [], seenCases: [],
       flags: {},
       stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
-      lastSeasonReport: null
+      lastSeasonReport: null,
+      player: defaultPlayer()   // SPEC3 §C: set from the intro creator (main.js), carried by saves
     };
   }
 
@@ -1874,6 +1957,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
 
   var State = WS.State = {
     defaults: defaults,
+    defaultPlayer: defaultPlayer,
+    normalizePlayer: normalizePlayer,
 
     /** create({seed, years, mode}) -> state */
     create: function (opts) {
@@ -1921,6 +2006,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
         s.water.delivered[k] = Math.max(0, num(s.water.delivered[k], 0));
         s.water.shortage[k] = Math.max(0, num(s.water.shortage[k], 0));
       }
+      s.player = normalizePlayer(s.player);
       return s;
     },
 
@@ -5755,16 +5841,22 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
   // ---------------------------------------------------------------- characters
   var CHARACTERS = [
     { id: 'dolores', name: 'Capt. Dolores Reyes', role: 'Wildland Fire Captain', color: '#d9532b', avatarEmoji: '🚒',
+      face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'almond', brows: 'straight', mouth: 'neutral', facialHair: 'none', glasses: 'none', hat: 'helmet', outfit: 'o4', accessory: 'radio' },
       bio: 'Twenty-two seasons on engines and hand crews. Blunt, operational, allergic to wishful thinking. Measures every plan in crew-hours, fuel loads and the distance from a fire station.' },
     { id: 'walt', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#b9863c', avatarEmoji: '🤠',
+      face: { skin: 's3', hair: 'short', hairColor: 'h5', eyes: 'narrow', brows: 'straight', mouth: 'neutral', facialHair: 'moustache', glasses: 'none', hat: 'widebrim', outfit: 'o2', accessory: 'none' },
       bio: 'Third-generation cattle and hay operator holding a decree older than the town. Pragmatic about senior water rights, hay prices and what a dry summer does to a herd. Distrusts studies that cost more than ditches.' },
     { id: 'naomi', name: 'Naomi Whitehorse', role: 'Tribal Water Representative', color: '#7b4fa8', avatarEmoji: '🪶',
+      face: { skin: 's3', hair: 'long', hairColor: 'h1', eyes: 'almond', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o3', accessory: 'scarf' },
       bio: 'Represents a Ute-descended community whose reserved water right predates every other decree in the valley and was quantified in a treaty-era settlement. Speaks of the river as a relative with obligations flowing both ways. Written respectfully and generally; she speaks for no real tribe.' },
     { id: 'priya', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#2f7fb8', avatarEmoji: '📈',
+      face: { skin: 's4', hair: 'bun', hairColor: 'h1', eyes: 'round', brows: 'arched', mouth: 'smile', facialHair: 'none', glasses: 'round', hat: 'none', outfit: 'o1', accessory: 'clipboard' },
       bio: 'Runs the basin water-supply forecast. Cites measurements first, models second, and always says how uncertain the number is. Would rather fund a streamgage than an opinion.' },
     { id: 'marcus', name: 'Marcus Lee', role: 'Resident and Parent, Marshall Heights', color: '#3f9a6a', avatarEmoji: '🏡',
+      face: { skin: 's4', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'grin', facialHair: 'stubble', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' },
       bio: 'Two kids at the elementary school, a mortgage in the wildland-urban interface and a water bill he reads line by line. Cares about smoke days, school closures and whether the lawn ban is really necessary.' },
     { id: 'ana', name: 'Dr. Ana Ortiz', role: 'Wildlife Biologist', color: '#5a8a3a', avatarEmoji: '🦌',
+      face: { skin: 's2', hair: 'ponytail', hairColor: 'h3', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'sun', hat: 'none', outfit: 'o3', accessory: 'binoculars' },
       bio: 'State wildlife biologist for the district. Counts elk on winter range, snorkels the creek for native cutthroat trout, and argues for instream flows and riparian habitat that have no lawyer of their own.' }
   ];
   var CHAR_BY_ID = {};
@@ -7568,6 +7660,16 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
      props.setRoofStyle(zoneId, 'metal'|'default', frac=1) // roofs of the first frac of houses in the zone
      props.housesInZone(zoneId) → [{i, x, y, z, rot, s, cell}] (scene coords)
      props.setCropsCleared(cells)     // crop rows in these cells hidden (full set; [] restores all)
+     -- player avatar (SPEC3 §C) --
+     props.setPlayer(spec, name)      // build/rebuild the director figure from a WS.Faces spec (parts swapped, old ones disposed)
+     props.movePlayerTo(x, y, {run, face:{x,y}, maxSecs}) → Promise<bool>  // walk (4 cells/s; run 7) over terrain; straight line when clear,
+                                      //   a water target snaps to the nearest dry cell; maxSecs (optional) teleports the rest of the way on expiry;
+                                      //   else an A* route around water (smoothed to straight legs); per-step heading fan as safety;
+                                      //   resolves true on arrival, false when cancelled by a newer call / teleport
+     props.teleportPlayer(x, y, {face:{x,y}})
+     props.playerPosition()           // {x, y (fractional cells), sx, sz, i, walking, heading} | null
+     props.setPlayerAction('point'|'radio'|'dig'|'wave'|null)
+     props.playerObject()             // THREE.Group | null (position live)
      props.dispose()
 */
 (function () {
@@ -7602,7 +7704,9 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     return { group: null, meshes: [], stats: { instances: 0, drawCalls: 0 }, refresh: noop, setSeason: noop, update: noop, setFire: noop, setWind: noop, dispose: noop,
       setCamera: noop, advisors: function () { return []; }, setAdvisorTalking: noop, setAdvisorAlert: noop, advisorAt: function () { return null; }, advisorHit: function () { return null; },
       treesInCell: function () { return 0; }, dropTree: function () { return false; }, setThinnedZones: noop, clearCells: function () { return 0; }, setRoofStyle: function () { return 0; },
-      housesInZone: function () { return []; }, setCropsCleared: noop };
+      housesInZone: function () { return []; }, setCropsCleared: noop,
+      setPlayer: function () { return null; }, movePlayerTo: function () { return Promise.resolve(false); }, teleportPlayer: noop,
+      playerPosition: function () { return null; }, setPlayerAction: noop, playerObject: function () { return null; } };
   }
 
   // ------------------------------------------------------------------ build
@@ -8346,11 +8450,11 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r);
       g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
     }
-    function makeTagSprite(ch) {
+    function makeTagSprite(ch, labelOverride, register) {
       if (typeof document === 'undefined') return null;
       var cv = document.createElement('canvas'); cv.width = 320; cv.height = 80;
       var g = cv.getContext('2d'); if (!g) return null;
-      var label = (ch.avatarEmoji || '') + ' ' + firstName(ch.name);
+      var label = labelOverride != null ? String(labelOverride) : (ch.avatarEmoji || '') + ' ' + firstName(ch.name);
       g.font = 'bold 40px system-ui, -apple-system, "Segoe UI", sans-serif'; g.textBaseline = 'middle';
       var tw = Math.min(300, g.measureText(label).width + 40), x0 = (320 - tw) / 2;
       g.fillStyle = 'rgba(18,22,28,0.82)'; roundRect(g, x0, 6, tw, 68, 20); g.fill();
@@ -8360,7 +8464,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if ('encoding' in tex && THREE.sRGBEncoding != null) tex.encoding = THREE.sRGBEncoding;
       var sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
       var sp = new THREE.Sprite(sm); sp.center.set(0.5, 0); sp.renderOrder = 30; sp.frustumCulled = false;
-      materials.push(sm); geometries.push({ dispose: function () { tex.dispose(); } });
+      if (register !== false) { materials.push(sm); geometries.push({ dispose: function () { tex.dispose(); } }); }
       return sp;
     }
     var alertMat = (function () {
@@ -8404,8 +8508,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       var rot = fin(b.rot, 0), x = fin(b.x, N / 2) + Math.sin(rot) * dist, y = fin(b.y, N / 2) + Math.cos(rot) * dist;
       return walkableNear(x, y, 4, [LAND.ROAD, LAND.CIVIC, LAND.RESIDENTIAL, LAND.FARM]);
     }
+    var townC = (world.townCenter && isFinite(world.townCenter.x)) ? world.townCenter : ((findZone('civic', /./) || {}).center || { x: N / 2, y: N / 2 });
     function homeFor(id) {
-      var townC = (world.townCenter && isFinite(world.townCenter.x)) ? world.townCenter : ((findZone('civic', /./) || {}).center || { x: N / 2, y: N / 2 });
       var spot = null, b, list, k, z;
       switch (id) {
         case 'dolores': // the WUI fire station = the station farthest from the civic core
@@ -8497,13 +8601,16 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       return sp;
     })();
 
+    var _cam = { has: false, x: 0, y: 0, z: 0, tanHalf: 0.4142, viewH: 800 };
+    function readCam() {
+      _cam.has = !!camera;
+      if (!_cam.has) return;
+      _cam.x = camera.position.x; _cam.y = camera.position.y; _cam.z = camera.position.z;
+      _cam.tanHalf = camera.isPerspectiveCamera ? Math.tan(fin(camera.fov, 45) * Math.PI / 360) : 0.4142;
+      _cam.viewH = Math.max(100, fin(viewHeightFn(), 800));
+    }
     function updateAdvisors(dt) {
-      var k, a, camX = 0, camY = 0, camZ = 0, tanHalf = 0.4142, viewH = 800, hasCam = !!camera;
-      if (hasCam) {
-        camX = camera.position.x; camY = camera.position.y; camZ = camera.position.z;
-        if (camera.isPerspectiveCamera) tanHalf = Math.tan(fin(camera.fov, 45) * Math.PI / 360);
-        viewH = Math.max(100, fin(viewHeightFn(), 800));
-      }
+      var k, a, camX = _cam.x, camY = _cam.y, camZ = _cam.z, tanHalf = _cam.tanHalf, viewH = _cam.viewH, hasCam = _cam.has;
       for (k = 0; k < advisors.length; k++) {
         a = advisors[k];
         // --- wander
@@ -8564,6 +8671,327 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (!raycaster || typeof raycaster.intersectObjects !== 'function' || !advMeshes.length) return null;
       var hits = raycaster.intersectObjects(advMeshes, false);
       return (hits && hits.length) ? (hits[0].object.userData.advisorId || null) : null;
+    }
+
+    // ================================================================= PLAYER (SPEC3 §C) — the director's avatar
+    // One figure built from the advisor part kit: merged body (torso, head, hair cap, hat, glasses band, chest accessory)
+    // + two legs + two 2-segment arms as separate meshes so it can stride / point / hold a radio, a curved face patch on
+    // the front of the head textured with the WS.Faces portrait, and a name-tag sprite. ≤ 8 draw calls, one figure.
+    var PLAYER_SCALE = 1.08, PLAYER_WALK = 4.0, PLAYER_RUN = 7.0, PLAYER_TURN = 9, PLAYER_LOOKAHEAD = 0.7, PLAYER_STUCK_S = 1.0;
+    var PLAYER_OFFS = [0, 0.8, -0.8, 1.5, -1.5, 2.2, -2.2];           // heading offsets tried when the next cell is water (last pair backs out of bays)
+    var FACE_CROP = { rx: 0.72, ry: 0.72, ox: 0.14, oy: 0.26 };         // portrait region shown on the head (head-and-shoulders → head)
+    var FACE_FALLBACK = {                                               // colour tables when WS.Faces is absent
+      skin: { s1: '#f6d3b8', s2: '#e8b894', s3: '#c98f66', s4: '#a56a45', s5: '#7a4a2e', s6: '#4d2f1e' },
+      hairColor: { h1: '#2b1d14', h2: '#5a3a22', h3: '#a3652f', h4: '#d9b06a', h5: '#b5b5b5', h6: '#c0392b' },
+      outfit: { o1: '#2f6fb3', o2: '#c0392b', o3: '#2e8b57', o4: '#e2a93b', o5: '#6b4fbb', o6: '#444444' }
+    };
+    var playerMat = mat({ emissive: 0xffffff, emissiveIntensity: 0.05 }); materials.push(playerMat);
+    var playerGroup = new THREE.Group(); playerGroup.name = 'player'; group.add(playerGroup);
+    var player = null;
+
+    function faceHex(kind, id, dflt) {
+      var F = WS.Faces;
+      if (F && typeof F.hexOf === 'function') { try { var h = F.hexOf(kind, id); if (h) return String(h); } catch (e) { /* fallthrough */ } }
+      if (typeof id === 'string' && id.charAt(0) === '#') return id;
+      var t = FACE_FALLBACK[kind]; return (t && t[id]) || dflt;
+    }
+    function pcol(hex, mul) { var c = hexToRgb(hex); mul = mul == null ? 1 : mul; return [Math.min(1, c[0] * mul), Math.min(1, c[1] * mul), Math.min(1, c[2] * mul)]; }
+    function normSpec(spec) {
+      var F = WS.Faces, s = (spec && typeof spec === 'object') ? spec : {};
+      if (F && typeof F.normalize === 'function') { try { var n = F.normalize(s); if (n && typeof n === 'object') s = n; } catch (e) { /* keep */ } }
+      var o = {};
+      for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) o[k] = s[k];
+      o.skin = o.skin || 's3'; o.hair = o.hair || 'short'; o.hairColor = o.hairColor || 'h1'; o.glasses = o.glasses || 'none';
+      o.hat = o.hat || 'none'; o.outfit = o.outfit || 'o1'; o.accessory = o.accessory || 'none';
+      return o;
+    }
+    function playerColours(s) {
+      var outfit = faceHex('outfit', s.outfit, '#2f6fb3'), skinHex = faceHex('skin', s.skin, '#c98f66');
+      return { skinHex: skinHex, outfitHex: outfit, skin: pcol(skinHex, 1.04), hair: pcol(faceHex('hairColor', s.hairColor, '#2b1d14')),
+        torso: pcol(outfit, 1.1), sleeve: pcol(outfit, 0.92), trim: pcol(outfit, 0.72), pants: [0.24, 0.26, 0.32], shoes: [0.15, 0.12, 0.1] };
+    }
+    /** merged body: torso, neck, head, hair silhouette, hat, glasses band, chest accessory (legs/arms are separate) */
+    function playerBodyGeo(s, c) {
+      var p = [], hair = c.hair, hatOn = s.hat && s.hat !== 'none', hs = s.hair;
+      p.push(part(BOX, c.torso, 0, 0.94, 0, 0, 0.44, 0.62, 0.27), part(BOX, c.trim, 0, 0.655, 0, 0, 0.46, 0.07, 0.29));
+      p.push(part(CYL8, c.skin, 0, 1.27, 0, 0, 0.14, 0.08, 0.14), part(SPH, c.skin, 0, 1.44, 0, 0, 0.34, 0.36, 0.34));
+      // hair: ten styles collapsed to a few silhouettes (big styles shrink to a short cap under a hat)
+      if (hatOn && (hs === 'afro' || hs === 'curly' || hs === 'wavy')) hs = 'short';
+      switch (hs) {
+        case 'bald': break;
+        case 'buzz': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.345, 0.24, 0.345)); break;
+        case 'afro': p.push(part(SPH, hair, 0, 1.53, -0.03, 0, 0.54, 0.5, 0.54)); break;
+        case 'long': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.37, 0.28, 0.37), part(BOX, hair, 0, 1.27, -0.15, 0, 0.3, 0.52, 0.1)); break;
+        case 'braids': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.37, 0.27, 0.37), part(BOX, hair, 0.15, 1.2, -0.08, 0, 0.07, 0.5, 0.07), part(BOX, hair, -0.15, 1.2, -0.08, 0, 0.07, 0.5, 0.07)); break;
+        case 'bun': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36), part(SPH, hair, 0, hatOn ? 1.5 : 1.6, hatOn ? -0.2 : -0.17, 0, 0.16, 0.14, 0.16)); break;
+        case 'ponytail': p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36), part(BOX, hair, 0, 1.3, -0.2, 0, 0.09, 0.42, 0.09, 0.35)); break;
+        case 'curly': p.push(part(SPH, hair, 0, 1.51, -0.02, 0, 0.41, 0.3, 0.41), part(SPH, hair, 0.15, 1.45, -0.08, 0, 0.16, 0.16, 0.16), part(SPH, hair, -0.15, 1.45, -0.08, 0, 0.16, 0.16, 0.16)); break;
+        case 'wavy': p.push(part(SPH, hair, 0, 1.5, -0.03, 0, 0.38, 0.28, 0.39), part(BOX, hair, 0, 1.36, -0.13, 0, 0.32, 0.2, 0.1)); break;
+        default: p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36)); // short
+      }
+      var hc;
+      switch (s.hat) {
+        case 'cap': hc = pcol(c.outfitHex, 0.85); p.push(part(SPH, hc, 0, 1.53, 0, 0, 0.4, 0.3, 0.4), part(BOX, hc, 0, 1.5, 0.23, 0, 0.3, 0.03, 0.2)); break;
+        case 'widebrim': hc = [0.42, 0.3, 0.18]; p.push(part(CYL8, hc, 0, 1.64, 0, 0, 0.3, 0.2, 0.3), part(CYL8, hc, 0, 1.55, 0, 0, 0.68, 0.035, 0.68)); break;
+        case 'beanie': hc = pcol(c.outfitHex, 0.7); p.push(part(SPH, hc, 0, 1.57, 0, 0, 0.4, 0.34, 0.4), part(CYL8, pcol(c.outfitHex, 0.5), 0, 1.5, 0, 0, 0.41, 0.08, 0.41)); break;
+        case 'helmet': hc = [0.85, 0.16, 0.14]; p.push(part(SPH, hc, 0, 1.55, 0, 0, 0.43, 0.32, 0.43), part(CYL8, hc, 0, 1.45, 0.02, 0, 0.52, 0.04, 0.56), part(BOX, [0.95, 0.95, 0.5], 0, 1.56, 0.19, 0, 0.12, 0.08, 0.02)); break;
+        case 'hardhat': hc = [1, 0.8, 0.16]; p.push(part(SPH, hc, 0, 1.55, 0, 0, 0.42, 0.3, 0.42), part(CYL8, hc, 0, 1.47, 0.03, 0, 0.5, 0.035, 0.52)); break;
+      }
+      if (s.glasses && s.glasses !== 'none') {
+        var gc = s.glasses === 'sun' ? [0.06, 0.06, 0.08] : [0.18, 0.18, 0.2], gh = s.glasses === 'sun' ? 0.06 : 0.03;
+        p.push(part(BOX, gc, 0, 1.465, 0.185, 0, 0.3, gh, 0.02), part(BOX, gc, 0.155, 1.465, 0.07, 0, 0.012, 0.014, 0.22), part(BOX, gc, -0.155, 1.465, 0.07, 0, 0.012, 0.014, 0.22));
+      }
+      if (s.accessory === 'binoculars') {
+        p.push(part(BOX, [0.15, 0.12, 0.1], 0, 1.16, 0.135, 0, 0.3, 0.02, 0.02));
+        p.push(part(CYL8, [0.1, 0.1, 0.12], 0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2), part(CYL8, [0.1, 0.1, 0.12], -0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2));
+      } else if (s.accessory === 'scarf') {
+        var sc = (s.outfit === 'o2' || s.outfit === 'o6') ? [0.2, 0.7, 0.7] : [0.85, 0.24, 0.2];
+        p.push(part(CYL8, sc, 0, 1.24, 0, 0, 0.32, 0.1, 0.32), part(BOX, sc, 0.1, 1.05, 0.15, 0, 0.1, 0.32, 0.03, 0, 0.15));
+      }
+      return mergeParts(p);
+    }
+    /** limb geometries, pivot at the joint, hanging down -y (leg: hip; upper arm: shoulder; forearm: elbow, hand + hand-held prop) */
+    function playerLegGeo(c) { return mergeParts([part(BOX, c.pants, 0, -0.31, 0, 0, 0.15, 0.62, 0.17), part(BOX, c.shoes, 0, -0.61, 0.02, 0, 0.16, 0.07, 0.22)]); }
+    function playerUpperArmGeo(c) { return mergeParts([part(BOX, c.sleeve, 0, -0.15, 0, 0, 0.13, 0.32, 0.14)]); }
+    function playerForearmGeo(c, held) {
+      var p = [part(BOX, c.sleeve, 0, -0.14, 0, 0, 0.125, 0.28, 0.135), part(BOX, c.skin, 0, -0.33, 0, 0, 0.11, 0.1, 0.11)];
+      if (held === 'clipboard') p.push(part(BOX, [0.5, 0.36, 0.22], 0, -0.36, 0.11, 0, 0.2, 0.26, 0.02), part(BOX, [0.97, 0.97, 0.97], 0, -0.365, 0.125, 0, 0.16, 0.2, 0.01), part(BOX, [0.3, 0.3, 0.32], 0, -0.25, 0.12, 0, 0.06, 0.03, 0.03));
+      else if (held === 'radio') p.push(part(BOX, [0.12, 0.12, 0.14], 0, -0.36, 0.08, 0, 0.07, 0.15, 0.05), part(CYL8, [0.1, 0.1, 0.1], 0.02, -0.21, 0.08, 0, 0.012, 0.16, 0.012), part(BOX, [0.9, 0.3, 0.2], 0, -0.31, 0.11, 0, 0.03, 0.02, 0.01));
+      return mergeParts(p);
+    }
+    /** curved patch on the front of the head (±54° wide, ±57° tall) so the portrait wraps instead of floating as a card */
+    function playerFaceGeo() {
+      var g = new THREE.SphereGeometry(0.5, 12, 10, Math.PI / 2 - 0.95, 1.9, Math.PI / 2 - 1.0, 2.0);
+      g.scale(0.353, 0.374, 0.353); g.translate(0, 1.44, 0);
+      return g;
+    }
+    function fallbackFaceURL(skinHex) {
+      if (typeof document === 'undefined') return null;
+      var cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+      var g = cv.getContext('2d'); if (!g) return null;
+      g.fillStyle = skinHex; g.beginPath(); g.ellipse(32, 30, 22, 26, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2a201a'; g.beginPath(); g.arc(23, 27, 3.2, 0, Math.PI * 2); g.arc(41, 27, 3.2, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#3a2a22'; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.arc(32, 36, 8, 0.25, Math.PI - 0.25); g.stroke();
+      try { return cv.toDataURL(); } catch (e) { return null; }
+    }
+    function loadPlayerFace(P, s, skinHex) {
+      var gen = ++P.gen, url = null, F = WS.Faces;
+      if (F && typeof F.dataURL === 'function') { try { url = F.dataURL(s, 64, { bg: null }); } catch (e) { url = null; } }
+      if (!url) url = fallbackFaceURL(skinHex);
+      if (!url || typeof Image === 'undefined') return;
+      var img = new Image();
+      img.onload = function () {
+        if (gen !== P.gen || player !== P || !P.faceMat) return;
+        var tex = new THREE.Texture(img);
+        tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+        if ('encoding' in tex && THREE.sRGBEncoding != null) tex.encoding = THREE.sRGBEncoding;
+        tex.repeat.set(FACE_CROP.rx, FACE_CROP.ry); tex.offset.set(FACE_CROP.ox, FACE_CROP.oy);
+        tex.needsUpdate = true;
+        if (P.faceTex) P.faceTex.dispose();
+        P.faceTex = tex; P.faceMat.map = tex; P.faceMat.needsUpdate = true; P.face.visible = true;
+      };
+      img.src = url;
+    }
+    function disposePlayerParts(P) {
+      var k;
+      while (P.obj.children.length) P.obj.remove(P.obj.children[0]);
+      for (k = 0; k < P.geoms.length; k++) P.geoms[k].dispose();
+      P.geoms.length = 0;
+      if (P.faceTex) { P.faceTex.dispose(); P.faceTex = null; }
+      if (P.faceMat) { P.faceMat.dispose(); P.faceMat = null; }
+      if (P.tag) { if (P.tag.parent) P.tag.parent.remove(P.tag); if (P.tag.material) { if (P.tag.material.map) P.tag.material.map.dispose(); P.tag.material.dispose(); } P.tag = null; }
+      P.body = P.legL = P.legR = P.armL = P.armR = P.foreL = P.foreR = P.face = null;
+    }
+    function buildPlayerParts(P, s, name) {
+      var c = playerColours(s), o = P.obj;
+      function mesh(g, shadow) { var m = new THREE.Mesh(g, playerMat); m.castShadow = shadow !== false; m.receiveShadow = false; m.frustumCulled = false; m.userData.player = true; P.geoms.push(g); return m; }
+      P.body = mesh(playerBodyGeo(s, c)); o.add(P.body);
+      var legG = playerLegGeo(c);
+      P.legL = new THREE.Mesh(legG, playerMat); P.legR = new THREE.Mesh(legG, playerMat); P.geoms.push(legG);
+      P.legL.position.set(0.1, 0.64, 0); P.legR.position.set(-0.1, 0.64, 0);
+      P.legL.castShadow = P.legR.castShadow = true; P.legL.frustumCulled = P.legR.frustumCulled = false; o.add(P.legL, P.legR);
+      var upG = playerUpperArmGeo(c);
+      P.armL = new THREE.Group(); P.armR = new THREE.Group(); P.foreL = new THREE.Group(); P.foreR = new THREE.Group();
+      P.armL.position.set(0.29, 1.19, 0); P.armR.position.set(-0.29, 1.19, 0); P.foreL.position.set(0, -0.3, 0); P.foreR.position.set(0, -0.3, 0);
+      var uL = new THREE.Mesh(upG, playerMat), uR = new THREE.Mesh(upG, playerMat); P.geoms.push(upG);
+      uL.castShadow = uR.castShadow = true; uL.frustumCulled = uR.frustumCulled = false;
+      // figure faces +z; its right hand is at -x. Radio in the right hand, clipboard in the left.
+      var fL = mesh(playerForearmGeo(c, s.accessory === 'clipboard' ? 'clipboard' : null)), fR = mesh(playerForearmGeo(c, s.accessory === 'radio' ? 'radio' : null));
+      P.armL.add(uL, P.foreL); P.foreL.add(fL); P.armR.add(uR, P.foreR); P.foreR.add(fR); o.add(P.armL, P.armR);
+      P.faceMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x202020, transparent: true, alphaTest: 0.4 });
+      P.face = mesh(playerFaceGeo(), false); P.face.material = P.faceMat; P.face.visible = false; o.add(P.face);
+      P.tag = makeTagSprite({ name: name, color: c.outfitHex, avatarEmoji: '★' }, '★ ' + name, false);
+      if (P.tag) playerGroup.add(P.tag);
+      loadPlayerFace(P, s, c.skinHex);
+    }
+    function playerOk(sx, sz) {
+      if (Math.abs(sx) > N / 2 - 0.6 || Math.abs(sz) > N / 2 - 0.6) return false;
+      var l = landOf(cellAtScene(sx, sz));
+      return l >= 0 && l !== LAND.RIVER && l !== LAND.RESERVOIR;
+    }
+    /** A* over the cell grid (8-connected, water blocked, no corner cutting) → smoothed list of scene-space waypoints, or null.
+        Runs once per movePlayerTo; typed arrays are reused with a generation stamp so nothing is allocated per call but the path. */
+    var ROUTE_MAX_NODES = 24000;
+    var routeG = new Float32Array(NN), routeF = new Float32Array(NN), routeFrom = new Int32Array(NN), routeSeen = new Int32Array(NN), routeClosed = new Int32Array(NN), routeGen = 0;
+    var routeHeap = new Int32Array(NN + 1), routeHeapN = 0;
+    function routeOk(i) { var l = world.land[i]; return l !== LAND.RIVER && l !== LAND.RESERVOIR; }
+    function heapPush(i) {
+      var k = routeHeapN++; routeHeap[k] = i;
+      while (k > 0) { var pa = (k - 1) >> 1; if (routeF[routeHeap[pa]] <= routeF[routeHeap[k]]) break; var t = routeHeap[pa]; routeHeap[pa] = routeHeap[k]; routeHeap[k] = t; k = pa; }
+    }
+    function heapPop() {
+      var top = routeHeap[0], last = routeHeap[--routeHeapN], k = 0; routeHeap[0] = last;
+      for (;;) { var l = k * 2 + 1, r = l + 1, m = k; if (l < routeHeapN && routeF[routeHeap[l]] < routeF[routeHeap[m]]) m = l; if (r < routeHeapN && routeF[routeHeap[r]] < routeF[routeHeap[m]]) m = r; if (m === k) break; var t = routeHeap[m]; routeHeap[m] = routeHeap[k]; routeHeap[k] = t; k = m; }
+      return top;
+    }
+    function routeCells(from, to) {
+      if (from < 0 || to < 0 || from === to || !routeOk(to) || !routeOk(from)) return null;
+      var gen = ++routeGen, tx = to % N, ty = (to / N) | 0, expanded = 0;
+      routeHeapN = 0; routeG[from] = 0; routeF[from] = Math.hypot(tx - from % N, ty - ((from / N) | 0)); routeFrom[from] = -1; routeSeen[from] = gen; heapPush(from);
+      while (routeHeapN > 0) {
+        var cur = heapPop(); if (routeClosed[cur] === gen) continue; routeClosed[cur] = gen;
+        if (cur === to) break;
+        if (++expanded > ROUTE_MAX_NODES) return null;
+        var cx = cur % N, cy = (cur / N) | 0, dx, dy;
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          var nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+          var ni = ny * N + nx; if (routeClosed[ni] === gen || !routeOk(ni)) continue;
+          if (dx && dy && (!routeOk(cy * N + nx) || !routeOk(ny * N + cx))) continue;   // no cutting a water corner
+          var ng = routeG[cur] + ((dx && dy) ? 1.41421 : 1);
+          if (routeSeen[ni] === gen && ng >= routeG[ni]) continue;
+          routeSeen[ni] = gen; routeG[ni] = ng; routeF[ni] = ng + Math.hypot(tx - nx, ty - ny); routeFrom[ni] = cur; heapPush(ni);
+        }
+      }
+      if (routeClosed[to] !== gen) return null;
+      var cells = []; for (var c = to; c >= 0; c = routeFrom[c]) cells.push(c);
+      cells.reverse(); return cells;
+    }
+    function playerLineClear(x0, z0, x1, z1) {
+      var d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / 0.35)), k;
+      for (k = 1; k <= n; k++) { var t = k / n; if (!playerOk(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t)) return false; }
+      return true;
+    }
+    /** waypoints (scene xz) from the player to (tx,tz): straight when clear, else A* cells string-pulled into straight legs */
+    function playerRoute(P, tx, tz) {
+      if (playerLineClear(P.x, P.z, tx, tz)) return [{ x: tx, z: tz }];
+      var cells = routeCells(cellAtScene(P.x, P.z), cellAtScene(tx, tz));
+      if (!cells) return null;
+      var pts = [{ x: P.x, z: P.z }], k;
+      for (k = 1; k < cells.length - 1; k++) pts.push({ x: sceneX(cells[k] % N), z: sceneZ((cells[k] / N) | 0) });
+      pts.push({ x: tx, z: tz });
+      var out = [], anchor = pts[0], i = 0;
+      while (i < pts.length - 1) {                       // furthest waypoint visible from the anchor
+        var j = pts.length - 1;
+        while (j > i + 1 && !playerLineClear(anchor.x, anchor.z, pts[j].x, pts[j].z)) j--;
+        out.push(pts[j]); anchor = pts[j]; i = j;
+      }
+      return out;
+    }
+    function dryNear(cx, cy, r) {
+      cx = clamp(Math.round(cx), 0, N - 1); cy = clamp(Math.round(cy), 0, N - 1);
+      var best = null, bd = Infinity, dx, dy, x, y, l, d;
+      for (dy = -r; dy <= r; dy++) for (dx = -r; dx <= r; dx++) {
+        x = cx + dx; y = cy + dy; if (x < 0 || y < 0 || x >= N || y >= N) continue;
+        l = world.land[y * N + x]; if (l === LAND.RIVER || l === LAND.RESERVOIR) continue;
+        d = dx * dx + dy * dy; if (d < bd) { bd = d; best = { x: x, y: y }; }
+      }
+      return best;
+    }
+    function playerArrive(P, ok) {
+      var r = P.resolve; P.resolve = null; P.walking = false;
+      if (P.faceAt) { P.headTarget = Math.atan2(P.faceAt.sx - P.x, P.faceAt.sz - P.z); P.faceAt = null; }
+      if (r) { try { r(ok); } catch (e) { /* ignore */ } }
+    }
+    function playerCancel(P) { if (P.resolve) { var r = P.resolve; P.resolve = null; P.walking = false; try { r(false); } catch (e) { /* ignore */ } } P.walking = false; }
+    function faceOf(opts) { return (opts && opts.face && isFinite(+opts.face.x) && isFinite(+opts.face.y)) ? { sx: sceneX(+opts.face.x), sz: sceneZ(+opts.face.y) } : null; }
+    function lerpTo(cur, tgt, k) { return cur + (tgt - cur) * k; }
+    function updatePlayer(dt) {
+      var P = player; if (!P) return;
+      var walking = P.walking, step = 0, dx, dz, d;
+      if (walking) {
+        var wp = (P.route && P.wp < P.route.length) ? P.route[P.wp] : null, gx = wp ? wp.x : P.tx, gz = wp ? wp.z : P.tz;
+        dx = gx - P.x; dz = gz - P.z; d = Math.hypot(dx, dz);
+        P.elapsed += dt;
+        if (wp && P.wp < P.route.length - 1 && d < 0.2) { P.wp++; wp = P.route[P.wp]; gx = wp.x; gz = wp.z; dx = gx - P.x; dz = gz - P.z; d = Math.hypot(dx, dz); }
+        if (d < 0.06 || P.elapsed > P.maxT) { P.x = P.tx; P.z = P.tz; playerArrive(P, true); walking = false; }
+        else {
+          step = Math.min(d, P.speed * dt);
+          var want = Math.atan2(dx, dz), moved = false, k, h, la = Math.min(PLAYER_LOOKAHEAD, d);
+          for (k = 0; k < PLAYER_OFFS.length; k++) {
+            h = want + PLAYER_OFFS[k] * P.detour;
+            var nx = P.x + Math.sin(h) * step, nz = P.z + Math.cos(h) * step;
+            if (!playerOk(nx, nz) || !playerOk(P.x + Math.sin(h) * la, P.z + Math.cos(h) * la)) continue;
+            P.x = nx; P.z = nz; P.headTarget = h; moved = true;
+            if (k > 0 && (k % 2) === 0) P.detour = -P.detour;   // keep skirting the water on the side that worked
+            break;
+          }
+          if (moved) { P.stuck = 0; P.cycle += step * (P.speed > 5 ? 4.2 : 5.4); }
+          else { P.stuck += dt; if (P.stuck > PLAYER_STUCK_S) { P.x = P.tx; P.z = P.tz; playerArrive(P, true); walking = false; } }
+        }
+      }
+      var dh = P.headTarget - P.heading; while (dh > Math.PI) dh -= 6.283185; while (dh < -Math.PI) dh += 6.283185;
+      P.heading += dh * Math.min(1, dt * PLAYER_TURN);
+      // --- pose targets (ux/uz: upper-arm rotation x/z, fx/fz: forearm rotation x/z, lg: leg rotation x)
+      var L = P.pose.L, R = P.pose.R, act = walking ? 'walk' : (P.action || 'idle'), t = time, rate = Math.min(1, dt * 10);
+      var tL = P.tmpL, tR = P.tmpR, bob = 0, tilt = 0, roll = 0, sy = 1, run = P.speed > 5;
+      tL.ux = 0; tL.uz = 0.08; tL.fx = -0.05; tL.fz = 0; tL.lg = 0; tR.ux = 0; tR.uz = -0.08; tR.fx = -0.05; tR.fz = 0; tR.lg = 0;
+      switch (act) {
+        case 'walk': {
+          var sw = Math.sin(P.cycle), amp = run ? 1.0 : 0.7;
+          tL.ux = -sw * amp * 0.7; tL.fx = -0.35 - (run ? 0.5 : 0); tL.lg = sw * amp * 0.75;
+          tR.ux = sw * amp * 0.7; tR.fx = -0.35 - (run ? 0.5 : 0); tR.lg = -sw * amp * 0.75;
+          bob = (run ? 0.05 : 0.035) * Math.abs(sw); tilt = run ? 0.14 : 0.05; roll = 0.03 * sw; rate = Math.min(1, dt * 30);
+          break;
+        }
+        case 'point': tR.ux = -1.35 + 0.05 * Math.sin(t * 3); tR.uz = -0.1; tR.fx = -0.1; break;
+        case 'radio': tR.ux = -1.2; tR.uz = -0.35; tR.fx = -2.25; tL.ux = 0.1; break;
+        case 'dig': {
+          var dg = Math.sin(t * 6);
+          tL.ux = tR.ux = -0.85 + 0.45 * dg; tL.fx = tR.fx = -0.7 - 0.2 * dg; tL.uz = 0.05; tR.uz = -0.05;
+          tilt = 0.25 + 0.08 * dg; bob = 0.02 * Math.abs(dg); sy = 0.97;
+          break;
+        }
+        case 'wave': tR.ux = -2.9; tR.uz = 0.35; tR.fx = -0.25; tR.fz = 0.45 * Math.sin(t * 9); break;
+        default: bob = 0.008 * Math.sin(t * 1.8); sy = 1 + 0.012 * Math.sin(t * 1.8);
+      }
+      L.ux = lerpTo(L.ux, tL.ux, rate); L.uz = lerpTo(L.uz, tL.uz, rate); L.fx = lerpTo(L.fx, tL.fx, rate); L.fz = lerpTo(L.fz, tL.fz, rate); L.lg = lerpTo(L.lg, tL.lg, rate);
+      R.ux = lerpTo(R.ux, tR.ux, rate); R.uz = lerpTo(R.uz, tR.uz, rate); R.fx = lerpTo(R.fx, tR.fx, rate); R.fz = lerpTo(R.fz, tR.fz, rate); R.lg = lerpTo(R.lg, tR.lg, rate);
+      if (P.armL) {
+        P.armL.rotation.set(L.ux, 0, L.uz); P.foreL.rotation.set(L.fx, 0, L.fz); P.legL.rotation.x = L.lg;
+        P.armR.rotation.set(R.ux, 0, R.uz); P.foreR.rotation.set(R.fx, 0, R.fz); P.legR.rotation.x = R.lg;
+      }
+      var baseY = hAt(P.x, P.z), o = P.obj;
+      o.position.set(P.x, baseY + bob, P.z); o.rotation.set(tilt, P.heading, roll); o.scale.set(PLAYER_SCALE, PLAYER_SCALE * sy, PLAYER_SCALE);
+      // --- name tag (same sizing rule as the advisors)
+      if (P.tag) {
+        var dist = _cam.has ? Math.hypot(_cam.x - P.x, _cam.y - baseY, _cam.z - P.z) : 60;
+        var h2 = clamp(ADV_TAG_PX * 2 * dist * _cam.tanHalf / _cam.viewH, ADV_TAG_MIN_H, ADV_TAG_MAX_H), show = dist <= ADV_TAG_MAX_DIST;
+        P.tag.visible = show;
+        if (show) { P.tag.scale.set(h2 * 4, h2, 1); P.tag.position.set(P.x, baseY + 1.85 * PLAYER_SCALE, P.z); }
+      }
+    }
+    function setPlayer(spec, name) {
+      var s = normSpec(spec), nm = String(name == null || name === '' ? 'Director' : name);
+      if (!player) {
+        var hall = bldgsOf('town_hall')[0], spot = hall ? frontOf(hall, 1.8) : null;   // start in front of the town hall, else a street near the civic core
+        if (!spot) spot = walkableNear(townC.x, townC.y, 20, [LAND.ROAD]) || walkableNear(townC.x, townC.y, 20, null) || { x: N / 2, y: N / 2 };
+        player = { obj: new THREE.Group(), geoms: [], x: sceneX(spot.x), z: sceneZ(spot.y), heading: Math.PI, headTarget: Math.PI, walking: false, tx: 0, tz: 0,
+          speed: PLAYER_WALK, resolve: null, action: null, cycle: 0, detour: 1, stuck: 0, elapsed: 0, maxT: 0, faceAt: null, gen: 0, spec: s, name: nm, route: null, wp: 0,
+          pose: { L: { ux: 0, uz: 0.08, fx: -0.05, fz: 0, lg: 0 }, R: { ux: 0, uz: -0.08, fx: -0.05, fz: 0, lg: 0 } },
+          tmpL: { ux: 0, uz: 0, fx: 0, fz: 0, lg: 0 }, tmpR: { ux: 0, uz: 0, fx: 0, fz: 0, lg: 0 },
+          body: null, legL: null, legR: null, armL: null, armR: null, foreL: null, foreR: null, face: null, faceMat: null, faceTex: null, tag: null };
+        player.obj.name = 'player'; player.obj.userData.player = true; playerGroup.add(player.obj);
+      } else disposePlayerParts(player);
+      player.spec = s; player.name = nm;
+      buildPlayerParts(player, s, nm);
+      updatePlayer(0);
+      return player.obj;
+    }
+    function playerPosition() {
+      if (!player) return null;
+      var cx = player.x / C.RENDER.CELL + N / 2 - 0.5, cy = player.z / C.RENDER.CELL + N / 2 - 0.5;
+      return { x: cx, y: cy, sx: player.x, sz: player.z, i: cellAtScene(player.x, player.z), walking: player.walking, heading: player.heading };
     }
 
     // ================================================================= STATE
@@ -8731,7 +9159,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
           try { var lv = world.reservoir.levelForStorage(fin(state.reservoir.storageAF, 0)); if (isFinite(lv)) birdBaseY = C.elevToScene(lv); } catch (e) { /* keep */ }
         }
         props.stats.instances = conifers.n + aspens.n + snags.count + sage.n + houses.n * 2 + barnCount + crops.n + hayMesh.count + fenceMesh.count + people.n + elk.n + trucks.n + cars.n + birds.n + advisors.length;
-        props.stats.drawCalls = meshes.filter(function (m) { return m.count == null || m.count > 0; }).length;
+        props.stats.drawCalls = meshes.filter(function (m) { return m.count == null || m.count > 0; }).length + (player ? 8 : 0);
       },
 
       setSeason: function (seasonIdx, o) {
@@ -8753,6 +9181,36 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       setAdvisorAlert: function (id, on) { var a = advById[id]; if (a) { a.alertOn = !!on; if (a.alert && !a.alertOn) a.alert.visible = false; } },
       advisorAt: advisorAt,
       advisorHit: advisorHit,
+
+      /* ---- player avatar (SPEC3 §C) ---- */
+      setPlayer: setPlayer,
+      movePlayerTo: function (x, y, opts) {
+        if (!player) return Promise.resolve(false);
+        var P = player, gx = clamp(fin(+x, N / 2), 0, N - 1), gy = clamp(fin(+y, N / 2), 0, N - 1);
+        var gl = landOf(clamp(Math.round(gy), 0, N - 1) * N + clamp(Math.round(gx), 0, N - 1));
+        if (gl === LAND.RIVER || gl === LAND.RESERVOIR) { var dryC = dryNear(gx, gy, 8); if (dryC) { gx = dryC.x; gy = dryC.y; } }   // never aim at water
+        var tx = sceneX(gx), tz = sceneZ(gy);
+        playerCancel(P);
+        P.tx = tx; P.tz = tz; P.speed = (opts && opts.run) ? PLAYER_RUN : PLAYER_WALK; P.elapsed = 0; P.stuck = 0; P.faceAt = faceOf(opts);
+        var d0 = Math.hypot(tx - P.x, tz - P.z), route = null, len = d0, k;
+        try { route = playerRoute(P, tx, tz); } catch (e) { route = null; }
+        if (route) { len = 0; var px = P.x, pz = P.z; for (k = 0; k < route.length; k++) { len += Math.hypot(route[k].x - px, route[k].z - pz); px = route[k].x; pz = route[k].z; } }
+        P.route = route; P.wp = 0; P.detour = 1;
+        P.maxT = len / P.speed * (route ? 1.6 : 2.5) + 3;   // never walks forever: teleports when badly blocked (no route / stuck)
+        if (opts && isFinite(+opts.maxSecs) && +opts.maxSecs > 0) P.maxT = Math.min(P.maxT, +opts.maxSecs);   // caller's cap → teleport on expiry
+        P.walking = true;
+        return new Promise(function (resolve) { P.resolve = resolve; if (d0 < 0.06) { P.x = tx; P.z = tz; playerArrive(P, true); } });
+      },
+      teleportPlayer: function (x, y, opts) {
+        if (!player) return;
+        var P = player; playerCancel(P);
+        P.x = sceneX(clamp(fin(+x, N / 2), 0, N - 1)); P.z = sceneZ(clamp(fin(+y, N / 2), 0, N - 1));
+        var f = faceOf(opts); if (f) P.heading = P.headTarget = Math.atan2(f.sx - P.x, f.sz - P.z);
+        updatePlayer(0);
+      },
+      playerPosition: playerPosition,
+      setPlayerAction: function (kind) { if (player) player.action = (kind === 'point' || kind === 'radio' || kind === 'dig' || kind === 'wave') ? kind : null; },
+      playerObject: function () { return player ? player.obj : null; },
 
       /* houses standing in currently burning cells flicker toward orange (instanceColor only — no geometry work) */
       setBurningCells: function (cells) {
@@ -8898,8 +9356,10 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
           birdMesh.setMatrixAt(k, _o.matrix);
         }
         if (birds.n) birdMesh.instanceMatrix.needsUpdate = true;
-        // advisors (six named figures)
+        // advisors (six named figures) + the player figure
+        readCam();
         updateAdvisors(dt);
+        updatePlayer(dt);
       },
 
       /* ---- build-scene hooks (WS.Builds) ---- */
@@ -8995,6 +9455,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       dispose: function () {
         try { if (group.parent) group.parent.remove(group); } catch (e) { /* ignore */ }
         var k;
+        if (player) { playerCancel(player); disposePlayerParts(player); playerGroup.remove(player.obj); player = null; }
         for (k = 0; k < geometries.length; k++) geometries[k].dispose();
         for (k = 0; k < materials.length; k++) materials[k].dispose();
         for (k = 0; k < baseGeoms.length; k++) baseGeoms[k].dispose();
@@ -10363,6 +10824,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
    on the map (siren poles, gauges, pivots, beaver dams, tanks, cabinets ...). Export WS.Builds. Browser only (THREE r128).
      WS.Builds.init(scene, world, { props, fx, heightAt, camera }) → builds
      builds.play(projectId, targetZoneId, state) → Promise<void>   // 3–5 s scene; unknown ids resolve at once; never throws
+                                      // (SPEC3 §C) first runs the player figure to ~2 cells from the site (2.5 s cap → teleport),
+                                      // keeps it facing the site with action 'point' during the scene, clears the action after
      builds.installed(state, world)   // (re)create every persistent installation from state.projects.funded (idempotent)
      builds.update(dt)                // animation: pivots rotate, sirens blink, scenes advance
      builds.siteFor(projectId, targetZoneId) → { x, y, dist } | null   // cell to fly the camera to before play()
@@ -11308,9 +11771,40 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
         } catch (e) { if (WS.DEBUG) console.error('[Builds] play failed', e); finish(); }
       });
     }
+    // ---- player approach (SPEC3 §C): the director runs to a spot ~2 cells from the site, faces it and points for the scene
+    var PLAYER_CAP_MS = 2500, PLAYER_STAND = 2;
+    function hasPlayer() { return !!(props && typeof props.movePlayerTo === 'function' && typeof props.playerObject === 'function' && props.playerObject()); }
+    function standSpot(site) {
+      var pp = (typeof props.playerPosition === 'function') ? props.playerPosition() : null;
+      var ang0 = pp ? Math.atan2(pp.y - site.y, pp.x - site.x) : 0.8, k, a, x, y, l;
+      for (k = 0; k < 8; k++) {                                     // nearest side first, then fan out around the site
+        a = ang0 + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 0.8;
+        x = site.x + Math.cos(a) * PLAYER_STAND; y = site.y + Math.sin(a) * PLAYER_STAND;
+        l = landXY(x, y);
+        if (l >= 0 && !isWater(l)) return { x: x, y: y };
+      }
+      return null;
+    }
+    function approach(id, zid) {
+      var site = null, spot = null, timer = null;
+      try { if (hasPlayer()) { site = siteFor(id, zid); spot = site ? standSpot(site) : null; } } catch (e) { spot = null; }
+      if (!spot) return Promise.resolve();
+      var face = { x: site.x, y: site.y };
+      var walk = Promise.resolve().then(function () { return props.movePlayerTo(spot.x, spot.y, { run: true, face: face }); });
+      var cap = new Promise(function (res) { timer = setTimeout(function () { res('late'); }, PLAYER_CAP_MS); });
+      return Promise.race([walk, cap]).then(function (r) {
+        if (timer) clearTimeout(timer);
+        if (r === 'late' && typeof props.teleportPlayer === 'function') props.teleportPlayer(spot.x, spot.y, { face: face });
+        if ((r === true || r === 'late') && typeof props.setPlayerAction === 'function') props.setPlayerAction('point');
+      }).catch(function () { if (timer) clearTimeout(timer); });
+    }
+    function clearPlayerAction() { try { if (hasPlayer() && typeof props.setPlayerAction === 'function') props.setPlayerAction(null); } catch (e) { /* ignore */ } }
     function play(projectId, zoneId, state) {
       var id = String(projectId || ''), zid = (zoneId == null || zoneId === '') ? null : +zoneId;
-      var p = queue.then(function () { return runScene(id, zid, state); }).catch(function () {});
+      var p = queue.then(function () { return approach(id, zid); })
+        .then(function () { return runScene(id, zid, state); })
+        .catch(function () {})
+        .then(clearPlayerAction);
       queue = p;
       return p;
     }
@@ -12072,6 +12566,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
   var lastWind = { dir: 0.8, mph: 8 };
   var broken = { water: false, props: false, fx: false, builds: false };
   var bound = false;
+  var lastPlayer = null;   // {spec, name} — re-applied after (re)init so setPlayer may be called in any order
 
   function num(v, d) { v = +v; return isFinite(v) ? v : d; }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -12350,6 +12845,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       builds = guard('Builds.init', function () { return WS.Builds.init(ctx.scene, world, { props: props, fx: fx, heightAt: heightAt, camera: ctx.camera }); }) || null;
       if (builds && builds.installed) guard('builds.installed', function () { builds.installed(state, world); });
     }
+    if (lastPlayer && props && props.setPlayer) guard('props.setPlayer', function () { props.setPlayer(lastPlayer.spec, lastPlayer.name); });
 
     // initial state
     R.setSeason(season, seasonClimate);
@@ -12416,6 +12912,41 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     if (!ctx) return;
     var a = advisorOf(id); if (!a || !a.position) return;
     ctx.focus(a.position.x, a.position.z, dist == null ? 22 : num(dist, 22), { smooth: true });
+  };
+
+  /* ---------- player avatar (SPEC3 §C) ---------- */
+  function playerObj() {
+    if (!props || typeof props.playerObject !== 'function') return null;
+    return guard('props.playerObject', function () { return props.playerObject(); }) || null;
+  }
+  R.setPlayer = function (spec, name) {      // build/rebuild the director figure; remembered and re-applied across init()
+    lastPlayer = { spec: spec || null, name: name == null ? 'Director' : String(name) };
+    if (props && props.setPlayer) guard('props.setPlayer', function () { props.setPlayer(lastPlayer.spec, lastPlayer.name); });
+  };
+  R.movePlayerTo = function (x, y, opts) {   // → Promise<bool>: true on arrival, false when cancelled / no player
+    if (!props || typeof props.movePlayerTo !== 'function' || !playerObj()) return Promise.resolve(false);
+    try { return Promise.resolve(props.movePlayerTo(num(x, 0), num(y, 0), opts || {})).catch(function () { return false; }); }
+    catch (err) { console.error('[Renderer] movePlayerTo failed:', err); return Promise.resolve(false); }
+  };
+  R.teleportPlayer = function (x, y, opts) { if (props && props.teleportPlayer && playerObj()) guard('props.teleportPlayer', function () { props.teleportPlayer(num(x, 0), num(y, 0), opts || {}); }); };
+  R.setPlayerAction = function (kind) { if (props && props.setPlayerAction) guard('props.setPlayerAction', function () { props.setPlayerAction(kind == null ? null : String(kind)); }); };
+  R.getPlayerPosition = function () {        // {x, y (fractional cells), sx, sz, i, walking, heading} | null
+    if (!props || typeof props.playerPosition !== 'function') return null;
+    return guard('props.playerPosition', function () { return props.playerPosition(); }) || null;
+  };
+  /* screen position of the player's head: { sx, sy, x, y, visible, dist } or null when there is no player / no scene */
+  R.playerScreenPos = function () {
+    if (!ctx) return null;
+    var o = playerObj(); if (!o || !o.position) return null;
+    var p = ctx.project(o.position.x, o.position.y + 2.0, o.position.z);
+    var dist = ctx.camera ? ctx.camera.position.distanceTo(o.position) : 0;
+    var vis = !!p.visible && p.sx >= 0 && p.sy >= 0 && p.sx <= ctx._w && p.sy <= ctx._h;
+    return { sx: p.sx, sy: p.sy, x: p.sx, y: p.sy, visible: vis, dist: dist };
+  };
+  R.flyToPlayer = function (dist) {
+    if (!ctx) return;
+    var o = playerObj(); if (!o || !o.position) return;
+    ctx.focus(o.position.x, o.position.z, dist == null ? 20 : num(dist, 20), { smooth: true });
   };
 
   /* ---------- tactical mode (SPEC2 §C) ---------- */
@@ -12620,6 +13151,601 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
 })();
 
 </script>
+<script>/* src/ui/faces.js */
+/* Watershed — Faces: deterministic 2-D "field-guide" portraits (Canvas 2D, paths only, no images/gradients).
+   Exports WS.Faces = { OPTIONS, DEFAULT, PRESETS, LABELS, draw(canvas, spec, opts), dataURL(spec, size, opts), random(rng), normalize(spec), hexOf(kind, id) }.
+   Loads before hud.js. Safe to load in Node (no DOM use until draw/dataURL is called). */
+(function () {
+  'use strict';
+  var root = (typeof window !== 'undefined') ? window : globalThis;
+  var WS = root.WS = root.WS || {};
+
+  var OPTIONS = {
+    skin: [{ id: 's1', hex: '#f6d3b8' }, { id: 's2', hex: '#e8b894' }, { id: 's3', hex: '#c98f66' }, { id: 's4', hex: '#a56a45' }, { id: 's5', hex: '#7a4a2e' }, { id: 's6', hex: '#4d2f1e' }],
+    hair: ['short', 'buzz', 'curly', 'long', 'ponytail', 'bun', 'braids', 'bald', 'afro', 'wavy'],
+    hairColor: [{ id: 'h1', hex: '#2b1d14' }, { id: 'h2', hex: '#5a3a22' }, { id: 'h3', hex: '#a3652f' }, { id: 'h4', hex: '#d9b06a' }, { id: 'h5', hex: '#b5b5b5' }, { id: 'h6', hex: '#c0392b' }],
+    eyes: ['round', 'almond', 'narrow'],
+    brows: ['soft', 'straight', 'arched'],
+    mouth: ['smile', 'neutral', 'grin'],
+    facialHair: ['none', 'stubble', 'beard', 'moustache'],
+    glasses: ['none', 'round', 'square', 'sun'],
+    hat: ['none', 'cap', 'widebrim', 'beanie', 'helmet', 'hardhat'],
+    outfit: [{ id: 'o1', hex: '#2f6fb3' }, { id: 'o2', hex: '#c0392b' }, { id: 'o3', hex: '#2e8b57' }, { id: 'o4', hex: '#e2a93b' }, { id: 'o5', hex: '#6b4fbb' }, { id: 'o6', hex: '#444' }],
+    accessory: ['none', 'clipboard', 'binoculars', 'radio', 'scarf']
+  };
+  var KEYS = Object.keys(OPTIONS);
+  var DEFAULT = { skin: 's2', hair: 'short', hairColor: 'h2', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' };
+  /** Human-readable labels for the creator UI. */
+  var LABELS = {
+    skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory',
+    values: { short: 'Short', buzz: 'Buzz', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', braids: 'Braids', bald: 'Bald', afro: 'Afro', wavy: 'Wavy',
+      round: 'Round', almond: 'Almond', narrow: 'Narrow', soft: 'Soft', straight: 'Straight', arched: 'Arched', smile: 'Smile', neutral: 'Neutral', grin: 'Grin',
+      none: 'None', stubble: 'Stubble', beard: 'Beard', moustache: 'Moustache', square: 'Square', sun: 'Sunglasses', cap: 'Cap', widebrim: 'Wide brim', beanie: 'Beanie', helmet: 'Fire helmet', hardhat: 'Hard hat',
+      clipboard: 'Clipboard', binoculars: 'Binoculars', radio: 'Radio', scarf: 'Scarf' }
+  };
+  var PRESETS = [
+    { name: 'Ranger', face: { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'almond', brows: 'straight', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'widebrim', outfit: 'o3', accessory: 'binoculars' } },
+    { name: 'Engineer', face: { skin: 's2', hair: 'bun', hairColor: 'h2', eyes: 'round', brows: 'arched', mouth: 'neutral', facialHair: 'none', glasses: 'round', hat: 'hardhat', outfit: 'o4', accessory: 'clipboard' } },
+    { name: 'Field scientist', face: { skin: 's4', hair: 'braids', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'grin', facialHair: 'none', glasses: 'none', hat: 'cap', outfit: 'o1', accessory: 'radio' } },
+    { name: 'Fire chief', face: { skin: 's5', hair: 'buzz', hairColor: 'h1', eyes: 'narrow', brows: 'straight', mouth: 'neutral', facialHair: 'beard', glasses: 'none', hat: 'helmet', outfit: 'o2', accessory: 'radio' } }
+  ];
+
+  /* ------------------------------------------------------------------ colour helpers */
+  function hexToRgb(hex) {
+    var s = String(hex || '').replace('#', '');
+    if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+    var n = parseInt(s, 16);
+    if (!isFinite(n) || s.length !== 6) return [128, 128, 128];
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgbStr(c, a) { return a == null ? 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')' : 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+  function mix(hex, target, t) {
+    var a = hexToRgb(hex), b = hexToRgb(target);
+    return rgbStr([Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t)]);
+  }
+  function shade(hex, t) { return mix(hex, '#3a2418', t); }   /* warm shadow */
+  function tint(hex, t) { return mix(hex, '#fff6e6', t); }    /* warm highlight */
+
+  function findOpt(kind, id) {
+    var list = OPTIONS[kind] || [];
+    for (var i = 0; i < list.length; i++) { var o = list[i]; if ((typeof o === 'string' ? o : o.id) === id) return o; }
+    return null;
+  }
+  function hexOf(kind, id) {
+    var o = findOpt(kind, id) || OPTIONS[kind][0];
+    return typeof o === 'string' ? '#888888' : o.hex;
+  }
+  function normalize(spec) {
+    spec = (spec && typeof spec === 'object') ? spec : {};
+    var out = {};
+    for (var i = 0; i < KEYS.length; i++) {
+      var k = KEYS[i], v = spec[k];
+      out[k] = (typeof v === 'string' && findOpt(k, v)) ? v : DEFAULT[k];
+    }
+    return out;
+  }
+  function random(rng) {
+    var r = (rng && typeof rng.next === 'function') ? rng.next : (typeof rng === 'function' ? rng : Math.random);
+    var pick = function (list) { return list[Math.floor(r() * list.length) % list.length]; };
+    var idOf = function (o) { return typeof o === 'string' ? o : o.id; };
+    var out = {};
+    for (var i = 0; i < KEYS.length; i++) out[KEYS[i]] = idOf(pick(OPTIONS[KEYS[i]]));
+    /* keep the option space plausible: most people have no hat / no facial hair / no glasses */
+    if (r() < 0.45) out.hat = 'none';
+    if (r() < 0.55) out.facialHair = 'none';
+    if (r() < 0.5) out.glasses = 'none';
+    if (r() < 0.35) out.accessory = 'none';
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ drawing (100×100 unit space) */
+  var OUTLINE = '#3b2a1e';
+  var HEAD = { cx: 50, cy: 44, rx: 21, ry: 24 };
+
+  function ellipsePath(ctx, cx, cy, rx, ry) {
+    ctx.beginPath();
+    if (ctx.ellipse) ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    else { ctx.save(); ctx.translate(cx, cy); ctx.scale(rx, ry); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.restore(); }
+    ctx.closePath();
+  }
+  function headPath(ctx) {
+    /* slightly narrower jaw than crown: a bezier head rather than a pure ellipse */
+    var cx = HEAD.cx, top = HEAD.cy - HEAD.ry, bottom = HEAD.cy + HEAD.ry;
+    ctx.beginPath();
+    ctx.moveTo(cx, top);
+    ctx.bezierCurveTo(cx + 17, top, cx + 23, 30, cx + 21, 46);
+    ctx.bezierCurveTo(cx + 19.5, 60, cx + 11, bottom, cx, bottom);
+    ctx.bezierCurveTo(cx - 11, bottom, cx - 19.5, 60, cx - 21, 46);
+    ctx.bezierCurveTo(cx - 23, 30, cx - 17, top, cx, top);
+    ctx.closePath();
+  }
+  function bodyPath(ctx) {
+    ctx.beginPath();
+    ctx.moveTo(6, 104);
+    ctx.lineTo(8, 90);
+    ctx.bezierCurveTo(10, 79, 22, 75, 36, 73);
+    ctx.lineTo(64, 73);
+    ctx.bezierCurveTo(78, 75, 90, 79, 92, 90);
+    ctx.lineTo(94, 104);
+    ctx.closePath();
+  }
+  /** Fill `pathFn` two-tone (base + warm shadow crescent offset by dx,dy) and outline it. */
+  function twoTone(ctx, pathFn, base, dark, dx, dy, lw, noStroke) {
+    ctx.save();
+    pathFn(ctx); ctx.clip();
+    ctx.fillStyle = dark; ctx.fillRect(-10, -10, 130, 130);
+    ctx.translate(dx, dy);
+    pathFn(ctx); ctx.fillStyle = base; ctx.fill();
+    ctx.restore();
+    if (!noStroke) { pathFn(ctx); ctx.lineWidth = lw; ctx.strokeStyle = OUTLINE; ctx.stroke(); }
+  }
+  function fillStroke(ctx, pathFn, fill, lw, strokeStyle) {
+    pathFn(ctx);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (lw) { ctx.lineWidth = lw; ctx.strokeStyle = strokeStyle || OUTLINE; ctx.stroke(); }
+  }
+
+  /* hair volume that a hat must clear */
+  var HAIR_LIFT = { afro: 7, curly: 3, wavy: 1, bun: 0 };
+
+  /* ---- hair: behind the head (drawn after the body so long hair drapes over the shoulders) ---- */
+  function hairBack(ctx, spec, hc, lw) {
+    var dark = shade(hc, 0.28);
+    switch (spec.hair) {
+      case 'long':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(50, 19);
+          c.bezierCurveTo(74, 19, 78, 40, 77, 58);
+          c.bezierCurveTo(77, 72, 80, 82, 76, 92);
+          c.lineTo(24, 92);
+          c.bezierCurveTo(20, 82, 23, 72, 23, 58);
+          c.bezierCurveTo(22, 40, 26, 19, 50, 19);
+          c.closePath();
+        }, hc, dark, -4, -3, lw);
+        break;
+      case 'wavy':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(50, 19);
+          c.bezierCurveTo(72, 19, 78, 36, 76, 52);
+          c.bezierCurveTo(80, 58, 74, 64, 79, 70);
+          c.bezierCurveTo(73, 76, 79, 82, 72, 86);
+          c.lineTo(28, 86);
+          c.bezierCurveTo(21, 82, 27, 76, 21, 70);
+          c.bezierCurveTo(26, 64, 20, 58, 24, 52);
+          c.bezierCurveTo(22, 36, 28, 19, 50, 19);
+          c.closePath();
+        }, hc, dark, -4, -3, lw);
+        break;
+      case 'afro':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          var n = 14, R = 33, cx = 50, cy = 39;
+          for (var i = 0; i <= n; i++) {
+            var a0 = (i / n) * Math.PI * 2 - Math.PI / 2, a1 = ((i + 0.5) / n) * Math.PI * 2 - Math.PI / 2;
+            var x0 = cx + Math.cos(a0) * R, y0 = cy + Math.sin(a0) * R * 0.98;
+            var x1 = cx + Math.cos(a1) * (R + 4.5), y1 = cy + Math.sin(a1) * (R + 4.5) * 0.98;
+            if (i === 0) c.moveTo(x0, y0); else c.quadraticCurveTo(px, py, x0, y0);
+            var px = x1, py = y1;
+          }
+          c.closePath();
+        }, hc, dark, -4, -3, lw);
+        break;
+      case 'curly':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          var pts = [[29, 44], [24, 34], [27, 24], [36, 16], [50, 13], [64, 16], [73, 24], [76, 34], [71, 44]];
+          c.moveTo(29, 52);
+          for (var i = 0; i < pts.length; i++) c.arc(pts[i][0], pts[i][1], 7, 0, Math.PI * 2);
+          c.lineTo(71, 52); c.lineTo(29, 52);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'ponytail':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(62, 26);
+          c.bezierCurveTo(78, 24, 82, 44, 79, 58);
+          c.bezierCurveTo(77, 70, 82, 80, 76, 88);
+          c.bezierCurveTo(70, 84, 68, 72, 70, 62);
+          c.bezierCurveTo(72, 48, 66, 40, 60, 34);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'bun':
+        if (spec.hat === 'none') twoTone(ctx, function (c) { ellipsePath(c, 50, 15, 11, 9); }, hc, dark, -3, -2, lw);
+        break;
+      case 'braids':
+        [30, 70].forEach(function (x) {
+          twoTone(ctx, function (c) {
+            c.beginPath();
+            for (var i = 0; i < 6; i++) c.arc(x + (i % 2 ? 1.2 : -1.2), 46 + i * 7.5, 4.6, 0, Math.PI * 2);
+            c.closePath();
+          }, hc, dark, -2, -2, lw);
+          /* tie */
+          fillStroke(ctx, function (c) { ellipsePath(c, x, 86, 3.2, 1.8); }, '#c9a66b', lw * 0.7);
+        });
+        break;
+      default: break;
+    }
+  }
+  /* ---- hair: in front (cap / fringe over the forehead) ---- */
+  function hairFront(ctx, spec, hc, lw) {
+    var dark = shade(hc, 0.28), light = tint(hc, 0.22);
+    var hat = spec.hat !== 'none';
+    function capPath(c, sideY, fringeY) {
+      /* smooth cap from temple to temple over the crown */
+      c.beginPath();
+      c.moveTo(29, sideY);
+      c.bezierCurveTo(28, 26, 34, 18, 50, 18);
+      c.bezierCurveTo(66, 18, 72, 26, 71, sideY);
+      c.bezierCurveTo(68, fringeY - 2, 60, fringeY, 50, fringeY);
+      c.bezierCurveTo(40, fringeY, 32, fringeY - 2, 29, sideY);
+      c.closePath();
+    }
+    switch (spec.hair) {
+      case 'short':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29, 42);
+          c.bezierCurveTo(27, 28, 33, 18, 50, 18);
+          c.bezierCurveTo(67, 18, 73, 28, 71, 42);
+          c.lineTo(69, 38);
+          c.bezierCurveTo(70, 30, 62, 29, 56, 29);
+          c.bezierCurveTo(48, 28, 40, 32, 34, 30);
+          c.bezierCurveTo(31, 33, 31, 36, 31, 40);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'buzz':
+        ctx.save(); ctx.globalAlpha = 0.82;
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29.5, 40);
+          c.bezierCurveTo(28, 28, 34, 19, 50, 19);
+          c.bezierCurveTo(66, 19, 72, 28, 70.5, 40);
+          c.lineTo(69, 38);
+          c.bezierCurveTo(69, 31, 62, 27, 50, 27);
+          c.bezierCurveTo(38, 27, 31, 31, 31, 38);
+          c.closePath();
+        }, hc, dark, -2, -1, lw * 0.8);
+        ctx.restore();
+        break;
+      case 'curly':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          var pts = [[33, 31], [41, 27], [50, 26], [59, 27], [67, 31]];
+          c.moveTo(29, 36);
+          for (var i = 0; i < pts.length; i++) c.arc(pts[i][0], pts[i][1], 6.5, 0, Math.PI * 2);
+          c.arc(50, 22, 12, 0, Math.PI * 2);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'long':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29, 46);
+          c.bezierCurveTo(27, 28, 33, 18, 50, 18);
+          c.bezierCurveTo(67, 18, 73, 28, 71, 46);
+          c.lineTo(70, 40);
+          c.bezierCurveTo(69, 32, 62, 30, 58, 33);   /* side-swept fringe, parted right */
+          c.bezierCurveTo(52, 37, 44, 38, 38, 33);
+          c.bezierCurveTo(33, 30, 31, 36, 30, 40);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'wavy':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29, 44);
+          c.bezierCurveTo(27, 28, 33, 18, 50, 18);
+          c.bezierCurveTo(67, 18, 73, 28, 71, 44);
+          c.bezierCurveTo(72, 36, 66, 30, 60, 32);
+          c.bezierCurveTo(56, 37, 52, 30, 46, 33);
+          c.bezierCurveTo(42, 37, 36, 31, 33, 35);
+          c.bezierCurveTo(30, 38, 30, 41, 29, 44);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'ponytail':
+      case 'bun':
+      case 'braids':
+        twoTone(ctx, function (c) { capPath(c, 38, 30); }, hc, dark, -3, -2, lw);
+        /* centre part for braids, sheen for pulled-back styles */
+        ctx.lineWidth = lw * 0.7; ctx.strokeStyle = spec.hair === 'braids' ? dark : light;
+        ctx.beginPath();
+        if (spec.hair === 'braids') { ctx.moveTo(50, 19); ctx.lineTo(50, 30); }
+        else { ctx.moveTo(38, 22); ctx.quadraticCurveTo(46, 17, 58, 20); }
+        ctx.stroke();
+        break;
+      case 'afro':
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29, 40);
+          c.bezierCurveTo(27, 26, 33, 16, 50, 16);
+          c.bezierCurveTo(67, 16, 73, 26, 71, 40);
+          c.bezierCurveTo(70, 32, 62, 28, 50, 28);
+          c.bezierCurveTo(38, 28, 30, 32, 29, 40);
+          c.closePath();
+        }, hc, dark, -3, -2, lw);
+        break;
+      case 'bald':
+        if (!hat) { ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = lw * 0.8; ctx.beginPath(); ctx.moveTo(40, 25); ctx.quadraticCurveTo(46, 20, 54, 21); ctx.stroke(); }
+        break;
+      default: break;
+    }
+  }
+
+  function drawEyes(ctx, spec, lw, expr) {
+    var kind = spec.eyes, iris = '#2a1b14', up = expr === 'happy' ? 0.6 : 0;
+    [41, 59].forEach(function (x, i) {
+      var y = 45;
+      var rx = kind === 'round' ? 3.4 : 3.9, ry = kind === 'round' ? 3.3 : (kind === 'almond' ? 2.3 : 1.5);
+      if (expr === 'happy' && kind !== 'narrow') ry *= 0.85;
+      var pathFn = function (c) {
+        if (kind === 'almond') {
+          c.beginPath(); c.moveTo(x - rx, y + 0.4);
+          c.quadraticCurveTo(x, y - ry * 2.1 + 0.4, x + rx, y + 0.4);
+          c.quadraticCurveTo(x, y + ry * 1.3, x - rx, y + 0.4); c.closePath();
+        } else ellipsePath(c, x, y, rx, ry);
+      };
+      fillStroke(ctx, pathFn, '#fffaf2', lw * 0.6);
+      ctx.save(); pathFn(ctx); ctx.clip();
+      var ir = kind === 'narrow' ? 1.6 : (kind === 'round' ? 2.1 : 1.9);
+      ellipsePath(ctx, x + (i ? -0.3 : 0.3), y - up * 0.3, ir, ir); ctx.fillStyle = iris; ctx.fill();
+      ellipsePath(ctx, x + (i ? -0.9 : -0.3), y - 0.8, 0.6, 0.6); ctx.fillStyle = '#ffffff'; ctx.fill();
+      ctx.restore();
+      /* upper lid line for almond/narrow */
+      if (kind !== 'round') { ctx.lineWidth = lw * 0.8; ctx.strokeStyle = OUTLINE; ctx.beginPath(); ctx.moveTo(x - rx, y + 0.4); ctx.quadraticCurveTo(x, y - ry * 2.1 + 0.4, x + rx, y + 0.4); ctx.stroke(); }
+    });
+  }
+  function drawBrows(ctx, spec, hc, lw, expr) {
+    var col = shade(hc, 0.35), kind = spec.brows;
+    var lift = expr === 'happy' ? -1.6 : 0;
+    ctx.lineWidth = lw * (kind === 'straight' ? 1.5 : 1.3); ctx.strokeStyle = col; ctx.lineCap = 'round';
+    [[37, 45.5], [54.5, 63]].forEach(function (seg, i) {
+      var xo = i ? seg[1] : seg[0], xi = i ? seg[0] : seg[1];   /* outer / inner x */
+      var yo = 37.5 + lift, yi = 37.5 + lift, ym = (kind === 'arched' ? 33.6 : (kind === 'soft' ? 35.8 : 37.3)) + lift;
+      if (expr === 'worried') { yi -= 2.2; yo += 1.2; ym -= 0.6; }
+      ctx.beginPath(); ctx.moveTo(xo, yo);
+      ctx.quadraticCurveTo((xo + xi) / 2, ym, xi, yi);
+      ctx.stroke();
+    });
+  }
+  function drawNose(ctx, lw) {
+    ctx.lineWidth = lw * 0.75; ctx.strokeStyle = 'rgba(59,42,30,0.75)'; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(48.5, 47); ctx.quadraticCurveTo(46.3, 54.5, 50.5, 55.2); ctx.stroke();
+  }
+  function drawMouth(ctx, spec, lw, expr) {
+    var kind = spec.mouth;
+    if (expr === 'happy') kind = kind === 'neutral' ? 'smile' : 'grin';
+    if (expr === 'worried') kind = kind === 'grin' ? 'smile' : 'worried';
+    ctx.lineCap = 'round'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = lw * 0.95;
+    if (kind === 'smile') {
+      ctx.beginPath(); ctx.moveTo(44.5, 59.3); ctx.quadraticCurveTo(50, 65, 55.5, 59.3); ctx.stroke();
+      ctx.lineWidth = lw * 0.6; ctx.strokeStyle = 'rgba(59,42,30,0.45)';
+      ctx.beginPath(); ctx.moveTo(44.5, 59.3); ctx.lineTo(43.6, 58.2); ctx.moveTo(55.5, 59.3); ctx.lineTo(56.4, 58.2); ctx.stroke();
+    } else if (kind === 'neutral') {
+      ctx.beginPath(); ctx.moveTo(45.5, 60); ctx.quadraticCurveTo(50, 61.6, 54.5, 60); ctx.stroke();
+    } else if (kind === 'worried') {
+      ctx.beginPath(); ctx.moveTo(45.5, 61); ctx.quadraticCurveTo(48, 59.2, 50.5, 60.6); ctx.quadraticCurveTo(52.5, 61.8, 54.5, 60.2); ctx.stroke();
+    } else { /* grin: open smile with teeth */
+      var mouthPath = function (c) { c.beginPath(); c.moveTo(43.2, 58.4); c.quadraticCurveTo(50, 68.5, 56.8, 58.4); c.quadraticCurveTo(50, 60.6, 43.2, 58.4); c.closePath(); };
+      fillStroke(ctx, mouthPath, '#5a2a2a', 0);
+      ctx.save(); mouthPath(ctx); ctx.clip();
+      ctx.fillStyle = '#fffaf2'; ctx.fillRect(42, 56, 16, 3.6);
+      ctx.restore();
+      fillStroke(ctx, mouthPath, null, lw * 0.9);
+    }
+  }
+  function drawFacialHair(ctx, spec, hc, lw, part) {
+    var fh = spec.facialHair; if (fh === 'none') return;
+    var col = shade(hc, 0.15), dark = shade(hc, 0.4);
+    if (part === 'beard') {
+      if (fh === 'stubble') {
+        ctx.save(); headPath(ctx); ctx.clip();
+        ctx.fillStyle = col; ctx.globalAlpha = 0.28;
+        ctx.beginPath(); ctx.moveTo(30, 50); ctx.bezierCurveTo(31, 62, 40, 68, 50, 68); ctx.bezierCurveTo(60, 68, 69, 62, 70, 50);
+        ctx.bezierCurveTo(66, 56, 60, 58, 56, 57); ctx.lineTo(44, 57); ctx.bezierCurveTo(40, 58, 34, 56, 30, 50); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 0.5;
+        for (var i = 0; i < 26; i++) { var a = (i * 2.399) % 6.283, r = 6 + (i * 0.618 % 1) * 12; var x = 50 + Math.cos(a) * r * 1.5, y = 60 + Math.sin(a) * r * 0.5; if (y > 56 && y < 67.5) { ctx.beginPath(); ctx.arc(x, y, 0.55, 0, 6.283); ctx.fill(); } }
+        ctx.restore();
+      } else if (fh === 'beard') {
+        twoTone(ctx, function (c) {
+          c.beginPath();
+          c.moveTo(29.5, 46);
+          c.bezierCurveTo(29, 60, 36, 74, 50, 75);
+          c.bezierCurveTo(64, 74, 71, 60, 70.5, 46);
+          c.bezierCurveTo(68, 54, 62, 55, 58, 53.5);   /* cheek line down to the mouth */
+          c.bezierCurveTo(56, 56.5, 54, 57.5, 50, 57.5);
+          c.bezierCurveTo(46, 57.5, 44, 56.5, 42, 53.5);
+          c.bezierCurveTo(38, 55, 32, 54, 29.5, 46);
+          c.closePath();
+        }, col, dark, -3, -2, lw);
+      }
+    } else if (part === 'moustache' && (fh === 'moustache' || fh === 'beard')) {
+      twoTone(ctx, function (c) {
+        c.beginPath();
+        c.moveTo(50, 57.2);
+        c.bezierCurveTo(53, 55.2, 57, 55.2, 59.5, 57.8);
+        c.bezierCurveTo(57.5, 59.6, 53.5, 59.4, 50, 58.6);
+        c.bezierCurveTo(46.5, 59.4, 42.5, 59.6, 40.5, 57.8);
+        c.bezierCurveTo(43, 55.2, 47, 55.2, 50, 57.2);
+        c.closePath();
+      }, col, dark, -1.5, -1, lw * 0.8);
+    }
+  }
+  function drawGlasses(ctx, spec, lw) {
+    var g = spec.glasses; if (g === 'none') return;
+    var frame = g === 'sun' ? '#1b1b22' : '#2c2c30';
+    ctx.lineWidth = lw * 1.05; ctx.strokeStyle = frame; ctx.lineCap = 'round';
+    var lens = function (c, x) {
+      if (g === 'round') ellipsePath(c, x, 45.2, 6.2, 5.8);
+      else { c.beginPath(); roundRect(c, x - 6.6, 39.6, 13.2, 10.6, g === 'sun' ? 4 : 2.2); }
+    };
+    [41, 59].forEach(function (x) {
+      lens(ctx, x);
+      ctx.fillStyle = g === 'sun' ? 'rgba(24,22,30,0.96)' : 'rgba(255,255,255,0.14)'; ctx.fill();
+      ctx.stroke();
+      if (g === 'sun') { ctx.save(); lens(ctx, x); ctx.clip(); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = lw * 0.9; ctx.beginPath(); ctx.moveTo(x - 6, 43); ctx.lineTo(x + 2, 40); ctx.stroke(); ctx.restore(); ctx.strokeStyle = frame; ctx.lineWidth = lw * 1.05; }
+    });
+    ctx.beginPath(); ctx.moveTo(47.3, 44.4); ctx.quadraticCurveTo(50, 42.6, 52.7, 44.4); ctx.stroke();               /* bridge */
+    ctx.beginPath(); ctx.moveTo(34.6, 44.2); ctx.lineTo(30.2, 43.2); ctx.moveTo(65.4, 44.2); ctx.lineTo(69.8, 43.2); ctx.stroke(); /* temples */
+  }
+  function roundRect(c, x, y, w, h, r) {
+    c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+  }
+  function drawHat(ctx, spec, outfitHex, lw) {
+    var hat = spec.hat; if (hat === 'none') return;
+    var lift = HAIR_LIFT[spec.hair] || 0;
+    ctx.save(); ctx.translate(0, -lift);
+    var col, dark;
+    if (hat === 'cap' || hat === 'beanie') { col = shade(outfitHex, 0.12); dark = shade(outfitHex, 0.38); }
+    else if (hat === 'widebrim') { col = '#c9a66b'; dark = shade(col, 0.32); }
+    else if (hat === 'helmet') { col = '#c94a2e'; dark = shade(col, 0.32); }
+    else { col = '#f2c02e'; dark = shade(col, 0.3); }
+    if (hat === 'cap') {
+      twoTone(ctx, function (c) { ellipsePath(c, 54, 29.5, 27, 4.2); }, dark, shade(dark, 0.3), -3, -1, lw);
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(27.5, 30); c.bezierCurveTo(27, 9, 73, 9, 72.5, 30); c.closePath(); }, col, dark, -4, -3, lw);
+      ctx.lineWidth = lw * 0.7; ctx.strokeStyle = dark; ctx.beginPath(); ctx.moveTo(50, 10); ctx.lineTo(50, 29); ctx.stroke();
+      fillStroke(ctx, function (c) { ellipsePath(c, 50, 10, 1.8, 1.8); }, col, lw * 0.7);
+    } else if (hat === 'widebrim') {
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(35, 28); c.bezierCurveTo(35, 6, 65, 6, 65, 28); c.closePath(); }, col, dark, -3, -3, lw);
+      ctx.lineWidth = lw * 0.8; ctx.strokeStyle = dark; ctx.beginPath(); ctx.moveTo(41, 12); ctx.quadraticCurveTo(50, 18, 59, 12); ctx.stroke();   /* crown dent */
+      fillStroke(ctx, function (c) { c.beginPath(); roundRect(c, 35, 23, 30, 4.5, 1); }, shade(col, 0.45), lw * 0.7);                     /* band */
+      twoTone(ctx, function (c) { ellipsePath(c, 50, 28.5, 34, 6.2); }, col, dark, -4, -2, lw);
+      ctx.save(); ellipsePath(ctx, 50, 28.5, 34, 6.2); ctx.clip(); ctx.fillStyle = 'rgba(59,42,30,0.22)'; ctx.fillRect(33, 28.5, 34, 8); ctx.restore(); /* underside */
+    } else if (hat === 'beanie') {
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(27.5, 34); c.bezierCurveTo(26, 4, 74, 4, 72.5, 34); c.closePath(); }, col, dark, -4, -3, lw);
+      ctx.save(); ctx.beginPath(); ctx.moveTo(27.5, 34); ctx.bezierCurveTo(26, 4, 74, 4, 72.5, 34); ctx.closePath(); ctx.clip();
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = lw * 0.6; for (var i = -3; i < 4; i++) { ctx.beginPath(); ctx.moveTo(50 + i * 7, 6); ctx.quadraticCurveTo(50 + i * 9, 18, 50 + i * 11, 30); ctx.stroke(); }
+      ctx.restore();
+      twoTone(ctx, function (c) { c.beginPath(); roundRect(c, 26.5, 25.5, 47, 9, 4); }, tint(col, 0.08), dark, -3, -1, lw);
+    } else if (hat === 'helmet') {
+      twoTone(ctx, function (c) { ellipsePath(c, 50, 29, 31, 5.4); }, col, dark, -4, -2, lw);
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(28, 29); c.bezierCurveTo(27, 6, 73, 6, 72, 29); c.closePath(); }, col, dark, -4, -3, lw);
+      ctx.lineWidth = lw * 0.8; ctx.strokeStyle = dark; ctx.beginPath(); ctx.moveTo(50, 9); ctx.lineTo(50, 28); ctx.stroke();   /* ridge */
+      fillStroke(ctx, function (c) { c.beginPath(); c.moveTo(45.5, 15); c.lineTo(54.5, 15); c.lineTo(54.5, 21); c.quadraticCurveTo(50, 25, 45.5, 21); c.closePath(); }, '#f2c02e', lw * 0.7); /* shield */
+    } else if (hat === 'hardhat') {
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(29, 30); c.bezierCurveTo(28, 7, 72, 7, 71, 30); c.closePath(); }, col, dark, -4, -3, lw);
+      ctx.lineWidth = lw * 0.8; ctx.strokeStyle = dark; ctx.beginPath(); ctx.moveTo(43, 11); ctx.lineTo(41, 28); ctx.moveTo(57, 11); ctx.lineTo(59, 28); ctx.stroke(); /* ribs */
+      twoTone(ctx, function (c) { ellipsePath(c, 50, 30, 28, 4.6); }, col, dark, -4, -2, lw);
+    }
+    ctx.restore();
+  }
+  function drawAccessory(ctx, spec, lw) {
+    var a = spec.accessory; if (a === 'none') return;
+    if (a === 'clipboard') {
+      ctx.save(); ctx.translate(20, 88); ctx.rotate(-0.22);
+      twoTone(ctx, function (c) { c.beginPath(); roundRect(c, -10, -13, 20, 27, 1.6); }, '#8a6a3a', shade('#8a6a3a', 0.35), -1.5, -1, lw);
+      fillStroke(ctx, function (c) { c.beginPath(); c.rect(-8.2, -9.5, 16.4, 22); }, '#fbf6ea', lw * 0.6);
+      fillStroke(ctx, function (c) { c.beginPath(); roundRect(c, -4, -14.5, 8, 4, 1); }, '#5a5a60', lw * 0.6);
+      ctx.strokeStyle = 'rgba(59,42,30,0.5)'; ctx.lineWidth = lw * 0.6; ctx.beginPath();
+      for (var i = 0; i < 4; i++) { ctx.moveTo(-6, -5 + i * 4); ctx.lineTo(i === 3 ? 1 : 6, -5 + i * 4); }
+      ctx.stroke(); ctx.restore();
+    } else if (a === 'binoculars') {
+      ctx.lineWidth = lw * 0.8; ctx.strokeStyle = '#2b2b2b'; ctx.beginPath(); ctx.moveTo(43, 74); ctx.quadraticCurveTo(41, 80, 44.5, 86); ctx.moveTo(57, 74); ctx.quadraticCurveTo(59, 80, 55.5, 86); ctx.stroke();
+      [45, 55].forEach(function (x) {
+        twoTone(ctx, function (c) { c.beginPath(); roundRect(c, x - 4.2, 84, 8.4, 11, 2.4); }, '#3a3a40', '#1c1c22', -1.5, -1, lw * 0.9);
+        fillStroke(ctx, function (c) { ellipsePath(c, x, 85.5, 3, 1.4); }, '#7cc4d8', lw * 0.6);
+      });
+      fillStroke(ctx, function (c) { c.beginPath(); c.rect(48, 88, 4, 4); }, '#2b2b2b', 0);
+    } else if (a === 'radio') {
+      ctx.lineWidth = lw * 0.9; ctx.strokeStyle = '#2b2b2b'; ctx.beginPath(); ctx.moveTo(23, 78); ctx.lineTo(24.5, 64); ctx.stroke();
+      twoTone(ctx, function (c) { c.beginPath(); roundRect(c, 18, 77, 10, 15, 1.8); }, '#3a3a40', '#1c1c22', -1.5, -1, lw * 0.9);
+      fillStroke(ctx, function (c) { c.beginPath(); c.rect(20, 79, 6, 4); }, '#7cc4d8', 0);
+      fillStroke(ctx, function (c) { ellipsePath(c, 21.5, 86.5, 1.3, 1.3); }, '#f2c02e', 0);
+      fillStroke(ctx, function (c) { ellipsePath(c, 25, 86.5, 1.3, 1.3); }, '#e63946', 0);
+    } else if (a === 'scarf') {
+      var col = '#3ec1b7', dark = shade(col, 0.35);
+      twoTone(ctx, function (c) { c.beginPath(); c.moveTo(56, 76); c.bezierCurveTo(60, 84, 62, 90, 60, 97); c.lineTo(52, 97); c.bezierCurveTo(52, 90, 51, 84, 50, 80); c.closePath(); }, col, dark, -2, -1, lw);
+      twoTone(ctx, function (c) {
+        c.beginPath(); c.moveTo(38, 70); c.bezierCurveTo(36, 78, 44, 84, 50, 84); c.bezierCurveTo(56, 84, 64, 78, 62, 70);
+        c.bezierCurveTo(60, 74, 56, 76, 50, 76); c.bezierCurveTo(44, 76, 40, 74, 38, 70); c.closePath();
+      }, col, dark, -2, -2, lw);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = lw * 0.6; ctx.beginPath(); ctx.moveTo(41, 76); ctx.quadraticCurveTo(50, 81, 59, 76); ctx.stroke();
+    }
+  }
+
+  /**
+   * Render a portrait into `canvas` (uses canvas.width/height; square recommended).
+   * opts: { bg: hex|null (default null = transparent), expression: 'neutral'|'worried'|'happy' }
+   */
+  function draw(canvas, spec, opts) {
+    if (!canvas) return canvas;
+    opts = opts || {};
+    spec = normalize(spec);
+    var ctx = canvas.getContext('2d'); if (!ctx) return canvas;
+    var W = canvas.width || 96, Hh = canvas.height || W, size = Math.min(W, Hh);
+    var expr = opts.expression === 'worried' || opts.expression === 'happy' ? opts.expression : 'neutral';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, Hh);
+    if (opts.bg) { ctx.fillStyle = opts.bg; ctx.fillRect(0, 0, W, Hh); }
+    ctx.setTransform(size / 100, 0, 0, size / 100, (W - size) / 2, (Hh - size) / 2);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    var lw = Math.max(1.2, Math.min(3, size / 48)) * 100 / size;   /* ≈ 2 px at 96 px */
+    var skin = hexOf('skin', spec.skin), hc = hexOf('hairColor', spec.hairColor), outfit = hexOf('outfit', spec.outfit);
+    var skinDark = shade(skin, 0.18);
+
+    /* 1. body + collar */
+    twoTone(ctx, bodyPath, outfit, shade(outfit, 0.3), -5, -3, lw);
+    ctx.lineWidth = lw * 0.8; ctx.strokeStyle = shade(outfit, 0.45);
+    ctx.beginPath(); ctx.moveTo(40, 73.5); ctx.lineTo(50, 84); ctx.lineTo(60, 73.5); ctx.stroke();
+    /* 2. hair behind the head (drapes over the shoulders) */
+    hairBack(ctx, spec, hc, lw);
+    /* 3. neck (shadow under the chin) */
+    twoTone(ctx, function (c) { c.beginPath(); roundRect(c, 43, 58, 14, 20, 3); }, skinDark, shade(skin, 0.36), 0, 5, lw);
+    /* 4. ears */
+    [29.5, 70.5].forEach(function (x) {
+      twoTone(ctx, function (c) { ellipsePath(c, x, 46.5, 4.2, 5.6); }, skin, skinDark, x < 50 ? 1.5 : -2.5, -1.5, lw);
+      ctx.lineWidth = lw * 0.6; ctx.strokeStyle = 'rgba(59,42,30,0.55)'; ctx.beginPath(); ctx.moveTo(x + (x < 50 ? 0.8 : -0.8), 44); ctx.quadraticCurveTo(x + (x < 50 ? -1.2 : 1.2), 47, x + (x < 50 ? 0.8 : -0.8), 49.5); ctx.stroke();
+    });
+    /* 5. head */
+    twoTone(ctx, headPath, skin, skinDark, -4, -3, lw);
+    /* cheek blush */
+    ctx.save(); headPath(ctx); ctx.clip(); ctx.fillStyle = 'rgba(220,100,90,0.13)';
+    ellipsePath(ctx, 36, 53, 5, 3); ctx.fill(); ellipsePath(ctx, 64, 53, 5, 3); ctx.fill(); ctx.restore();
+    /* 6. features (beard under the mouth, moustache over it) */
+    drawFacialHair(ctx, spec, hc, lw, 'beard');
+    drawEyes(ctx, spec, lw, expr);
+    drawBrows(ctx, spec, hc, lw, expr);
+    drawNose(ctx, lw);
+    drawMouth(ctx, spec, lw, expr);
+    drawFacialHair(ctx, spec, hc, lw, 'moustache');
+    drawGlasses(ctx, spec, lw);
+    /* 7. hair in front, then the hat over it, then whatever is held or worn */
+    hairFront(ctx, spec, hc, lw);
+    drawHat(ctx, spec, outfit, lw);
+    drawAccessory(ctx, spec, lw);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return canvas;
+  }
+
+  /* ------------------------------------------------------------------ cached data URLs */
+  var cache = {}, cacheKeys = [], CACHE_MAX = 240, scratch = null;
+  function dataURL(spec, size, opts) {
+    size = Math.max(8, Math.round(Number(size) || 96));
+    var n = normalize(spec);
+    var key = JSON.stringify(n) + '|' + size + '|' + JSON.stringify(opts || {});
+    if (cache[key]) return cache[key];
+    if (typeof document === 'undefined') return '';
+    if (!scratch) scratch = document.createElement('canvas');
+    scratch.width = size; scratch.height = size;
+    draw(scratch, n, opts);
+    var url = scratch.toDataURL('image/png');
+    cache[key] = url; cacheKeys.push(key);
+    if (cacheKeys.length > CACHE_MAX) { var old = cacheKeys.shift(); delete cache[old]; }
+    return url;
+  }
+
+  WS.Faces = { OPTIONS: OPTIONS, KEYS: KEYS, DEFAULT: DEFAULT, PRESETS: PRESETS, LABELS: LABELS, draw: draw, dataURL: dataURL, random: random, normalize: normalize, hexOf: hexOf, _cacheSize: function () { return cacheKeys.length; } };
+})();
+
+</script>
 <script>/* src/ui/hud.js */
 /* Watershed — UI: HUD skeleton, top/bottom bars, Conditions panel, toasts, tooltips, modal queue.
    Exports on WS.UI (shared with panels.js). Reads game.state fresh on every call; never caches it. */
@@ -12726,6 +13852,49 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (root.localStorage) root.localStorage.setItem(k, JSON.stringify(value));
     } catch (e) { /* storage unavailable or full: ignore */ }
     return value === undefined ? null : value;
+  };
+
+  /* ------------------------------------------------------------------ portraits (WS.Faces) */
+  /** UI.portrait(spec, size, opts) → <canvas class="portrait"> (HiDPI-crisp). opts: { expression:'neutral'|'worried'|'happy', bg: hex|null, title } */
+  UI.portrait = function (spec, size, opts) {
+    size = Math.max(12, Math.round(Number(size) || 40)); opts = opts || {};
+    var dpr = Math.min(3, Math.max(1, Number(root.devicePixelRatio) || 1));
+    var c = h('canvas', { class: 'portrait', width: Math.round(size * dpr), height: Math.round(size * dpr), role: opts.title ? 'img' : null, 'aria-label': opts.title || null, 'aria-hidden': opts.title ? null : 'true' });
+    c.style.width = size + 'px'; c.style.height = size + 'px';
+    try { if (WS.Faces && typeof WS.Faces.draw === 'function') WS.Faces.draw(c, spec, { expression: opts.expression, bg: opts.bg === undefined ? '#efe4d0' : opts.bg }); }
+    catch (e) { console.error('portrait failed', e); }
+    return c;
+  };
+  /** Advisor character by id (WS.Advisors.byId or a CHARACTERS scan) → object|null */
+  UI.characterById = function (id) {
+    if (id == null) return null;
+    var A = WS.Advisors || {};
+    try { if (typeof A.byId === 'function') { var c = A.byId(id); if (c) return c; } } catch (e) { /* ignore */ }
+    var list = A.CHARACTERS || [];
+    if (!Array.isArray(list)) list = Object.keys(list).map(function (k) { return list[k]; });
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+    return null;
+  };
+  /** Face spec for a bubble spec / character / recommendation ({face} directly, else looked up by id/characterId) → spec|null */
+  UI.faceOf = function (o) {
+    if (!o || typeof o !== 'object') return null;
+    if (o.face && typeof o.face === 'object') return o.face;
+    var ch = UI.characterById(o.id != null ? o.id : o.characterId);
+    return (ch && ch.face && typeof ch.face === 'object') ? ch.face : null;
+  };
+  /** Player (game.state.player) → { name, face, title } with defaults, or null when no player has been created yet. */
+  UI.player = function () {
+    var p = st().player;
+    if (!p || typeof p !== 'object') return null;
+    return { name: String(p.name || 'Director'), face: (p.face && typeof p.face === 'object') ? p.face : (WS.Faces ? WS.Faces.DEFAULT : {}), title: String(p.title || 'Water-Resilience Director') };
+  };
+  /** Small "portrait + name + title" badge for the player (report headers, case-study links). size defaults to 28. Returns null when there is no player. */
+  UI.playerBadge = function (size, opts) {
+    var p = UI.player(); if (!p) return null; opts = opts || {};
+    return h('div', { class: 'player-badge' + (opts.className ? ' ' + opts.className : '') }, [
+      UI.portrait(p.face, size || 28, { expression: opts.expression, title: p.name }),
+      opts.nameless ? null : h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), opts.noTitle ? null : h('div', { class: 'pt' }, p.title)])
+    ]);
   };
 
   /* ------------------------------------------------------------------ text trimming (player feedback: less text) */
@@ -12902,7 +14071,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
 
   /* ------------------------------------------------------------------ modal queue */
   var modalQueue = [], modalActive = null;
-  /** opts: { title, eyebrow, icon, className, critical, render(body, close), foot(footEl, close), onClose } → Promise */
+  /** opts: { title, eyebrow, icon, head:<element>, className, critical, render(body, close), foot(footEl, close), onClose } → Promise */
   UI.modal = function (opts) {
     return new Promise(function (resolve) { modalQueue.push({ opts: opts || {}, resolve: resolve }); pumpModal(); });
   };
@@ -12930,7 +14099,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     if (o.title || o.icon || o.eyebrow) {
       modal.appendChild(h('div', { class: 'mhead' }, [
         o.icon ? h('div', { class: 'micon' }, o.icon) : null,
-        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, o.eyebrow) : null, o.title || ''])
+        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, o.eyebrow) : null, o.title || '']),
+        (o.head && o.head.nodeType) ? h('div', { class: 'head-extra' }, o.head) : null   /* e.g. the player's portrait badge */
       ]));
     }
     if (!o.critical) modal.appendChild(h('button', { class: 'close ghost', type: 'button', 'aria-label': 'Close', onclick: function () { close(undefined); } }, '×'));
@@ -12995,14 +14165,17 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
     /* crisis chip: shown in the top bar while a fire/storm is fought live */
     E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, '🚨'), h('span', { class: 'txt' }, '')]);
+    /* player portrait chip (far left): portrait + name + title; click flies the camera to the player figure */
+    E.playerChip = h('button', { id: 'player-chip', class: 'player-chip', type: 'button', hidden: true, 'data-tip': 'Your character — click to fly to where they are' });
+    E.playerChip.addEventListener('click', function () { UI.callGame('focusPlayer'); });
+    E.playerChipKey = '';
+    E.topbar.appendChild(E.playerChip);
     E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
     ui.appendChild(E.topbar);
 
     /* evidence topic menu (popover) */
-    E.evidenceMenu = h('div', { id: 'evidence-menu', class: 'menu', hidden: true, role: 'menu' }, [h('div', { class: 'label' }, 'Ask the advisors about…')].concat(
-      UI.EVIDENCE_TOPICS.map(function (t) {
-        return h('button', { type: 'button', role: 'menuitem', onclick: function () { UI.toggleEvidenceMenu(false); UI.callGame('openEvidence', [t[0]]); } }, t[1]);
-      })));
+    E.evidenceMenu = h('div', { id: 'evidence-menu', class: 'menu advisors-menu', hidden: true, role: 'menu' });
+    UI.buildEvidenceMenu();
     ui.appendChild(E.evidenceMenu);
     document.addEventListener('click', function () { UI.toggleEvidenceMenu(false); });
 
@@ -13139,17 +14312,45 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       p[2].style.display = visible ? 'inline-flex' : 'none';
     });
   };
-  /** Toggle the advisor-topic popover. `anchor` (optional) is the button it hangs from; defaults to the top-bar Evidence button. */
+  /** (Re)build the Advisors popover: each advisor with a 24 px portrait (click → game.askAdvisor), then the Evidence Board topics. */
+  UI.buildEvidenceMenu = function () {
+    var m = UI.els.evidenceMenu; if (!m) return;
+    clear(m);
+    var list = (WS.Advisors && WS.Advisors.CHARACTERS) || [];
+    if (!Array.isArray(list)) list = Object.keys(list).map(function (k) { return list[k]; });
+    if (list.length) {
+      m.appendChild(h('div', { class: 'label' }, 'Advisors'));
+      list.forEach(function (ch) {
+        if (!ch) return;
+        var face = UI.faceOf(ch);
+        m.appendChild(h('button', { type: 'button', role: 'menuitem', class: 'adv-row', style: { '--adv': ch.color || '#4aa3df' }, 'data-advisor': ch.id || '', onclick: function () {
+          UI.toggleEvidenceMenu(false);
+          if (UI.game && typeof UI.game.askAdvisor === 'function') UI.callGame('askAdvisor', [ch.id]);
+          else UI.callGame('openEvidence', [UI.EVIDENCE_TOPICS[0][0]]);
+        } }, [
+          face ? UI.portrait(face, 24) : h('span', { class: 'av', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+          h('div', { class: 'grow' }, [h('div', { class: 'an' }, ch.name || 'Advisor'), ch.role ? h('div', { class: 'ar' }, ch.role) : null])
+        ]));
+      });
+      m.appendChild(h('hr', { class: 'rule' }));
+    }
+    m.appendChild(h('div', { class: 'label' }, 'Ask everyone about…'));
+    UI.EVIDENCE_TOPICS.forEach(function (t) {
+      m.appendChild(h('button', { type: 'button', role: 'menuitem', onclick: function () { UI.toggleEvidenceMenu(false); UI.callGame('openEvidence', [t[0]]); } }, t[1]));
+    });
+  };
+  /** Toggle the advisor popover. `anchor` (optional) is the button it hangs from; defaults to the top-bar Advisors button. */
   UI.toggleEvidenceMenu = function (force, anchor) {
     var m = UI.els.evidenceMenu; if (!m) return false;
     var wasOpen = !m.hidden;
     var open = force == null ? !wasOpen : !!force;
     m.hidden = !open;
     if (open) {
+      UI.buildEvidenceMenu();   /* advisors may have loaded after init; portraits are cheap (6 × 24 px) */
       var a = (anchor && anchor.getBoundingClientRect) ? anchor : UI.els.btnEvidence;
       var r = a.getBoundingClientRect();
       m.style.top = (r.bottom + 6) + 'px';
-      m.style.left = Math.max(8, Math.min(window.innerWidth - 216, r.left)) + 'px';
+      m.style.left = Math.max(8, Math.min(window.innerWidth - 266, r.left)) + 'px';
       var first = m.querySelector('button'); if (first) first.focus();
     }
     return wasOpen && !open;
@@ -13290,6 +14491,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     E.score.querySelector('.g').textContent = g.letter;
     E.score.querySelector('.title').textContent = g.title || 'Resilience score';
     var cs = document.getElementById('cond-season'); if (cs) cs.textContent = seasonStr + ' · Y' + fin(s.year, 1);
+    UI.renderPlayerChip();
     if (s.phase && s.phase !== UI._phase && !UI._primaryOverride) UI._phase = s.phase;
     UI.updatePrimary();
     E.phaseChip.className = 'chip phase-chip ' + UI._phase;
@@ -13300,6 +14502,21 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     if (fire && typeof fire === 'object' && E.fireBanner.hidden && isFinite(Number(fire.acres)) && !UI.tacticalVisible()) UI.showFireBanner(fire);
     if (!fire && !E.fireBanner.hidden && UI._phase !== PH.LIVE) UI.showFireBanner(null);
     UI.syncPanelToggles();
+  };
+
+  /** Top-bar player chip: rebuilt only when name/title/face change. Hidden until state.player exists. */
+  UI.renderPlayerChip = function () {
+    var E = UI.els, chip = E.playerChip; if (!chip) return;
+    var p = UI.player();
+    if (!p) { chip.hidden = true; E.playerChipKey = ''; return; }
+    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face);
+    if (key === E.playerChipKey && !chip.hidden) return;
+    E.playerChipKey = key;
+    clear(chip);
+    chip.appendChild(UI.portrait(p.face, 28, { title: p.name }));
+    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), h('div', { class: 'pt' }, p.title)]));
+    chip.setAttribute('aria-label', p.name + ', ' + p.title + ' — fly to your character');
+    chip.hidden = false;
   };
 
   /* ------------------------------------------------------------------ Conditions panel */
@@ -13741,8 +14958,10 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     el.style.setProperty('--adv', color);
     el.dataset.advisor = spec.id || '';
     el.appendChild(h('span', { class: 'tail', 'aria-hidden': 'true' }));
+    /* 40 px portrait (WS.Faces) replaces the emoji dot; the emoji stays as a fallback when no face is known */
+    var face = UI.faceOf(spec);
     el.appendChild(h('div', { class: 'who' }, [
-      spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null,
+      face ? UI.portrait(face, 40, { expression: spec.expression }) : (spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null),
       h('div', { class: 'grow' }, [h('div', { class: 'name' }, spec.name || 'Advisor'), spec.role ? h('div', { class: 'role' }, spec.role) : null]),
       h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: function () { UI.hideBubble(); } }, '×')
     ]));
@@ -14169,6 +15388,81 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     return Math.round(n / cells.length * 100);
   }
 
+  /* ================================================================== CHARACTER CREATOR */
+  var CREATOR_LABELS = { skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory' };
+  var CREATOR_ORDER = ['skin', 'hair', 'hairColor', 'eyes', 'brows', 'mouth', 'facialHair', 'glasses', 'hat', 'outfit', 'accessory'];
+  var SWATCH_KINDS = { skin: 1, hairColor: 1, outfit: 1 };
+  function optLabel(kind, id) {
+    var L = (WS.Faces && WS.Faces.LABELS && WS.Faces.LABELS.values) || {};
+    if (L[id]) return L[id];
+    return String(id).charAt(0).toUpperCase() + String(id).slice(1);
+  }
+  /**
+   * "Your character" panel. initial: { name, face }. onChange(player) fires on every edit.
+   * Returns { el, get() → { name, face }, set(player) }.
+   */
+  UI.characterCreator = function (initial, onChange) {
+    var F = WS.Faces;
+    initial = initial || {};
+    var name = String(initial.name || 'Director Rivera');
+    var face = F ? F.normalize(initial.face) : (initial.face || {});
+    var el = h('div', { class: 'creator', role: 'group', 'aria-label': 'Your character' });
+    var portrait = null, portraitBox = h('div', { class: 'pbox' });
+    var nameInput = h('input', { type: 'text', id: 'creator-name', value: name, maxlength: 28, 'aria-label': 'Character name', placeholder: 'Your name' });
+    nameInput.addEventListener('input', function () { name = nameInput.value; emit(); });
+    var rows = h('div', { class: 'c-rows' });
+    var buttons = {};   /* kind → [button] */
+    function emit() { if (typeof onChange === 'function') { try { onChange(get()); } catch (e) { console.error(e); } } }
+    function get() { return { name: (String(name || '').trim() || 'Director Rivera').slice(0, 28), face: F ? F.normalize(face) : face }; }
+    function renderPortrait() {
+      clear(portraitBox);
+      portrait = UI.portrait(face, 128, { title: 'Portrait preview' });
+      portraitBox.appendChild(portrait);
+    }
+    function syncButtons() {
+      for (var kind in buttons) buttons[kind].forEach(function (b) { var on = b.dataset.value === face[kind]; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    }
+    function setFace(next) { face = F ? F.normalize(next) : (next || {}); renderPortrait(); syncButtons(); emit(); }
+    function pick(kind, id) { var n = {}; for (var k in face) n[k] = face[k]; n[kind] = id; setFace(n); }
+    if (!F) { el.appendChild(h('p', { class: 'muted small' }, 'Portraits unavailable (faces.js not loaded).')); }
+    else {
+      CREATOR_ORDER.forEach(function (kind) {
+        var list = F.OPTIONS[kind] || []; if (!list.length) return;
+        var group;
+        if (SWATCH_KINDS[kind]) {
+          group = h('div', { class: 'swatches', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
+          buttons[kind] = list.map(function (o) {
+            var b = h('button', { type: 'button', class: 'swatch', style: { '--c': o.hex }, 'data-value': o.id, 'aria-label': (CREATOR_LABELS[kind] || kind) + ' ' + o.id.replace(/^\D+/, ''), 'data-tip': o.hex, 'aria-pressed': 'false' });
+            b.dataset.value = o.id;
+            b.addEventListener('click', function () { pick(kind, o.id); });
+            group.appendChild(b); return b;
+          });
+        } else {
+          group = h('div', { class: 'seg mini', role: 'group', 'aria-label': CREATOR_LABELS[kind] || kind });
+          buttons[kind] = list.map(function (id) {
+            var b = h('button', { type: 'button', 'aria-pressed': 'false' }, optLabel(kind, id));
+            b.dataset.value = id;
+            b.addEventListener('click', function () { pick(kind, id); });
+            group.appendChild(b); return b;
+          });
+        }
+        rows.appendChild(h('div', { class: 'crow', 'data-kind': kind }, [h('span', { class: 'k' }, CREATOR_LABELS[kind] || kind), group]));
+      });
+    }
+    var presets = h('div', { class: 'presets', role: 'group', 'aria-label': 'Presets' }, ((F && F.PRESETS) || []).slice(0, 4).map(function (p) {
+      var b = h('button', { type: 'button', 'data-tip': 'Start from the ' + p.name.toLowerCase() + ' preset' }, p.name);
+      b.addEventListener('click', function () { setFace(p.face); });
+      return b;
+    }));
+    var rand = h('button', { type: 'button', class: 'rand', 'data-tip': 'Roll a random look' }, '🎲 Randomise');
+    rand.addEventListener('click', function () { if (F) setFace(F.random(null)); });
+    el.appendChild(h('div', { class: 'c-title' }, [h('span', { class: 'label' }, 'Your character'), h('span', { class: 'hint' }, 'This is who walks the watershed and gives the orders.')]));
+    el.appendChild(h('div', { class: 'c-left' }, [portraitBox, nameInput, rand, presets]));
+    el.appendChild(rows);
+    renderPortrait(); syncButtons();
+    return { el: el, get: get, set: function (p) { p = p || {}; if (p.name != null) { name = String(p.name); nameInput.value = name; } if (p.face) setFace(p.face); else emit(); } };
+  };
+
   /* ================================================================== INTRO */
   UI.showIntro = function () {
     return UI.modal({
@@ -14196,10 +15490,16 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
         var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Seed'), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, '🎲')]), h('div', { class: 'hint small dim', style: { marginTop: '4px' } }, 'Same seed, same world and weather.')]);
         var tutOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Guidance'), h('label', {}, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), 'Show tutorial hints']),
           h('div', { class: 'hint small dim' }, 'Coach marks on the first turn. Skippable.')]);
+        /* "Your character": live 128 px portrait, name, pickers, Randomise, presets. Remembered in localStorage (guarded by UI.pref). */
+        var remembered = UI.pref('player');
+        var creator = UI.characterCreator({ name: (remembered && remembered.name) || 'Director Rivera', face: (remembered && remembered.face) || (WS.Faces && WS.Faces.PRESETS && WS.Faces.PRESETS[0].face) || null });
+        body.appendChild(creator.el);
         body.appendChild(h('div', { class: 'opts' }, [yearsOpt, modeOpt, seedOpt, tutOpt]));
         body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } }, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
           var raw = (seedInput.value || '').trim(); var seed = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : (raw || String(Date.now()));
-          close({ years: years, mode: mode, seed: seed, tutorial: tutorial });
+          var player = creator.get();
+          UI.pref('player', player);
+          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player });
         } }, 'Begin ▶')));
       }
     });
@@ -14258,6 +15558,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     return { id: rec.characterId, name: rec.name || rec.characterId || 'Advisor', role: rec.role || '', color: rec.color || '#4aa3df', avatarEmoji: rec.avatarEmoji || '🧑' };
   }
   var STANCE_LABEL = { urge: 'Urges action', support: 'Supports', caution: 'Cautions', oppose: 'Opposes' };
+  var STANCE_EXPR = { urge: 'worried', support: 'happy', caution: 'neutral', oppose: 'worried' };
   UI.showEvidenceBoard = function (topic, recs, opts) {
     opts = opts || {}; recs = safeList(recs);
     var topicName = (UI.EVIDENCE_TOPICS.filter(function (t) { return t[0] === topic; })[0] || [topic, String(topic || 'Decision')])[1];
@@ -14270,8 +15571,9 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
         recs.forEach(function (rec) {
           rec = rec || {}; var ch = characterFor(rec), ev = rec.evidence || null;
           var card = h('div', { class: 'advisor', 'data-advisor': ch.id || '' }, [
-            h('div', { class: 'who' }, [
-              h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+            h('div', { class: 'who', style: { '--adv': ch.color || '#4aa3df' } }, [
+              /* 56 px portrait; the stance sets the expression. Emoji dot only when no face is known. */
+              UI.faceOf(ch) ? UI.portrait(UI.faceOf(ch), 56, { expression: STANCE_EXPR[rec.stance] || 'neutral', title: ch.name }) : h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
               h('div', { class: 'grow' }, [h('div', { class: 'name' }, ch.name || 'Advisor'), h('div', { class: 'role' }, ch.role || '')]),
               h('span', { class: 'chip ' + (rec.stance || 'support') }, STANCE_LABEL[rec.stance] || rec.stance || 'says')
             ]),
@@ -14308,6 +15610,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     var year = report.year != null ? report.year : s.year;
     return UI.modal({
       icon: ['❄', '🌱', '☀', '🍂'][fin(report.season != null ? report.season : s.season) & 3], eyebrow: 'Season report', title: seasonLabel + ', Year ' + fin(year, 1), className: 'wide report', critical: true,
+      head: UI.playerBadge(28),
       render: function (body, close) {
         /* headline stat tiles (water + any crisis) */
         var cap = fin((s.reservoir || {}).capacityAF, 42000);
@@ -14461,7 +15764,12 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
         var linkText = '';
         try { linkText = (typeof cs.linkTo === 'function') ? cs.linkTo(game && game.state) : (cs.linkTo || ''); } catch (e) { linkText = ''; }
         if (typeof linkText !== 'string') linkText = '';
-        if (linkText) body.appendChild(h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), linkText]));
+        if (linkText) {
+          var pl = UI.player();
+          body.appendChild(pl
+            ? h('div', { class: 'case-link with-portrait' }, [UI.portrait(pl.face, 28, { title: pl.name }), h('div', {}, [h('b', {}, 'Linked to what ' + pl.name + ' just experienced'), linkText])])
+            : h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), linkText]));
+        }
         if (cs.sources) body.appendChild(h('p', { class: 'small dim', style: { marginTop: '10px' } }, String(cs.sources)));
       },
       foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', onclick: function () { close(); } }, 'Close')); }
@@ -14547,6 +15855,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     }
     return UI.modal({
       icon: mode === 'storm' ? '🌊' : '🔥', eyebrow: 'After-action report', title: report.title || (mode === 'storm' ? 'Storm defense' : 'Fire response'), className: 'wide afteraction ' + mode, critical: true,
+      head: UI.playerBadge(28, { expression: 'worried' }),
       render: function (body) {
         if (report.headline) body.appendChild(h('p', { class: 'lead' }, String(report.headline)));
         if (stats.length) body.appendChild(h('div', { class: 'kv' }, stats.map(function (x) {
@@ -14848,8 +16157,21 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       fire: { policy: 'managed', activeFire: null, seasonAcres: 0, totalAcres: 0, structuresLost: 0, fires: [], smokeDays: 0 },
       projects: { funded: {}, pendingBurn: null }, mitigations: [], pendingStorm: null, scheduled: [], log: [], timeline: [], history: [],
       unlockedCases: [], seenCases: [], flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
-      lastSeasonReport: null
+      lastSeasonReport: null,
+      player: normalizePlayer(null, null)
     };
+  }
+  /* SPEC3 §C: player record { name, face, title }. WS.State owns the rules (name trimmed / ≤ 24 chars, face spec filled);
+     this mirror only runs when WS.State is missing. */
+  var FALLBACK_FACE = { skin: 's3', hair: 'short', hairColor: 'h1', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'cap', outfit: 'o1', accessory: 'clipboard' };
+  function normalizePlayer(p, base) {
+    if (has('State', 'normalizePlayer')) { var r = call('State', 'normalizePlayer', p, base); if (r) return r; }
+    p = (p && typeof p === 'object') ? p : {};
+    base = (base && typeof base === 'object') ? base : {};
+    var name = String(p.name != null ? p.name : (base.name != null ? base.name : '')).replace(/\s+/g, ' ').trim().slice(0, 24).trim() || 'Director Rivera';
+    var face = Object.assign({}, FALLBACK_FACE, (base.face && typeof base.face === 'object') ? base.face : {}, (p.face && typeof p.face === 'object') ? p.face : {});
+    if (has('Faces', 'normalize')) face = call('Faces', 'normalize', face) || face;
+    return { name: name, face: face, title: 'Water-Resilience Director' };
   }
 
   /* ------------------------------------------------------------------ adapters */
@@ -14857,7 +16179,9 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
   var RENDER_FNS = ['init', 'setSeason', 'refreshWorld', 'setReservoir', 'setRiverFlow', 'setFire', 'setWeather', 'setWind', 'showDebris', 'clearDebris',
     'setOverlay', 'setHighlight', 'addMarker', 'removeMarker', 'clearMarkers', 'setPlacementCursor', 'flyTo', 'flyToZone', 'setTimeOfDay', 'onCellClick', 'onCellHover', 'getStats', 'dispose',
     // SPEC2 §C tactical APIs (guarded: a v1 renderer simply ignores them)
-    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone', 'playBuild'];
+    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone', 'playBuild',
+    // SPEC3 §C player figure facade (guarded: a renderer without a player figure ignores them; movePlayerTo then resolves at once)
+    'setPlayer', 'movePlayerTo', 'playerScreenPos', 'flyToPlayer', 'setPlayerAction', 'getPlayerPosition'];
   function makeRenderer(real) {
     var r = { real: !!real };
     RENDER_FNS.forEach(function (fn) {
@@ -14952,6 +16276,87 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       try { var ls = storage(); if (ls) ls.setItem('watershed.save', game.serialize()); } catch (e) { warn('autosave failed', e); }
     }
 
+    /* ---------------------------------------------------- SPEC3 §C: the player figure in the world */
+    // Every call is guarded (no renderer / no player figure → no-op) and fire-and-forget: the turn loop never waits on a walk.
+    // `moving` mirrors the last movePlayerTo promise, capped at 2.5 s (a newer call cancels the older one, whose promise may never settle).
+    var PLAYER = { moving: false, seq: 0, pointTimer: null, action: null };
+    var PLAYER_WALK_CAP_MS = 2500;
+    function playerAct(kind) {
+      if (headless || !has('Renderer', 'setPlayerAction')) return;
+      PLAYER.action = kind || null;
+      renderer.setPlayerAction(PLAYER.action);
+    }
+    function playerGo(pos, opts, thenAction) {
+      if (headless || !pos || !isFinite(pos.x) || !isFinite(pos.y) || !has('Renderer', 'movePlayerTo')) { if (thenAction !== undefined) playerAct(thenAction); return Promise.resolve(false); }
+      var seq = ++PLAYER.seq;
+      PLAYER.moving = true;
+      var walk;
+      try { walk = Promise.resolve(renderer.movePlayerTo(pos.x | 0, pos.y | 0, opts || {})); } catch (e) { walk = Promise.resolve(false); }
+      var cap = new Promise(function (res) { setTimeout(function () { res('cap'); }, PLAYER_WALK_CAP_MS); });
+      function settle(arrived) { if (PLAYER.seq !== seq) return false; PLAYER.moving = false; if (thenAction !== undefined) playerAct(thenAction); return arrived; }
+      return Promise.race([walk, cap]).then(function (r) { return settle(r !== 'cap'); }, function () { return settle(false); });
+    }
+    function playerPoint() {
+      // an order: point for 1.5 s, then back to the radio (or the mop-up wave) while the crisis lasts
+      if (headless || !has('Renderer', 'setPlayerAction')) return;
+      if (PLAYER.pointTimer) clearTimeout(PLAYER.pointTimer);
+      playerAct('point');
+      PLAYER.pointTimer = setTimeout(function () { PLAYER.pointTimer = null; playerAct(crisis ? (crisis.mopUp ? 'wave' : 'radio') : null); }, 1500);
+    }
+    function playerClearAction() { if (PLAYER.pointTimer) { clearTimeout(PLAYER.pointTimer); PLAYER.pointTimer = null; } playerAct(null); }
+    function nearestLand(x, y, types, maxR) {
+      // nearest cell (Chebyshev rings, Euclidean tie-break) whose land type is in `types`, within maxR of (x,y); null when none
+      if (!world || !world.land) return null;
+      var N = C.N, ok = {}; types.forEach(function (t) { ok[t] = 1; });
+      for (var d = 0; d <= maxR; d++) {
+        var best = null, bd = Infinity;
+        for (var dy = -d; dy <= d; dy++) for (var dx = -d; dx <= d; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
+          var cx = x + dx, cy = y + dy;
+          if (!C.inBounds(cx, cy) || !ok[world.land[cy * N + cx]]) continue;
+          var e = dx * dx + dy * dy; if (e < bd) { bd = e; best = { x: cx, y: cy }; }
+        }
+        if (best) return best;
+      }
+      return null;
+    }
+    function civicCorePos() {
+      if (!world) return null;
+      var z = zonesOf(world, 'civic')[0];
+      if (z && z.center && isFinite(z.center.x)) return { x: z.center.x | 0, y: z.center.y | 0 };
+      if (world.townCenter && isFinite(world.townCenter.x)) return { x: world.townCenter.x | 0, y: world.townCenter.y | 0 };
+      return null;
+    }
+    function townHallPos() {
+      // the road/civic cell in front of the town hall (so the figure is not inside the building); fallback: civic core centre
+      if (!world) return null;
+      var b = (world.buildings || []).filter(function (bb) { return bb && bb.type === 'town_hall' && isFinite(bb.x) && isFinite(bb.y); })[0];
+      if (!b) return civicCorePos();
+      var L = C.LAND, spot = nearestLand(b.x | 0, b.y | 0, [L.ROAD], 3);
+      return spot || { x: b.x | 0, y: b.y | 0 };
+    }
+    function commandPostFor(startCell) {
+      // Incident command post: the nearest road / civic / residential cell at Chebyshev distance 8..20 from the ignition
+      // (searched ring by ring outward, so the post is close enough to see the fire but not in it); fallback: the town hall.
+      if (!world || !world.land || startCell == null || !(startCell >= 0)) return townHallPos();
+      var L = C.LAND, N = C.N, sp = C.xy(startCell | 0), ok = {}; ok[L.ROAD] = 1; ok[L.CIVIC] = 1; ok[L.RESIDENTIAL] = 1;
+      for (var d = 8; d <= 20; d++) {
+        var best = null, bd = Infinity;
+        for (var dy = -d; dy <= d; dy++) for (var dx = -d; dx <= d; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
+          var cx = sp.x + dx, cy = sp.y + dy;
+          if (!C.inBounds(cx, cy) || !ok[world.land[cy * N + cx]]) continue;
+          var e = dx * dx + dy * dy; if (e < bd) { bd = e; best = { x: cx, y: cy }; }
+        }
+        if (best) return best;
+      }
+      return townHallPos();
+    }
+    function pushPlayerToRenderer() {
+      if (headless || !state || !state.player) return;
+      renderer.setPlayer(state.player.face, state.player.name);
+    }
+
     /* ---------------------------------------------------- world / state construction */
     function build(o) {
       var seed = (o.seed == null) ? 1 : o.seed;
@@ -14963,6 +16368,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (!state.flags) state.flags = {};
       if (!state.stats) state.stats = {};
       state.tutorial = !!o.tutorial;
+      state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
       endCrisis();
       ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false;
@@ -14983,6 +16389,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (!st) throw new Error('save file could not be parsed');
       build({ seed: st.seed, years: st.years, mode: st.mode, tutorial: false });
       state = st; game.state = state; state.timeline = state.timeline || []; state.flags = state.flags || {};
+      state.player = normalizePlayer(state.player, null);   // saves made before SPEC3 get the default player
       if (world && blob.layers) Object.keys(blob.layers).forEach(function (k) {
         var src = blob.layers[k]; if (!src) return;
         if (!world[k]) world[k] = new Float32Array(src.length);
@@ -15089,6 +16496,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       for (var i = 0; i < cards.length; i++) { await playCard(cards[i], turnRng.fork('cards')); refresh(); }
 
       setPhase(PH.PLAN, { year: state.year, season: seasonName(state.season) });
+      playerGo(townHallPos(), { run: false }, null);   // SPEC3 §C: planning happens at the town hall (fire-and-forget walk)
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
@@ -15161,6 +16569,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (!crisis) return;
       crisis.paused = false; resumeCrisis();
       crisis = null;
+      playerClearAction();
       renderer.setTacticalMode(false);
       renderer.setPlacementCursor(null);
       renderer.setHighlight(null, null);
@@ -15264,6 +16673,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
           if (zc >= 0) { var p3 = C.xy(zc); renderer.addMarker(type + '-' + target, type === 'engine' ? 'engine' : 'evac', p3.x, p3.y); }
           renderer.pulseZone(+target, type === 'engine' ? 0xff3b30 : 0xffd166);
         } else if (type === 'mutual_aid') { ui.alert('Mutual aid is rolling — +10 crew points', 'good'); }
+        if (type === 'dozer' || type === 'retardant' || type === 'engine' || type === 'evacuate') playerPoint();   // SPEC3 §C: the director points the order out
         if (res.text) { ui.ticker(res.text); log(res.text, 'info'); }
         crisis.actions.push({ type: type, step: crisis.step, cost: num(res.cost), cells: cells.length, target: (type === 'dozer') ? null : target, text: res.text || '' });
       }
@@ -15348,6 +16758,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       crisis = { mode: 'fire', fireSim: fireSim, tactics: tac, paused: false, selected: headless ? null : 'dozer', step: 0, maxSteps: Math.max(1, num(fireSim.maxSteps, 60)), threat: null,
                  alerted: {}, dig: {}, actions: [], startName: startName, lastPaintCell: null, holdStep: -99, resume: null };
       setPhase(PH.FIRE, { crisis: 'fire', acres: 0, name: startName, origin: origin });
+      playerGo(commandPostFor(start), { run: true }, 'radio');   // SPEC3 §C: run to the incident command post, radio in hand on arrival
       renderer.setTacticalMode(true);
       renderer.setFire(burningArr, []);
       crisis.threat = call('Fire', 'threat', fireSim, state, world) || fallbackThreat(fireSim, burningArr, 0);
@@ -15397,6 +16808,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       // "Mop-up — fire contained", then the after-action card. Cosmetic only — the sim is already done.
       if (crisis) {
         crisis.mopUp = true; crisis.paused = false; resumeCrisis();
+        if (!PLAYER.pointTimer) playerAct('wave');   // SPEC3 §C: mop-up → wave (a pending point timer lands on 'wave' itself)
         ui.alert('Fire contained — crews are mopping up', 'good');
         ui.ticker('Mop-up — fire contained at ' + fmtN(acres) + ' acres');
         pushTactical();
@@ -15547,6 +16959,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       var m = { type: type, x: x, y: y, i: i, costM: cost };
       state.mitigations.push(m);
       renderer.addMarker('mit-' + state.mitigations.length, type, x, y);
+      if (!PLAYER.moving) playerGo({ x: x, y: y }, { run: false }, null);   // SPEC3 §C: walk to the placement (first one, then whenever idle)
       ui.updatePlacement(placementSpec());
       return { ok: true, mitigation: m };
     }
@@ -15720,6 +17133,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       var pre = (mitigations || []).slice(), live = [];
       var tactical = liveToolsAvailable();
       setPhase(tactical ? PH.STORM : PH.FLOOD, { storm: storm, crisis: tactical ? 'storm' : null });
+      playerGo(civicCorePos(), { run: true }, 'radio');   // SPEC3 §C: storm → the civic core, on the radio
       renderer.setWeather('storm', 1);
       ui.ticker('Storm over the burn scar — ' + num(storm.intensityIn).toFixed(1) + ' in of rain');
       // 1. first pass: the storm with only the pre-storm measures — its frames/floodTimeline are what the player watches and fights
@@ -16032,6 +17446,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       state.lastSeasonReport = stripTyped(report);
       stats.turns++;
       setPhase(PH.REPORT, { report: report });
+      playerGo(townHallPos(), { run: false }, null);   // SPEC3 §C: season report → back at the town hall, no action
       ui.setBusy(false);
       pushReservoirVisual();
       refresh();
@@ -16173,6 +17588,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
       if (paintUnsub) { try { paintUnsub(); } catch (e) { } paintUnsub = null; }
       if (clickUnsub) { try { clickUnsub(); } catch (e) { } clickUnsub = null; }
       renderer.init(game.container, world, state);
+      pushPlayerToRenderer();   // SPEC3 §C: the player figure right after init (start / load / restart all pass through here)
       var cu = renderer.onCellClick(game.handleCellClick); clickUnsub = (typeof cu === 'function') ? cu : null;
       if (has('Renderer', 'onCellPaint')) { var pu = renderer.onCellPaint(onPaint); paintUnsub = (typeof pu === 'function') ? pu : function () { }; }
       subscribeAdvisors();   // 3D advisor avatars → speech bubbles (no-op when the renderer has no onAdvisorClick)
@@ -16281,6 +17697,29 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     };
     game.getProjectList = function () { return call('Projects', 'listFor', state, world) || []; };
     game.getAdvisors = function (topic) { return call('Advisors', 'getRecommendations', state, world, topic) || []; };
+
+    /* ---- SPEC3 §C: player facade ---- */
+    /** Fly the camera to the player figure (HUD portrait chip). */
+    game.focusPlayer = function () { if (headless) return; renderer.flyToPlayer(); };
+    /** { name, face, title } (a copy). */
+    game.getPlayer = function () { return (state && state.player) ? JSON.parse(JSON.stringify(state.player)) : normalizePlayer(null, null); };
+    /** setPlayer(spec, name) — the "edit character" path: updates state and the 3D figure; either argument may be omitted to keep the current value. */
+    game.setPlayer = guardSync('setPlayer', function (spec, name) {
+      if (!state) return null;
+      var patch = {};
+      if (spec && typeof spec === 'object') patch.face = spec;
+      if (name != null) patch.name = name;
+      state.player = normalizePlayer(patch, state.player);
+      pushPlayerToRenderer();
+      refresh();
+      return game.getPlayer();
+    });
+    /** Player figure position in cell coords ({x,y}) or null when the renderer has no figure. */
+    game.getPlayerPosition = function () {
+      if (headless || !has('Renderer', 'getPlayerPosition')) return null;
+      var p = renderer.getPlayerPosition();
+      return (p && isFinite(p.x) && isFinite(p.y)) ? { x: p.x, y: p.y } : null;
+    };
 
     /* ---------------------------------------------------- ADVISORS: 3D avatars in town → speech bubbles */
     // Renderer API (built concurrently; every call is guarded, so a renderer without avatars simply never shows bubbles):
@@ -16472,7 +17911,10 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
     /** createHeadless({seed, years, mode, decide, save}) → { state, world, game, runSeason(), runAll(), save(), load(str), stats() } */
     createHeadless: function (o) {
       o = o || {};
-      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: o.decide || {}, save: o.save || null });
+      // `player` (or decide.intro() → { player }) stands in for the browser intro creator (SPEC3 §C)
+      var dec = o.decide || {}, player = o.player || null;
+      if (!player && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = (ir && ir.player) || null; } catch (e) { player = null; } }
+      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player });
       var drv = {
         game: g,
         runSeason: function () { return g.runSeason().then(function (r) { drv.state = g.state; drv.world = g.world; return r; }); },
@@ -16502,7 +17944,8 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border: 1px s
           try { intro = await game.ui.showIntro(); } catch (e) { intro = null; }
           intro = intro || {};
           var seed = (intro.seed === '' || intro.seed == null) ? Math.floor(Math.random() * 1e6) : (isFinite(+intro.seed) ? +intro.seed : intro.seed);
-          game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false });
+          game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false,
+                       player: (intro.player && typeof intro.player === 'object') ? intro.player : null });   // SPEC3 §C: the intro's character creator
           game.initRenderer(host);   // re-inits the renderer for the real world and (re)subscribes cell click + paint exactly once
           await game.ui.init(game);
           game.ui.refresh();
