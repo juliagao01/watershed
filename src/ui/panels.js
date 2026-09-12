@@ -623,7 +623,11 @@
         body.appendChild(h('div', { class: 'case-meta' }, [cs.year ? h('span', { class: 'chip trust' }, String(cs.year)) : null, cs.region ? h('span', { class: 'chip' }, String(cs.region)) : null]));
         if (cs.summary) body.appendChild(h('p', { class: 'lead' }, String(cs.summary)));
         if (cs.lesson) body.appendChild(h('div', { class: 'source' }, [h('b', {}, 'Lesson'), String(cs.lesson)]));
-        if (cs.linkTo) body.appendChild(h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), String(cs.linkTo)]));
+        // linkTo may be a string or a function(state) → sentence (case studies build it from the player's own numbers)
+        var linkText = '';
+        try { linkText = (typeof cs.linkTo === 'function') ? cs.linkTo(game && game.state) : (cs.linkTo || ''); } catch (e) { linkText = ''; }
+        if (typeof linkText !== 'string') linkText = '';
+        if (linkText) body.appendChild(h('div', { class: 'case-link' }, [h('b', {}, 'Linked to what you just experienced'), linkText]));
         if (cs.sources) body.appendChild(h('p', { class: 'small dim', style: { marginTop: '10px' } }, String(cs.sources)));
       },
       foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', onclick: function () { close(); } }, 'Close')); }
