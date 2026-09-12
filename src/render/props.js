@@ -9,6 +9,20 @@
      props.setBurningCells(cells)     // houses in these cells flicker toward orange (instanceColor); [] to clear
      props.setFireIntensity(level)    // 0..1, strengthens the house flicker
      props.setWind(dirRad, mph)
+     props.setCamera(camera)          // camera used to size name tags (or pass opts.camera / opts.viewHeight() to build)
+     props.advisors()                 // [{id, name, role, color, avatarEmoji, position:Vector3 (live), object:Object3D}]
+     props.setAdvisorTalking(id|null) // bouncing arrow + pulsing ring on that advisor
+     props.setAdvisorAlert(id, bool)  // "!" bubble above the name tag
+     props.advisorAt(sx, sz, r=1.2)   // id|null — nearest advisor within r scene units of (sx, sz)
+     props.advisorHit(raycaster)      // id|null — raycast against the six figures
+     -- build-scene hooks (used by WS.Builds) --
+     props.treesInCell(i) → count     // live (visible) conifers + aspens standing in cell i
+     props.dropTree(i) → bool         // one live tree in cell i tilts, shrinks and vanishes over 0.8 s (stays hidden); false if none
+     props.setThinnedZones({zoneId:strength}) // deterministically hide ~40% of live trees in those zones; re-applied on refresh
+     props.clearCells(cells, frac=1)  // permanently hide (a deterministic fraction of) trees in these cells
+     props.setRoofStyle(zoneId, 'metal'|'default', frac=1) // roofs of the first frac of houses in the zone
+     props.housesInZone(zoneId) → [{i, x, y, z, rot, s, cell}] (scene coords)
+     props.setCropsCleared(cells)     // crop rows in these cells hidden (full set; [] restores all)
      props.dispose()
 */
 (function () {
@@ -40,7 +54,10 @@
 
   function nullProps() {
     var noop = function () {};
-    return { group: null, meshes: [], stats: { instances: 0, drawCalls: 0 }, refresh: noop, setSeason: noop, update: noop, setFire: noop, setWind: noop, dispose: noop };
+    return { group: null, meshes: [], stats: { instances: 0, drawCalls: 0 }, refresh: noop, setSeason: noop, update: noop, setFire: noop, setWind: noop, dispose: noop,
+      setCamera: noop, advisors: function () { return []; }, setAdvisorTalking: noop, setAdvisorAlert: noop, advisorAt: function () { return null; }, advisorHit: function () { return null; },
+      treesInCell: function () { return 0; }, dropTree: function () { return false; }, setThinnedZones: noop, clearCells: function () { return 0; }, setRoofStyle: function () { return 0; },
+      housesInZone: function () { return []; }, setCropsCleared: noop };
   }
 
   // ------------------------------------------------------------------ build
@@ -175,7 +192,24 @@
 
     function makeSet(cap) {
       return { cap: cap, n: 0, cell: new Int32Array(cap), x: new Float32Array(cap), y: new Float32Array(cap), z: new Float32Array(cap),
-        rot: new Float32Array(cap), s: new Float32Array(cap), sy: new Float32Array(cap), col: new Float32Array(cap * 3), hidden: new Uint8Array(cap), mesh: null };
+        rot: new Float32Array(cap), s: new Float32Array(cap), sy: new Float32Array(cap), col: new Float32Array(cap * 3), hidden: new Uint8Array(cap), mesh: null,
+        thinned: new Uint8Array(cap), dropped: new Uint8Array(cap), cellStart: null, cellItems: null };
+    }
+    /** hidden = burned (snag) | thinned (project) | dropped (build scene / cleared cell) */
+    function computeHidden(set, i) {
+      var burn = world.burn;
+      return ((burn && burn[set.cell[i]] > SNAG_BURN) || set.thinned[i] || set.dropped[i]) ? 1 : 0;
+    }
+    /** lazy CSR index cell → instances of a set */
+    function cellIndex(set) {
+      if (set.cellStart) return set;
+      var start = new Int32Array(NN + 1), items = new Int32Array(Math.max(1, set.n)), i, c;
+      for (i = 0; i < set.n; i++) { c = set.cell[i]; if (c >= 0 && c < NN) start[c + 1]++; }
+      for (c = 0; c < NN; c++) start[c + 1] += start[c];
+      var fill = new Int32Array(NN);
+      for (i = 0; i < set.n; i++) { c = set.cell[i]; if (c >= 0 && c < NN) items[start[c] + fill[c]++] = i; }
+      set.cellStart = start; set.cellItems = items;
+      return set;
     }
     function addInst(set, cell, x, y, z, rot, s, sy, r, g, b) {
       if (set.n >= set.cap) return -1;
@@ -276,7 +310,9 @@
     var CHAR_WALL = rgb(0x2b2624), CHAR_ROOF = rgb(0x1f1b18);
 
     var houses = { n: 0, cell: new Int32Array(MAX_HOUSES), x: new Float32Array(MAX_HOUSES), y: new Float32Array(MAX_HOUSES), z: new Float32Array(MAX_HOUSES),
-      rot: new Float32Array(MAX_HOUSES), s: new Float32Array(MAX_HOUSES), wc: new Uint8Array(MAX_HOUSES), rc: new Uint8Array(MAX_HOUSES), burned: new Uint8Array(MAX_HOUSES) };
+      rot: new Float32Array(MAX_HOUSES), s: new Float32Array(MAX_HOUSES), wc: new Uint8Array(MAX_HOUSES), rc: new Uint8Array(MAX_HOUSES), burned: new Uint8Array(MAX_HOUSES),
+      zone: new Int16Array(MAX_HOUSES).fill(-1), roof: new Uint8Array(MAX_HOUSES) /* 0 default, 1 metal */ };
+    var METAL_ROOF = rgb(0x9da4aa);
     var houseWalls = instanced(houseWallGeo, MAX_HOUSES, 'houseWalls'), houseRoofs = instanced(houseRoofGeo, MAX_HOUSES, 'houseRoofs');
     var barns = instanced(barnGeo, MAX_BARNS, 'barns');
     var stationPos = [], barnCount = 0, uniqueParts = [], shopIdx = 0, damFromBuilding = null;
@@ -341,6 +377,7 @@
           var i = houses.n++;
           houses.cell[i] = cellAtScene(p.x, p.z); houses.x[i] = p.x; houses.y[i] = p.y; houses.z[i] = p.z; houses.rot[i] = p.rot; houses.s[i] = p.s;
           houses.wc[i] = Math.floor(hash(k, 21) * 3) % 3; houses.rc[i] = Math.floor(hash(k, 22) * 3) % 3;
+          houses.zone[i] = isFinite(b.zoneId) ? (b.zoneId | 0) : ((world.zone && houses.cell[i] >= 0) ? world.zone[houses.cell[i]] : -1);
         } else if (t === 'barn') {
           if (barnCount >= MAX_BARNS) continue;
           _o.position.set(p.x, p.y, p.z); _o.rotation.set(0, p.rot, 0); _o.scale.set(p.s, p.s, p.s); _o.updateMatrix();
@@ -421,7 +458,7 @@
     var cropGeo = mergeParts([part(BOX, [1, 1, 1], 0, 0.04, 0, 0, 0.9, 0.08, 0.16)]);
     var hayGeo = mergeParts([part(CYL8, [1, 1, 1], 0, 0.09, 0, 0, 0.18, 0.22, 0.18, 0, Math.PI / 2)]);
     var postGeo = mergeParts([part(BOX, [1, 1, 1], 0, 0.08, 0, 0, 0.04, 0.16, 0.04)]);
-    var crops = { n: 0, cell: new Int32Array(MAX_CROPS) };
+    var crops = { n: 0, cell: new Int32Array(MAX_CROPS) }, cropMat0 = null, cropsCleared = new Uint8Array(NN);
     var cropMesh = instanced(cropGeo, MAX_CROPS, 'crops', false, true), hayMesh = instanced(hayGeo, MAX_HAY, 'hay', false, true), fenceMesh = instanced(postGeo, MAX_FENCE, 'fence', false, true);
     var CROP_GREEN = rgb(0x6fae3f), CROP_STRAW = rgb(PAL.farmDry), CROP_BROWN = rgb(0x8a6a3c), HAY_COL = rgb(0xd8bf6a), POST_COL = rgb(0x7a6a55);
     (function placeFarms() {
@@ -447,6 +484,7 @@
         }
       }
       cropMesh.count = crops.n; cropMesh.instanceMatrix.needsUpdate = true;
+      cropMat0 = new Float32Array(cropMesh.instanceMatrix.array.subarray(0, crops.n * 16));
       hayMesh.count = hay; hayMesh.instanceMatrix.needsUpdate = true; hayMesh.instanceColor.needsUpdate = true;
       // fences: posts around farm zone bboxes
       var fz = zonesOf('farm'), np = 0;
@@ -679,6 +717,310 @@
     }
     birdMesh.count = N_BIRDS; birdMesh.instanceColor.needsUpdate = true;
 
+    // ================================================================= ADVISORS (six named figures that wander like Sims)
+    // Individual merged meshes (≤ ~300 tris each) sharing one body material; name tags are canvas sprites; one shared
+    // "!" sprite material; one glow material for the talking ring + arrow. Update cost: 6 figures + 6 sprites / frame.
+    var ADV_FALLBACK = [
+      { id: 'dolores', name: 'Capt. Dolores Reyes', role: 'Wildland Fire Captain', color: '#d9532b', avatarEmoji: '🚒' },
+      { id: 'walt', name: 'Walt Jensen', role: 'Rancher, Lazy J', color: '#b9863c', avatarEmoji: '🤠' },
+      { id: 'naomi', name: 'Naomi Whitehorse', role: 'Tribal Water Representative', color: '#7b4fa8', avatarEmoji: '🪶' },
+      { id: 'priya', name: 'Dr. Priya Natarajan', role: 'Hydrologist', color: '#2f7fb8', avatarEmoji: '📈' },
+      { id: 'marcus', name: 'Marcus Lee', role: 'Resident and Parent, Marshall Heights', color: '#3f9a6a', avatarEmoji: '🏡' },
+      { id: 'ana', name: 'Dr. Ana Ortiz', role: 'Wildlife Biologist', color: '#5a8a3a', avatarEmoji: '🦌' }
+    ];
+    var ADV_ROAM = 3.0, ADV_SPEED = 0.55, ADV_TAG_PX = 18, ADV_TAG_MAX_DIST = 130, ADV_TAG_MIN_H = 0.25, ADV_TAG_MAX_H = 1.5;
+    var advWalkable = new Uint8Array(16);
+    [LAND.ROAD, LAND.RESIDENTIAL, LAND.CIVIC, LAND.FARM, LAND.SHRUB, LAND.RIPARIAN, LAND.WETLAND].forEach(function (l) { advWalkable[l] = 1; });
+    function advCellOk(sx, sz) { var ci = cellAtScene(sx, sz); return ci >= 0 && advWalkable[world.land[ci]] === 1; }
+    var camera = (opts.camera && opts.camera.isCamera) ? opts.camera : null;
+    var viewHeightFn = (typeof opts.viewHeight === 'function') ? opts.viewHeight : function () { return (root.innerHeight || 800); };
+    var advBodyMat = mat(), advGlowMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.85, depthWrite: false });
+    materials.push(advBodyMat, advGlowMat);
+    var advGroup = new THREE.Group(); advGroup.name = 'advisors'; group.add(advGroup);
+    var advisors = [], advById = {}, advTalking = null, advList = null;
+    var _v3 = new THREE.Vector3();
+
+    function hexToRgb(hex) { var c = new THREE.Color(String(hex || '#888888')); return [c.r, c.g, c.b]; }
+    function firstName(name) {
+      var parts = String(name || '').split(/\s+/).filter(function (p) { return p && !/\.$/.test(p); });
+      return parts[0] || String(name || '?');
+    }
+    /** stylised low-poly person, ~1.6 units tall, forward = +z. `sig` picks the signature outfit. */
+    function figureGeo(ch) {
+      var body = hexToRgb(ch.color), skin = [0.86, 0.66, 0.5], hair = [0.16, 0.12, 0.1], pants = [0.24, 0.26, 0.32], shoes = [0.15, 0.12, 0.1];
+      var torso = body, sleeve = [body[0] * 0.85, body[1] * 0.85, body[2] * 0.85], p = [];
+      switch (ch.id) {
+        case 'dolores': skin = [0.72, 0.5, 0.36]; torso = [0.78, 0.16, 0.14]; sleeve = [0.7, 0.14, 0.12]; pants = [0.16, 0.16, 0.2]; break;
+        case 'walt': skin = [0.82, 0.6, 0.45]; pants = [0.22, 0.28, 0.42]; hair = [0.55, 0.52, 0.5]; break;
+        case 'naomi': skin = [0.68, 0.46, 0.32]; hair = [0.08, 0.06, 0.06]; pants = [0.3, 0.2, 0.18]; break;
+        case 'priya': skin = [0.62, 0.42, 0.3]; hair = [0.1, 0.08, 0.08]; torso = [0.94, 0.94, 0.95]; sleeve = [0.9, 0.9, 0.92]; pants = [0.2, 0.22, 0.3]; break;
+        case 'marcus': skin = [0.9, 0.72, 0.56]; torso = [0.22, 0.42, 0.78]; sleeve = [0.2, 0.38, 0.72]; pants = [0.26, 0.26, 0.28]; break;
+        case 'ana': skin = [0.78, 0.58, 0.42]; hair = [0.3, 0.2, 0.12]; pants = [0.42, 0.36, 0.26]; break;
+      }
+      // legs + shoes
+      p.push(part(BOX, pants, 0.1, 0.33, 0, 0, 0.15, 0.62, 0.17), part(BOX, pants, -0.1, 0.33, 0, 0, 0.15, 0.62, 0.17));
+      p.push(part(BOX, shoes, 0.1, 0.03, 0.02, 0, 0.16, 0.07, 0.22), part(BOX, shoes, -0.1, 0.03, 0.02, 0, 0.16, 0.07, 0.22));
+      // torso + arms + neck + head + hair
+      p.push(part(BOX, torso, 0, 0.94, 0, 0, 0.44, 0.62, 0.27));
+      p.push(part(BOX, sleeve, 0.29, 0.92, 0, 0, 0.13, 0.54, 0.14, 0, 0.08), part(BOX, sleeve, -0.29, 0.92, 0, 0, 0.13, 0.54, 0.14, 0, -0.08));
+      p.push(part(BOX, skin, 0.3, 0.62, 0, 0, 0.11, 0.1, 0.11), part(BOX, skin, -0.3, 0.62, 0, 0, 0.11, 0.1, 0.11));
+      p.push(part(CYL8, skin, 0, 1.27, 0, 0, 0.14, 0.08, 0.14));
+      p.push(part(SPH, skin, 0, 1.44, 0, 0, 0.34, 0.36, 0.34));
+      if (ch.id !== 'dolores' && ch.id !== 'walt') p.push(part(SPH, hair, 0, 1.5, -0.02, 0, 0.36, 0.26, 0.36));
+      if (ch.id === 'naomi') p.push(part(BOX, hair, 0, 1.3, -0.16, 0, 0.22, 0.5, 0.08));           // long hair at the back
+      // signature items
+      switch (ch.id) {
+        case 'dolores': // yellow helmet with brim + reflective stripes on the red jacket
+          p.push(part(SPH, [1, 0.82, 0.16], 0, 1.54, 0, 0, 0.42, 0.3, 0.42), part(CYL8, [1, 0.82, 0.16], 0, 1.43, 0.02, 0, 0.5, 0.04, 0.54));
+          p.push(part(BOX, [0.95, 0.95, 0.4], 0, 0.86, 0.14, 0, 0.44, 0.06, 0.02), part(BOX, [0.95, 0.95, 0.4], 0, 1.06, 0.14, 0, 0.44, 0.06, 0.02));
+          break;
+        case 'walt': // wide-brimmed hat + belt buckle
+          p.push(part(CYL8, [0.42, 0.3, 0.18], 0, 1.62, 0, 0, 0.3, 0.2, 0.3), part(CYL8, [0.42, 0.3, 0.18], 0, 1.53, 0, 0, 0.66, 0.035, 0.66));
+          p.push(part(BOX, [0.85, 0.7, 0.3], 0, 0.64, 0.14, 0, 0.1, 0.07, 0.02));
+          break;
+        case 'naomi': // turquoise sash across the torso + ribbon
+          p.push(part(BOX, [0.22, 0.78, 0.74], 0, 0.94, 0.15, 0, 0.11, 0.7, 0.03, 0, 0.62));
+          p.push(part(BOX, [0.22, 0.78, 0.74], 0.12, 1.5, -0.12, 0, 0.06, 0.16, 0.03, 0, 0.3));
+          break;
+        case 'priya': // white coat (open front shows her blue shirt) + clipboard
+          p.push(part(BOX, body, 0, 0.94, 0.135, 0, 0.14, 0.58, 0.02));
+          p.push(part(BOX, [0.5, 0.36, 0.22], -0.3, 0.96, 0.16, 0, 0.2, 0.26, 0.03, -0.3), part(BOX, [0.97, 0.97, 0.97], -0.3, 0.965, 0.18, 0, 0.16, 0.2, 0.01, -0.3));
+          break;
+        case 'marcus': // blue hoodie: hood behind the head + kangaroo pocket + drawstrings
+          p.push(part(SPH, torso, 0, 1.4, -0.1, 0, 0.42, 0.4, 0.34), part(BOX, torso, 0, 0.76, 0.14, 0, 0.26, 0.14, 0.03));
+          p.push(part(BOX, [0.95, 0.95, 0.95], 0.05, 1.08, 0.15, 0, 0.02, 0.16, 0.01), part(BOX, [0.95, 0.95, 0.95], -0.05, 1.08, 0.15, 0, 0.02, 0.16, 0.01));
+          break;
+        case 'ana': // green field vest + binoculars on a strap
+          p.push(part(BOX, [0.18, 0.42, 0.2], 0.16, 0.96, 0, 0, 0.16, 0.56, 0.3), part(BOX, [0.18, 0.42, 0.2], -0.16, 0.96, 0, 0, 0.16, 0.56, 0.3));
+          p.push(part(CYL8, [0.1, 0.1, 0.12], 0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2), part(CYL8, [0.1, 0.1, 0.12], -0.06, 1.02, 0.17, 0, 0.09, 0.14, 0.09, Math.PI / 2));
+          break;
+      }
+      return mergeParts(p);
+    }
+    function roundRect(g, x, y, w, h, r) {
+      g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r);
+      g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
+    }
+    function makeTagSprite(ch) {
+      if (typeof document === 'undefined') return null;
+      var cv = document.createElement('canvas'); cv.width = 320; cv.height = 80;
+      var g = cv.getContext('2d'); if (!g) return null;
+      var label = (ch.avatarEmoji || '') + ' ' + firstName(ch.name);
+      g.font = 'bold 40px system-ui, -apple-system, "Segoe UI", sans-serif'; g.textBaseline = 'middle';
+      var tw = Math.min(300, g.measureText(label).width + 40), x0 = (320 - tw) / 2;
+      g.fillStyle = 'rgba(18,22,28,0.82)'; roundRect(g, x0, 6, tw, 68, 20); g.fill();
+      g.lineWidth = 5; g.strokeStyle = String(ch.color || '#fff'); roundRect(g, x0 + 2.5, 8.5, tw - 5, 63, 18); g.stroke();
+      g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.fillText(label, 160, 42, 290);
+      var tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      if ('encoding' in tex && THREE.sRGBEncoding != null) tex.encoding = THREE.sRGBEncoding;
+      var sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      var sp = new THREE.Sprite(sm); sp.center.set(0.5, 0); sp.renderOrder = 30; sp.frustumCulled = false;
+      materials.push(sm); geometries.push({ dispose: function () { tex.dispose(); } });
+      return sp;
+    }
+    var alertMat = (function () {
+      if (typeof document === 'undefined') return null;
+      var cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+      var g = cv.getContext('2d'); if (!g) return null;
+      g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.fillStyle = '#ffd24a'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#3a2a08'; g.stroke();
+      g.fillStyle = '#3a2a08'; g.font = 'bold 44px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('!', 32, 34);
+      var tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      var m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      materials.push(m); geometries.push({ dispose: function () { tex.dispose(); } });
+      return m;
+    })();
+
+    // ---- home spots (scene xz), derived from world.buildings / zones / river / wetland
+    function zoneName(z) { return z && z.name ? String(z.name).toLowerCase() : ''; }
+    function findZone(type, re) {
+      var zs = zonesOf(type), k;
+      for (k = 0; k < zs.length; k++) if (re.test(zoneName(zs[k]))) return zs[k];
+      return zs[0] || null;
+    }
+    function bldgsOf(type) { return buildings.filter(function (b) { return b && b.type === type && isFinite(b.x) && isFinite(b.y); }); }
+    /** nearest walkable cell to (cx,cy) in cell space, preferring land types in `prefer` (array) within `r` */
+    function walkableNear(cx, cy, r, prefer) {
+      cx = clamp(Math.round(fin(cx, N / 2)), 0, N - 1); cy = clamp(Math.round(fin(cy, N / 2)), 0, N - 1);
+      var pass, best = null, bd = Infinity, dx, dy, x, y, l, i, d;
+      for (pass = 0; pass < 2; pass++) {
+        for (dy = -r; dy <= r; dy++) for (dx = -r; dx <= r; dx++) {
+          x = cx + dx; y = cy + dy; if (x < 0 || y < 0 || x >= N || y >= N) continue;
+          i = y * N + x; l = world.land[i];
+          if (advWalkable[l] !== 1) continue;
+          if (pass === 0 && prefer && prefer.indexOf(l) < 0) continue;
+          d = dx * dx + dy * dy; if (d < bd) { bd = d; best = { x: x, y: y }; }
+        }
+        if (best) break;
+        if (!prefer) break;
+      }
+      return best;
+    }
+    function frontOf(b, dist) { // spot in front of a building (rot 0 faces +y/south)
+      var rot = fin(b.rot, 0), x = fin(b.x, N / 2) + Math.sin(rot) * dist, y = fin(b.y, N / 2) + Math.cos(rot) * dist;
+      return walkableNear(x, y, 4, [LAND.ROAD, LAND.CIVIC, LAND.RESIDENTIAL, LAND.FARM]);
+    }
+    function homeFor(id) {
+      var townC = (world.townCenter && isFinite(world.townCenter.x)) ? world.townCenter : ((findZone('civic', /./) || {}).center || { x: N / 2, y: N / 2 });
+      var spot = null, b, list, k, z;
+      switch (id) {
+        case 'dolores': // the WUI fire station = the station farthest from the civic core
+          list = bldgsOf('fire_station'); b = null;
+          for (k = 0; k < list.length; k++) if (!b || Math.hypot(list[k].x - townC.x, list[k].y - townC.y) > Math.hypot(b.x - townC.x, b.y - townC.y)) b = list[k];
+          if (b) spot = frontOf(b, 1.4);
+          break;
+        case 'walt': // Lazy J barn (by zone name), else any barn, else the farm zone centre
+          list = bldgsOf('barn'); b = null;
+          for (k = 0; k < list.length; k++) { z = zoneById(list[k].zoneId); if (/lazy/.test(zoneName(z))) { b = list[k]; break; } }
+          if (!b && list.length) b = list[0];
+          if (b) spot = frontOf(b, 1.6);
+          if (!spot) { z = findZone('farm', /lazy/); if (z && z.center) spot = walkableNear(z.center.x, z.center.y, 6, [LAND.FARM, LAND.ROAD]); }
+          break;
+        case 'naomi': { // riverbank a few nodes below the dam
+          var rp = world.river && world.river.path, di = world.river ? fin(world.river.damIndex, -1) : -1;
+          if (rp && rp.length && di >= 0) { var node = rp[clamp(di + 7, 0, rp.length - 1)]; spot = walkableNear(node.x, node.y, 5, [LAND.RIPARIAN, LAND.SHRUB, LAND.WETLAND]); }
+          break;
+        }
+        case 'priya': // treatment plant, else the dam
+          list = bldgsOf('treatment_plant');
+          if (list.length) spot = frontOf(list[0], 1.4);
+          if (!spot && world.reservoir && world.reservoir.dam) spot = walkableNear(world.reservoir.dam.x, world.reservoir.dam.y, 6, [LAND.ROAD, LAND.CIVIC, LAND.SHRUB, LAND.RIPARIAN]);
+          break;
+        case 'marcus': { // a street in Old Mill (road cell nearest the zone centre), else any neighbourhood
+          z = findZone('neighborhood', /old\s*mill/);
+          if (z && z.center) spot = walkableNear(z.center.x, z.center.y, 8, [LAND.ROAD]);
+          break;
+        }
+        case 'ana': { // the wetland
+          var wc = (world.wetland && world.wetland.center && isFinite(world.wetland.center.x)) ? world.wetland.center : ((findZone('wetland', /./) || {}).center || null);
+          if (wc) spot = walkableNear(wc.x, wc.y, 8, [LAND.WETLAND, LAND.RIPARIAN, LAND.SHRUB]);
+          break;
+        }
+      }
+      if (!spot) spot = walkableNear(townC.x, townC.y, 20, null) || { x: N / 2, y: N / 2 };
+      return { x: sceneX(spot.x), z: sceneZ(spot.y), cx: spot.x, cy: spot.y };
+    }
+    function advPathClear(x0, z0, x1, z1) {
+      var d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / 0.4)), k;
+      for (k = 1; k <= n; k++) { var t = k / n; if (!advCellOk(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t)) return false; }
+      return true;
+    }
+    function advPickTarget(a) {
+      for (var t = 0; t < 10; t++) {
+        var ang = Math.random() * 6.283185, r = 0.6 + Math.random() * (ADV_ROAM - 0.6);
+        var tx = a.home.x + Math.cos(ang) * r, tz = a.home.z + Math.sin(ang) * r;
+        if (Math.abs(tx) > N / 2 - 1 || Math.abs(tz) > N / 2 - 1) continue;
+        if (!advCellOk(tx, tz) || !advPathClear(a.x, a.z, tx, tz)) continue;
+        a.tx = tx; a.tz = tz; a.walking = true; return;
+      }
+      a.wait = 1 + Math.random() * 2; a.walking = false;
+    }
+    (function buildAdvisors() {
+      var chars = (WS.Advisors && Array.isArray(WS.Advisors.CHARACTERS) && WS.Advisors.CHARACTERS.length) ? WS.Advisors.CHARACTERS : ADV_FALLBACK;
+      for (var k = 0; k < chars.length && k < 8; k++) {
+        var ch = chars[k]; if (!ch || !ch.id) continue;
+        var geo = figureGeo(ch), mesh = new THREE.Mesh(geo, advBodyMat);
+        mesh.name = 'advisor:' + ch.id; mesh.castShadow = true; mesh.receiveShadow = false; mesh.frustumCulled = false;
+        mesh.userData.advisorId = ch.id;
+        geometries.push(geo); meshes.push(mesh); advGroup.add(mesh);
+        var home = homeFor(ch.id);
+        var a = { id: ch.id, name: String(ch.name || ch.id), role: String(ch.role || ''), color: String(ch.color || '#888'), emoji: String(ch.avatarEmoji || ''),
+          object: mesh, home: home, x: home.x, z: home.z, tx: home.x, tz: home.z, heading: Math.random() * 6.283185, wait: 0.5 + hash(k, 91) * 2, walking: false,
+          ph: hash(k, 92) * 6.283185, tag: makeTagSprite(ch), alert: null, alertOn: false, tagH: 1 };
+        if (a.tag) { advGroup.add(a.tag); }
+        if (alertMat) { a.alert = new THREE.Sprite(alertMat); a.alert.center.set(0.5, 0); a.alert.renderOrder = 31; a.alert.visible = false; a.alert.frustumCulled = false; advGroup.add(a.alert); }
+        mesh.position.set(a.x, hAt(a.x, a.z), a.z); mesh.rotation.y = a.heading;
+        advisors.push(a); advById[a.id] = a;
+      }
+    })();
+    // talking indicator: pulsing ring at the feet (mesh) + bouncing arrow over the name tag (camera-facing sprite, always on
+    // top like the tags — a depth-tested mesh up there is unreliable against the overlays). One of each, moved to the talker.
+    var ringGeo = new THREE.RingGeometry(0.5, 0.72, 24); ringGeo.rotateX(-Math.PI / 2);
+    var talkRing = new THREE.Mesh(ringGeo, advGlowMat);
+    talkRing.visible = false; talkRing.renderOrder = 20; talkRing.frustumCulled = false;
+    advGroup.add(talkRing); geometries.push(ringGeo);
+    var talkArrow = (function () {
+      if (typeof document === 'undefined') { var o = new THREE.Object3D(); o.visible = false; return o; }
+      var cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+      var g = cv.getContext('2d'); if (!g) { var o2 = new THREE.Object3D(); o2.visible = false; return o2; }
+      g.beginPath(); g.moveTo(8, 10); g.lineTo(56, 10); g.lineTo(32, 56); g.closePath();
+      g.fillStyle = '#ffd24a'; g.fill(); g.lineWidth = 5; g.lineJoin = 'round'; g.strokeStyle = '#3a2a08'; g.stroke();
+      var tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      var m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+      var sp = new THREE.Sprite(m); sp.center.set(0.5, 0); sp.renderOrder = 32; sp.frustumCulled = false; sp.visible = false;
+      materials.push(m); geometries.push({ dispose: function () { tex.dispose(); } });
+      advGroup.add(sp);
+      return sp;
+    })();
+
+    function updateAdvisors(dt) {
+      var k, a, camX = 0, camY = 0, camZ = 0, tanHalf = 0.4142, viewH = 800, hasCam = !!camera;
+      if (hasCam) {
+        camX = camera.position.x; camY = camera.position.y; camZ = camera.position.z;
+        if (camera.isPerspectiveCamera) tanHalf = Math.tan(fin(camera.fov, 45) * Math.PI / 360);
+        viewH = Math.max(100, fin(viewHeightFn(), 800));
+      }
+      for (k = 0; k < advisors.length; k++) {
+        a = advisors[k];
+        // --- wander
+        if (a.walking) {
+          var dx = a.tx - a.x, dz = a.tz - a.z, d = Math.hypot(dx, dz);
+          if (d < 0.08) { a.walking = false; a.wait = 1.5 + Math.random() * 4; }
+          else {
+            var step = Math.min(d, ADV_SPEED * dt), nx = a.x + dx / d * step, nz = a.z + dz / d * step;
+            if (advCellOk(nx, nz)) { a.x = nx; a.z = nz; } else { a.walking = false; a.wait = 0.6; }
+            var th = Math.atan2(dx, dz), dh = th - a.heading; while (dh > Math.PI) dh -= 6.283185; while (dh < -Math.PI) dh += 6.283185;
+            a.heading += dh * Math.min(1, dt * 7);
+          }
+        } else {
+          a.wait -= dt;
+          if (a.wait <= 0) advPickTarget(a);
+          else if (Math.random() < dt * 0.15) { a.heading += (Math.random() - 0.5) * 0.6; } // occasional idle glance
+        }
+        var baseY = hAt(a.x, a.z), bob = a.walking ? 0.035 * Math.abs(Math.sin(time * 9 + a.ph)) : 0.008 * Math.sin(time * 1.8 + a.ph);
+        var o = a.object;
+        o.position.set(a.x, baseY + bob, a.z); o.rotation.set(a.walking ? 0.06 : 0, a.heading, a.walking ? 0.03 * Math.sin(time * 9 + a.ph) : 0);
+        var br = a.walking ? 1 : 1 + 0.012 * Math.sin(time * 1.8 + a.ph); o.scale.set(1, br, 1);
+        // --- name tag: constant ~ADV_TAG_PX pixels tall, hidden beyond ADV_TAG_MAX_DIST
+        var tagTop = baseY + 1.85, dist = hasCam ? Math.hypot(camX - a.x, camY - baseY, camZ - a.z) : 60;
+        var h = clamp(ADV_TAG_PX * 2 * dist * tanHalf / viewH, ADV_TAG_MIN_H, ADV_TAG_MAX_H);
+        a.tagH = h;
+        if (a.tag) {
+          var show = dist <= ADV_TAG_MAX_DIST;
+          a.tag.visible = show;
+          if (show) { a.tag.scale.set(h * 4, h, 1); a.tag.position.set(a.x, tagTop, a.z); tagTop += h; }
+        }
+        if (a.alert) {
+          a.alert.visible = a.alertOn && dist <= ADV_TAG_MAX_DIST;
+          if (a.alert.visible) { var ah = h * 0.9; a.alert.scale.set(ah, ah, 1); a.alert.position.set(a.x, tagTop + 0.05 * h + 0.06 * h * Math.sin(time * 5 + a.ph), a.z); tagTop += ah * 1.1; }
+        }
+        if (advTalking === a.id) {
+          var pulse = 0.5 + 0.5 * Math.sin(time * 4);
+          talkRing.visible = talkArrow.visible = true;
+          talkRing.position.set(a.x, baseY + 0.1, a.z); var rs = 1 + 0.18 * pulse; talkRing.scale.set(rs, 1, rs);
+          advGlowMat.opacity = 0.55 + 0.35 * pulse;
+          var as = h * 0.85;
+          talkArrow.scale.set(as, as, 1); talkArrow.position.set(a.x, tagTop + 0.1 * h + 0.35 * h * Math.abs(Math.sin(time * 3.2)), a.z);
+        }
+      }
+      if (advTalking && !advById[advTalking]) advTalking = null;
+      if (!advTalking) talkRing.visible = talkArrow.visible = false;
+    }
+    function advisorList() {
+      if (!advList) advList = advisors.map(function (a) { return { id: a.id, name: a.name, role: a.role, color: a.color, avatarEmoji: a.emoji, position: a.object.position, object: a.object }; });
+      return advList;
+    }
+    function advisorAt(sx, sz, radius) {
+      var r = fin(radius, 1.2), best = null, bd = r * r, k, a, d;
+      for (k = 0; k < advisors.length; k++) { a = advisors[k]; d = (a.x - sx) * (a.x - sx) + (a.z - sz) * (a.z - sz); if (d <= bd) { bd = d; best = a.id; } }
+      return best;
+    }
+    var advMeshes = advisors.map(function (a) { return a.object; });
+    function advisorHit(raycaster) {
+      if (!raycaster || typeof raycaster.intersectObjects !== 'function' || !advMeshes.length) return null;
+      var hits = raycaster.intersectObjects(advMeshes, false);
+      return (hits && hits.length) ? (hits[0].object.userData.advisorId || null) : null;
+    }
+
     // ================================================================= STATE
     var season = 0, snowline = fin(world.snowlineElev, 2600) + SNOWLINE_BY_SEASON[0], drought = false, windDir = 0, windMph = 0, time = 0;
     var cellBurning = new Uint8Array(NN), burningInst = new Int32Array(MAX_BURNING_INST), burningN = 0;
@@ -730,7 +1072,7 @@
     }
     function writeHouseColor(i, wa, ra) {
       var w = (season === 0), elev = world.elev;
-      var wc = houses.burned[i] ? CHAR_WALL : WALL_COLS[houses.wc[i]], rc = houses.burned[i] ? CHAR_ROOF : ROOF_COLS[houses.rc[i]];
+      var wc = houses.burned[i] ? CHAR_WALL : WALL_COLS[houses.wc[i]], rc = houses.burned[i] ? CHAR_ROOF : (houses.roof[i] === 1 ? METAL_ROOF : ROOF_COLS[houses.rc[i]]);
       wa[i * 3] = wc[0]; wa[i * 3 + 1] = wc[1]; wa[i * 3 + 2] = wc[2];
       var e = houses.cell[i] >= 0 ? elev[houses.cell[i]] : 0;
       if (!houses.burned[i] && e > snowline) lerp3(ra, i * 3, rc, SNOW, w ? 0.85 : 0.6); else { ra[i * 3] = rc[0]; ra[i * 3 + 1] = rc[1]; ra[i * 3 + 2] = rc[2]; }
@@ -744,13 +1086,13 @@
       var burn = world.burn, i, changed = false, c;
       if (!burn) return;
       for (i = 0; i < conifers.n; i++) {
-        var h = burn[conifers.cell[i]] > SNAG_BURN ? 1 : 0;
+        var h = computeHidden(conifers, i);
         if (h !== conifers.hidden[i]) { conifers.hidden[i] = h; writeInst(conifers, i); changed = true; }
       }
       if (changed) conifers.mesh.instanceMatrix.needsUpdate = true;
       changed = false;
       for (i = 0; i < aspens.n; i++) {
-        var ha = burn[aspens.cell[i]] > SNAG_BURN ? 1 : 0;
+        var ha = computeHidden(aspens, i);
         if (ha !== aspens.hidden[i]) { aspens.hidden[i] = ha; changed = true; }
       }
       if (changed) updateAspenMatrices();
@@ -801,6 +1143,36 @@
       burningN = burningNA = 0;
     }
 
+    // ---- build-scene tree drops (tilt + shrink over DROP_DUR, then hidden for good)
+    var DROP_DUR = 0.8, MAX_DROPS = 96;
+    var drops = { n: 0, set: [], i: new Int32Array(MAX_DROPS), t: new Float32Array(MAX_DROPS), ax: new Float32Array(MAX_DROPS) };
+    function writeDropInst(set, i, u, ax) {
+      var tilt = u * u * 1.35, shrink = 1 - 0.7 * Math.max(0, (u - 0.6) / 0.4), s = set.s[i] * shrink;
+      _o.position.set(set.x[i], set.y[i], set.z[i]);
+      _o.rotation.set(tilt * Math.cos(ax), set.rot[i], tilt * Math.sin(ax));
+      _o.scale.set(s, set.s[i] * set.sy[i] * shrink * ((set === aspens && season === 0) ? 0.85 : 1), s);
+      _o.updateMatrix(); set.mesh.setMatrixAt(i, _o.matrix);
+    }
+    function updateDrops(dt) {
+      if (!drops.n) return;
+      var dc = false, da = false, k = 0;
+      while (k < drops.n) {
+        drops.t[k] += dt;
+        var dset = drops.set[k], di = drops.i[k], u = drops.t[k] / DROP_DUR;
+        if (dset === conifers) dc = true; else da = true;
+        if (u >= 1) {
+          dset.hidden[di] = 1; dset.mesh.setMatrixAt(di, _zero);
+          var last = drops.n - 1;
+          drops.set[k] = drops.set[last]; drops.i[k] = drops.i[last]; drops.t[k] = drops.t[last]; drops.ax[k] = drops.ax[last]; drops.n--;
+          continue;
+        }
+        writeDropInst(dset, di, u, drops.ax[k]);
+        k++;
+      }
+      if (dc) conifers.mesh.instanceMatrix.needsUpdate = true;
+      if (da) aspens.mesh.instanceMatrix.needsUpdate = true;
+    }
+
     // ================================================================= API
     var props = {
       group: group, meshes: meshes,
@@ -813,7 +1185,7 @@
         if (state && state.reservoir && world.reservoir && typeof world.reservoir.levelForStorage === 'function') {
           try { var lv = world.reservoir.levelForStorage(fin(state.reservoir.storageAF, 0)); if (isFinite(lv)) birdBaseY = C.elevToScene(lv); } catch (e) { /* keep */ }
         }
-        props.stats.instances = conifers.n + aspens.n + snags.count + sage.n + houses.n * 2 + barnCount + crops.n + hayMesh.count + fenceMesh.count + people.n + elk.n + trucks.n + cars.n + birds.n;
+        props.stats.instances = conifers.n + aspens.n + snags.count + sage.n + houses.n * 2 + barnCount + crops.n + hayMesh.count + fenceMesh.count + people.n + elk.n + trucks.n + cars.n + birds.n + advisors.length;
         props.stats.drawCalls = meshes.filter(function (m) { return m.count == null || m.count > 0; }).length;
       },
 
@@ -828,6 +1200,14 @@
       },
 
       setWind: function (dirRad, mph) { windDir = fin(dirRad, 0); windMph = clamp(fin(mph, 0), 0, 120); },
+
+      /* ---- advisors ---- */
+      setCamera: function (cam) { camera = (cam && cam.isCamera) ? cam : null; },
+      advisors: advisorList,
+      setAdvisorTalking: function (id) { advTalking = (id != null && advById[id]) ? String(id) : null; if (!advTalking) talkRing.visible = talkArrow.visible = false; },
+      setAdvisorAlert: function (id, on) { var a = advById[id]; if (a) { a.alertOn = !!on; if (a.alert && !a.alertOn) a.alert.visible = false; } },
+      advisorAt: advisorAt,
+      advisorHit: advisorHit,
 
       /* houses standing in currently burning cells flicker toward orange (instanceColor only — no geometry work) */
       setBurningCells: function (cells) {
@@ -889,6 +1269,7 @@
           for (k = 0; k < burningNA; k++) { var ia = burningInstA[k]; writeInst(aspens, ia, 0.7 + 0.15 * Math.sin(time * 19 + ia), 0.6 + 0.2 * Math.sin(time * 15 + ia)); }
           if (burningNA) aspens.mesh.instanceMatrix.needsUpdate = true;
         }
+        updateDrops(dt);
         // people
         for (k = 0; k < people.n; k++) {
           var rd = people.road[k];
@@ -972,6 +1353,98 @@
           birdMesh.setMatrixAt(k, _o.matrix);
         }
         if (birds.n) birdMesh.instanceMatrix.needsUpdate = true;
+        // advisors (six named figures)
+        updateAdvisors(dt);
+      },
+
+      /* ---- build-scene hooks (WS.Builds) ---- */
+      treesInCell: function (ci) {
+        ci = ci | 0; if (ci < 0 || ci >= NN) return 0;
+        var n = 0, s, k, set;
+        for (s = 0; s < 2; s++) {
+          set = cellIndex(s ? aspens : conifers);
+          for (k = set.cellStart[ci]; k < set.cellStart[ci + 1]; k++) if (!set.hidden[set.cellItems[k]] && !set.dropped[set.cellItems[k]]) n++;
+        }
+        return n;
+      },
+      dropTree: function (ci) {
+        ci = ci | 0; if (ci < 0 || ci >= NN || drops.n >= MAX_DROPS) return false;
+        var s, k, set, best = -1, bestSet = null, pref = false;
+        for (s = 0; s < 2 && !pref; s++) {
+          set = cellIndex(s ? aspens : conifers);
+          for (k = set.cellStart[ci]; k < set.cellStart[ci + 1]; k++) {
+            var ii = set.cellItems[k]; if (set.hidden[ii] || set.dropped[ii]) continue;
+            var p = hash(ii, 123) < 0.4;                        // prefer trees the thinning pass will hide anyway
+            if (best < 0 || p) { best = ii; bestSet = set; pref = p; if (p) break; }
+          }
+        }
+        if (best < 0) return false;
+        bestSet.dropped[best] = 1;                              // reserved now; hidden once the fall ends
+        var d = drops.n++; drops.set[d] = bestSet; drops.i[d] = best; drops.t[d] = 0; drops.ax[d] = hash(best, 77) * 6.283;
+        return true;
+      },
+      setThinnedZones: function (map) {
+        var zid = world.zone; if (!zid) return;
+        var s, set, i, z, want, h, changed;
+        for (s = 0; s < 2; s++) {
+          set = s ? aspens : conifers; changed = false;
+          for (i = 0; i < set.n; i++) {
+            z = zid[set.cell[i]];
+            want = (z >= 0 && map && map[z] > 0 && hash(i, 123) < 0.4) ? 1 : 0;
+            if (want !== set.thinned[i]) { set.thinned[i] = want; changed = true; }
+            h = computeHidden(set, i);
+            if (h !== set.hidden[i]) { set.hidden[i] = h; changed = true; if (!s) writeInst(set, i); }
+          }
+          if (changed) { if (s) updateAspenMatrices(); else set.mesh.instanceMatrix.needsUpdate = true; }
+        }
+      },
+      clearCells: function (cells, frac) {
+        if (!cells || !cells.length) return 0;
+        frac = frac == null ? 1 : clamp(fin(frac, 1), 0, 1);
+        var s, set, k, c, j, n = 0, changed;
+        for (s = 0; s < 2; s++) {
+          set = cellIndex(s ? aspens : conifers); changed = false;
+          for (k = 0; k < cells.length; k++) {
+            c = cells[k] | 0; if (c < 0 || c >= NN) continue;
+            for (j = set.cellStart[c]; j < set.cellStart[c + 1]; j++) {
+              var ii = set.cellItems[j];
+              if (set.dropped[ii] || hash(ii, 321) >= frac) continue;
+              set.dropped[ii] = 1; n++;
+              if (!set.hidden[ii]) { set.hidden[ii] = 1; if (!s) writeInst(set, ii); changed = true; }
+            }
+          }
+          if (changed) { if (s) updateAspenMatrices(); else set.mesh.instanceMatrix.needsUpdate = true; }
+        }
+        return n;
+      },
+      setRoofStyle: function (zoneId, style, frac) {
+        var metal = style === 'metal' ? 1 : 0, list = [], i;
+        for (i = 0; i < houses.n; i++) if (houses.zone[i] === (zoneId | 0)) list.push(i);
+        if (!list.length) return 0;
+        var upto = frac == null ? list.length : Math.round(clamp(fin(frac, 1), 0, 1) * list.length);
+        var wa = houseWalls.instanceColor.array, ra = houseRoofs.instanceColor.array, changed = 0;
+        for (i = 0; i < list.length; i++) {
+          var hi = list[i], want = i < upto ? metal : houses.roof[hi];
+          if (want !== houses.roof[hi]) { houses.roof[hi] = want; writeHouseColor(hi, wa, ra); changed++; }
+        }
+        if (changed) { houseWalls.instanceColor.needsUpdate = true; houseRoofs.instanceColor.needsUpdate = true; }
+        return upto;
+      },
+      housesInZone: function (zoneId) {
+        var out = [], i;
+        for (i = 0; i < houses.n; i++) if (houses.zone[i] === (zoneId | 0)) out.push({ i: i, x: houses.x[i], y: houses.y[i], z: houses.z[i], rot: houses.rot[i], s: houses.s[i], cell: houses.cell[i], burned: !!houses.burned[i] });
+        return out;
+      },
+      setCropsCleared: function (cells) {
+        if (!cropMat0) return;
+        cropsCleared.fill(0);
+        var k, i, a = cropMesh.instanceMatrix.array;
+        if (cells) for (k = 0; k < cells.length; k++) { i = cells[k] | 0; if (i >= 0 && i < NN) cropsCleared[i] = 1; }
+        for (i = 0; i < crops.n; i++) {
+          if (cropsCleared[crops.cell[i]]) cropMesh.setMatrixAt(i, _zero);
+          else a.set(cropMat0.subarray(i * 16, i * 16 + 16), i * 16);
+        }
+        cropMesh.instanceMatrix.needsUpdate = true;
       },
 
       dispose: function () {

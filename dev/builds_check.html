@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Watershed — builds check</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #223; overflow: hidden; font: 13px/1.4 system-ui, sans-serif; color: #eee; }
+  #host { position: absolute; inset: 0; }
+  #panel { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.65); padding: 10px 12px; border-radius: 8px; max-width: 360px; max-height: calc(100% - 40px); overflow: auto; }
+  #panel button { margin: 2px 2px 2px 0; padding: 3px 7px; }
+  #panel select { max-width: 150px; }
+  .row { display: flex; align-items: center; gap: 4px; margin: 1px 0; }
+  .row b { min-width: 130px; font-weight: 500; }
+  #stats { white-space: pre; font-family: ui-monospace, monospace; font-size: 11px; margin-top: 6px; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 11px; max-height: 140px; overflow: auto; margin-top: 4px; color: #cfd; }
+  #err { color: #f88; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="host"></div>
+<div id="panel">
+  <div><b>Builds check</b> — drag: orbit · wheel: zoom · shift-drag: pan</div>
+  <div>
+    <button id="fundall">Fund everything + installed()</button>
+    <button id="clearall">Clear funded + installed()</button>
+    <button id="reinstall">installed() again</button>
+    <button id="reload">Reload</button>
+  </div>
+  <div><label><input type="checkbox" id="fundfirst" checked> fund in state before play (unchecked = play only → pending path)</label></div>
+  <div id="projects"></div>
+  <div id="stats"></div>
+  <div id="log"></div>
+  <div id="err"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/rng.js"></script>
+<script src="../src/world/terrain.js"></script>
+<script src="../src/sim/state.js"></script>
+<script src="../src/sim/projects.js"></script>
+<script src="../src/sim/advisors.js" onerror="window.__noAdvisors = true"></script>
+<script src="../src/render/props.js"></script>
+<script src="../src/render/effects.js"></script>
+<script src="../src/render/builds.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = WS.C, LAND = C.LAND, N = C.N, NN = N * N;
+  var errEl = document.getElementById('err'), logEl = document.getElementById('log');
+  window.addEventListener('error', function (e) { errEl.textContent += e.message + '\n'; });
+  window.addEventListener('unhandledrejection', function (e) { errEl.textContent += 'rejection: ' + (e.reason && e.reason.message || e.reason) + '\n'; });
+  function log(msg) { logEl.textContent = msg + '\n' + logEl.textContent.split('\n').slice(0, 14).join('\n'); }
+
+  var world = WS.World.generate(7);
+  var state = { season: 1, turn: 0, year: 0, budget: 500, projects: { funded: {}, pendingBurn: null }, flags: {},
+    climate: { soilMoisturePct: 45, windDirRad: 0.8, windMph: 8, streamflowCfs: 80 }, fire: { activeFire: null }, reservoir: { storageAF: 32000, capacityAF: 42000 } };
+  var rng = WS.RNG.create(3);
+
+  // ------------------------------------------------------------ scene
+  var host = document.getElementById('host');
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  host.appendChild(renderer.domElement);
+  var scene = new THREE.Scene(); scene.background = new THREE.Color(C.PALETTE.sky); scene.fog = new THREE.FogExp2(C.PALETTE.fog, 0.004);
+  var camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 600);
+  var sun = new THREE.DirectionalLight(C.PALETTE.sun, 1.1); sun.position.set(-60, 90, 40); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -90; sun.shadow.camera.right = sun.shadow.camera.top = 90; sun.shadow.camera.near = 1; sun.shadow.camera.far = 300; sun.shadow.bias = -0.0005;
+  scene.add(sun); scene.add(new THREE.HemisphereLight(C.PALETTE.sky, 0x6a5a48, 0.4)); scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+
+  var M = N + 1, corner = new Float32Array(M * M);
+  for (var cy = 0; cy < M; cy++) for (var cx = 0; cx < M; cx++) {
+    var sum = 0, cnt = 0;
+    for (var oy = -1; oy <= 0; oy++) for (var ox = -1; ox <= 0; ox++) { var xx = cx + ox, yy = cy + oy; if (xx >= 0 && yy >= 0 && xx < N && yy < N) { sum += world.elev[yy * N + xx]; cnt++; } }
+    corner[cy * M + cx] = C.elevToScene(sum / cnt);
+  }
+  function heightAt(sx, sz) {
+    var fx = C.clamp(sx + N / 2, 0, N - 1e-4), fz = C.clamp(sz + N / 2, 0, N - 1e-4), x0 = Math.floor(fx), z0 = Math.floor(fz), tx = fx - x0, tz = fz - z0;
+    var h00 = corner[z0 * M + x0], h10 = corner[z0 * M + x0 + 1], h01 = corner[(z0 + 1) * M + x0], h11 = corner[(z0 + 1) * M + x0 + 1];
+    return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz;
+  }
+  var LANDCOL = {}; LANDCOL[LAND.RIVER] = 0x2f4f6f; LANDCOL[LAND.RESERVOIR] = 0x25597f; LANDCOL[LAND.ALPINE] = C.PALETTE.alpine; LANDCOL[LAND.FOREST] = 0x4a6e3a; LANDCOL[LAND.SHRUB] = C.PALETTE.shrub;
+  LANDCOL[LAND.FARM] = C.PALETTE.farm; LANDCOL[LAND.RESIDENTIAL] = C.PALETTE.residential; LANDCOL[LAND.CIVIC] = C.PALETTE.civic; LANDCOL[LAND.WETLAND] = C.PALETTE.wetland; LANDCOL[LAND.ROAD] = C.PALETTE.road; LANDCOL[LAND.RIPARIAN] = C.PALETTE.riparian;
+  var tg = new THREE.PlaneGeometry(N, N, N, N); tg.rotateX(-Math.PI / 2);
+  var tpos = tg.attributes.position, tcol = new Float32Array(tpos.count * 3), tmp = new THREE.Color();
+  for (var v = 0; v < tpos.count; v++) {
+    var vx = tpos.getX(v), vz = tpos.getZ(v); tpos.setY(v, heightAt(vx, vz));
+    var cc = C.sceneToCell(Math.min(vx, N / 2 - 0.01), Math.min(vz, N / 2 - 0.01)), ci2 = C.clamp(cc.y, 0, N - 1) * N + C.clamp(cc.x, 0, N - 1);
+    tmp.setHex(LANDCOL[world.land[ci2]] || 0x888888); tcol[v * 3] = tmp.r; tcol[v * 3 + 1] = tmp.g; tcol[v * 3 + 2] = tmp.b;
+  }
+  tg.setAttribute('color', new THREE.BufferAttribute(tcol, 3)); tg.computeVertexNormals();
+  var terrain = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 })); terrain.receiveShadow = true; terrain.castShadow = true; scene.add(terrain);
+  var wl = C.elevToScene(world.reservoir.levelForStorage(state.reservoir.storageAF));
+  var water = new THREE.Mesh(new THREE.PlaneGeometry(24, 22), new THREE.MeshStandardMaterial({ color: C.PALETTE.water, transparent: true, opacity: 0.85, roughness: 0.3 }));
+  water.rotation.x = -Math.PI / 2; water.position.set(world.reservoir.center.x - N / 2 + 0.5, wl, world.reservoir.center.y - N / 2 + 0.5); scene.add(water);
+
+  // ------------------------------------------------------------ props / effects / builds
+  var t0 = performance.now();
+  var props = WS.Props.build(world, scene, { heightAt: heightAt, camera: camera, viewHeight: function () { return innerHeight; } });
+  props.setSeason(state.season); props.refresh(world, state);
+  var fx = WS.Effects.init(scene, world, { heightAt: heightAt, camera: camera, renderer: renderer });
+  var builds = WS.Builds.init(scene, world, { props: props, fx: fx, heightAt: heightAt, camera: camera });
+  builds.installed(state, world);
+  var buildMs = performance.now() - t0;
+  window.__props = props; window.__fx = fx; window.__builds = builds; window.__world = world; window.__state = state; window.__camera = camera;
+
+  // ------------------------------------------------------------ camera orbit
+  var target = new THREE.Vector3(C.toScene(78, 73, 0).x, heightAt(C.toScene(78, 73, 0).x, C.toScene(78, 73, 0).z), C.toScene(78, 73, 0).z), yaw = 0.6, pitch = 0.9, dist = 50;
+  var fly = null;
+  function placeCam() { camera.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * dist, target.y + Math.sin(pitch) * dist, target.z + Math.cos(yaw) * Math.cos(pitch) * dist); camera.lookAt(target); }
+  function flyTo(cx, cy, d) { var s = C.toScene(cx, cy, 0); fly = { from: target.clone(), to: new THREE.Vector3(s.x, heightAt(s.x, s.z), s.z), d0: dist, d1: d, t: 0 }; }
+  var drag = null;
+  renderer.domElement.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 }; });
+  window.addEventListener('pointerup', function () { drag = null; });
+  window.addEventListener('pointermove', function (e) {
+    if (!drag) return; var dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+    if (drag.pan) { var k = dist * 0.0015; target.x -= (Math.cos(yaw) * dx + Math.sin(yaw) * dy) * k; target.z -= (-Math.sin(yaw) * dx + Math.cos(yaw) * dy) * k; target.y = heightAt(target.x, target.z); fly = null; }
+    else { yaw -= dx * 0.006; pitch = C.clamp(pitch + dy * 0.006, 0.35, 1.4); }
+  });
+  renderer.domElement.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  renderer.domElement.addEventListener('wheel', function (e) { dist = C.clamp(dist * (1 + e.deltaY * 0.001), 6, 220); fly = null; e.preventDefault(); }, { passive: false });
+  window.addEventListener('resize', function () { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+  // ------------------------------------------------------------ project buttons
+  var projEl = document.getElementById('projects'), fundFirst = document.getElementById('fundfirst'), busy = false;
+  function zoneSelect(type) {
+    var sel = document.createElement('select');
+    world.zonesOf(type).forEach(function (z) { var o = document.createElement('option'); o.value = z.id; o.textContent = z.name; sel.appendChild(o); });
+    return sel;
+  }
+  function playProject(id, zoneId) {
+    if (busy) { log('busy'); return; }
+    var def = WS.Projects.LIST.filter(function (d) { return d.id === id; })[0];
+    if (fundFirst.checked) {
+      if (def.seasonsAllowed && def.seasonsAllowed.indexOf(state.season) < 0) state.season = def.seasonsAllowed[0];
+      state.budget = 500;
+      var r = WS.Projects.fund(state, world, id, zoneId, rng);
+      log((r.ok ? 'funded: ' : 'NOT funded: ') + r.text);
+      if (!r.ok) return;
+    }
+    var site = builds.siteFor(id, zoneId);
+    if (site) flyTo(site.x, site.y, site.dist);
+    busy = true;
+    var ts = performance.now();
+    setTimeout(function () {
+      builds.play(id, zoneId, state).then(function () {
+        busy = false;
+        var st = builds.stats();
+        log('play ' + id + (zoneId != null ? ' @zone ' + zoneId : '') + ' resolved in ' + ((performance.now() - ts) / 1000).toFixed(1) + ' s · builds draw calls ' + st.drawCalls + ' · items ' + st.items + ' · pending ' + st.pending);
+      });
+    }, 650);
+  }
+  WS.Projects.LIST.forEach(function (def) {
+    var row = document.createElement('div'); row.className = 'row';
+    var b = document.createElement('button'); b.textContent = '▶ ' + def.icon + ' ' + def.id; row.appendChild(b);
+    var sel = null;
+    if (def.targetType && def.targetType !== 'global') { sel = zoneSelect(def.targetType); row.appendChild(sel); }
+    b.addEventListener('click', function () { playProject(def.id, sel ? +sel.value : null); });
+    projEl.appendChild(row);
+  });
+  document.getElementById('fundall').addEventListener('click', function () {
+    var n = 0;
+    WS.Projects.LIST.forEach(function (def) {
+      if (def.id === 'prescribed_burn') return;
+      if (def.seasonsAllowed && def.seasonsAllowed.indexOf(state.season) < 0) state.season = def.seasonsAllowed[0];
+      var zones = (def.targetType && def.targetType !== 'global') ? world.zonesOf(def.targetType).map(function (z) { return z.id; }) : [null];
+      for (var lvl = 0; lvl < 6; lvl++) zones.forEach(function (z) { state.budget = 500; var r = WS.Projects.fund(state, world, def.id, z, rng); if (r.ok) n++; });
+    });
+    var ts = performance.now(); builds.installed(state, world);
+    log('funded ' + n + ' project levels; installed() took ' + (performance.now() - ts).toFixed(1) + ' ms; builds draw calls ' + builds.stats().drawCalls);
+  });
+  document.getElementById('clearall').addEventListener('click', function () { state.projects = { funded: {}, pendingBurn: null }; state.flags = {}; builds.installed(state, world); log('cleared; builds draw calls ' + builds.stats().drawCalls); });
+  document.getElementById('reinstall').addEventListener('click', function () { var ts = performance.now(); builds.installed(state, world); log('installed() ' + (performance.now() - ts).toFixed(1) + ' ms'); });
+  document.getElementById('reload').addEventListener('click', function () { location.reload(); });
+
+  // ------------------------------------------------------------ loop
+  var statsEl = document.getElementById('stats'), last = performance.now(), frames = 0, fpsT = 0, fps = 0, worst = 0;
+  function loop(now) {
+    var dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (fly) { fly.t = Math.min(1, fly.t + dt / 0.6); var u = fly.t * fly.t * (3 - 2 * fly.t); target.lerpVectors(fly.from, fly.to, u); dist = fly.d0 + (fly.d1 - fly.d0) * u; if (fly.t >= 1) fly = null; }
+    props.update(dt, state); fx.update(dt, camera); builds.update(dt);
+    placeCam(); renderer.render(scene, camera);
+    frames++; fpsT += dt; if (dt > worst) worst = dt;
+    if (fpsT > 0.5) {
+      fps = Math.round(frames / fpsT); frames = 0; fpsT = 0;
+      var bs = builds.stats(), fs = fx.stats();
+      statsEl.textContent = 'build ' + buildMs.toFixed(0) + ' ms   fps ' + fps + '   worst frame ' + (worst * 1000).toFixed(0) + ' ms\n' +
+        'draw calls (scene) ' + renderer.info.render.calls + '   tris ' + renderer.info.render.triangles + '\n' +
+        'builds: draw calls ' + bs.drawCalls + '  items ' + bs.items + '  scene ' + (bs.sceneActive ? 'RUNNING' : 'idle') + '  pending ' + bs.pending + '\n' +
+        'fx: smoke ' + fs.smoke + '  flames ' + fs.flames + '   funded: ' + Object.keys(state.projects.funded).map(function (k) { return k + ':' + state.projects.funded[k].level; }).join(' ');
+      worst = 0;
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.__tick = function (dt, n) { n = n || 1; for (var k = 0; k < n; k++) { props.update(dt || 0.016, state); fx.update(dt || 0.016, camera); builds.update(dt || 0.016); placeCam(); renderer.render(scene, camera); } return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, builds: builds.stats() }; };
+  window.__play = playProject; window.__flyTo = flyTo;
+})();
+</script>
+</body>
+</html>

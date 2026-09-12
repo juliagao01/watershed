@@ -345,11 +345,10 @@
           h('div', { class: 'wordmark' }, 'WATERSHED'),
           h('div', { class: 'tag' }, 'A Colorado water-resilience simulation')
         ]));
+        /* two short paragraphs only (player feedback: less text) */
         body.appendChild(h('div', { class: 'intro-narrative' }, [
-          h('p', {}, ['Colorado\'s most destructive fires revealed that ', h('b', {}, 'wildfire and water conservation are not separate challenges'), '. When the 2020 Cameron Peak and East Troublesome fires burned the forests above Front Range reservoirs, the next summer\'s storms sent ash, mud and debris straight into the water supply — years after the flames were out.']),
-          h('p', {}, ['You manage the Bitterbrush Creek watershed: a snow-fed tributary of the Colorado River, a reservoir, a mountain town, four farms, forests that have not burned in a century, and neighbours with senior water rights. Each season you will fund projects, allocate a shrinking supply, decide how to live with fire — and then watch what the watershed does with your choices.']),
-          h('p', { class: 'live-line' }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), h('b', {}, 'When a fire or flood hits, you fight it live.')]),
-          h('p', { class: 'small dim' }, 'No decision is free. The advisors disagree for good reasons. The score rewards resilience, not perfection.')
+          h('p', {}, ['You run the Bitterbrush Creek watershed: a snow-fed reservoir, a mountain town, four farms, a century of unburned forest and neighbours with senior water rights. ', h('b', {}, 'What burns above the reservoir ends up in the tap.')]),
+          h('p', { class: 'live-line' }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), h('b', {}, 'When a fire or flood hits, you fight it live.'), h('span', { class: 'small dim' }, ' No decision is free; the advisors in town disagree for good reasons.')])
         ]));
         var years = 6, mode = 'simulated', tutorial = true;
         var yearsOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Game length')].concat([4, 6, 8].map(function (y) {
@@ -381,8 +380,15 @@
       icon: card.icon || '⚡', eyebrow: 'Event · ' + seasonName(s.season) + ', Year ' + fin(s.year, 1), title: card.title || 'Something happens', critical: true, className: 'event',
       render: function (body, close) {
         body.appendChild(h('div', { class: 'severity-row' }, [h('span', { class: 'chip ' + sev }, sev === 'crisis' ? 'Crisis' : sev === 'warn' ? 'Warning' : 'Notice'), card.once ? h('span', { class: 'small dim' }, 'one-time event') : null]));
-        if (card.text) body.appendChild(h('p', { class: 'lead' }, String(card.text)));
-        if (card.source) body.appendChild(h('div', { class: 'source' }, [h('b', {}, 'Why this happens in Colorado'), String(card.source)]));
+        /* ≤ 2 sentences up front, the rest behind "more…"; the Colorado context line is collapsed by default */
+        if (card.text) { var lead = UI.disclosure(card.text, { sentences: 2, className: 'lead' }); if (lead) body.appendChild(lead); }
+        if (card.source) {
+          var src = String(card.source).replace(/^\s*why this happens in colorado\s*[:\-–—]\s*/i, '');
+          var srcBody = h('div', { class: 'source', id: 'event-source', hidden: true }, src);
+          var srcBtn = h('button', { class: 'ghost tiny source-toggle', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'event-source' }, 'Why this happens in Colorado ▾');
+          srcBtn.addEventListener('click', function () { var open = srcBody.hidden; srcBody.hidden = !open; srcBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); srcBtn.textContent = open ? 'Why this happens in Colorado ▴' : 'Why this happens in Colorado ▾'; });
+          body.appendChild(srcBtn); body.appendChild(srcBody);
+        }
         var choices = safeList(card.choices);
         if (!choices.length) choices = [{ label: 'Acknowledge', desc: '' }];
         var affordable = choices.map(function (ch) { return !(fin(ch.costM) > fin(s.budget) + fin(s.emergencyFund) + 1e-9); });
@@ -424,7 +430,7 @@
     return UI.modal({
       icon: '📊', eyebrow: 'Evidence board', title: opts.title || topicName, className: 'wide evidence',
       render: function (body) {
-        body.appendChild(h('p', { class: 'lead' }, opts.intro || 'Your advisors read the same numbers and reach different conclusions. Each has a legitimate priority; none has the whole picture.'));
+        body.appendChild(h('p', { class: 'lead' }, opts.intro || 'Same numbers, six conclusions. None of them has the whole picture.'));
         if (!recs.length) { body.appendChild(h('p', { class: 'muted' }, 'No advisor has weighed in on this yet.')); return; }
         var grid = h('div', { class: 'advisors' });
         recs.forEach(function (rec) {
@@ -436,7 +442,8 @@
               h('span', { class: 'chip ' + (rec.stance || 'support') }, STANCE_LABEL[rec.stance] || rec.stance || 'says')
             ]),
             rec.headline ? h('div', { class: 'headline' }, String(rec.headline)) : null,
-            rec.text ? h('div', { class: 'text' }, String(rec.text)) : null
+            /* headline + first sentence with the chart; the rest behind "more…" */
+            rec.text ? UI.disclosure(rec.text, { sentences: 1, className: 'text' }) : null
           ]);
           if (ev && (Array.isArray(ev.series) || isFinite(Number(ev.current)))) {
             var cur = isFinite(Number(ev.current)) ? Number(ev.current) : null;
@@ -490,8 +497,9 @@
         var tl = safeList(report.timeline);
         if (!tl.length) body.appendChild(h('p', { class: 'muted small' }, 'A quiet season. Nothing to explain — yet.'));
         else body.appendChild(h('ul', { class: 'timeline' }, tl.map(function (e) {
-          var text = typeof e === 'string' ? e : (e && e.text) || ''; var kind = (e && e.kind) || 'info';
-          return h('li', { class: kind }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, String(text))]);
+          var text = String(typeof e === 'string' ? e : (e && e.text) || ''); var kind = (e && e.kind) || 'info';
+          var brief = UI.short(text, 22);   /* ≤ 22 words each; the full sentence lives in the Log & timeline modal */
+          return h('li', { class: kind, 'data-tip': brief !== text ? text : null }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, brief)]);
         })));
 
         /* outcomes */
@@ -575,9 +583,11 @@
         if (reasons.length) { right.appendChild(h('h3', {}, 'Why the outcomes moved')); right.appendChild(h('ul', { class: 'small muted' }, reasons.slice(0, 8).map(function (r) { return h('li', {}, [String(r.text || ''), ' ', r.delta != null ? deltaNode(r.delta, 1) : null]); }))); }
         cols.appendChild(right);
         details.appendChild(cols);
-        var detBtn = h('button', { class: 'ghost tiny', type: 'button', id: 'report-details-btn', 'aria-expanded': 'false', 'aria-controls': 'report-details', style: { marginTop: '10px' } }, 'Details ▾ (deliveries, fire & flood, outcome reasons)');
-        detBtn.addEventListener('click', function () { var open = details.hidden; details.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Hide details ▴' : 'Details ▾ (deliveries, fire & flood, outcome reasons)'; });
-        body.appendChild(detBtn);
+        var detBtn = h('button', { class: 'ghost tiny', type: 'button', id: 'report-details-btn', 'aria-expanded': 'false', 'aria-controls': 'report-details' }, 'Details ▾');
+        detBtn.addEventListener('click', function () { var open = details.hidden; details.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Hide details ▴' : 'Details ▾'; });
+        var logBtn = h('button', { class: 'ghost tiny', type: 'button', 'data-tip': 'Full cause-and-effect timeline and log' }, 'Full timeline ↗');
+        logBtn.addEventListener('click', function () { if (UI.showLog) UI.showLog(); });
+        body.appendChild(h('div', { class: 'row', style: { marginTop: '10px' } }, [detBtn, logBtn]));
         body.appendChild(details);
 
         /* case studies */
@@ -729,33 +739,48 @@
     return UI.modal({
       icon: '❔', eyebrow: 'Help', title: 'How to play Watershed', className: 'wide help',
       render: function (body) {
+        /* bullets only (player feedback: less text) */
         var grid = h('div', { class: 'help-grid' });
         grid.appendChild(h('div', {}, [
           h('h3', {}, 'A season, in order'),
           h('ul', {}, [
-            h('li', {}, [h('b', {}, 'Conditions'), ' — read the snowpack, storage, fire danger and drought on the left. Uncertain readings show ranges until you fund streamgages.']),
-            h('li', {}, [h('b', {}, 'Events'), ' — cards may interrupt with a choice. Some consequences arrive turns later.']),
-            h('li', {}, [h('b', {}, 'Plan'), ' — fund projects, allocate water and set fire policy on the right. Open the Evidence Board to hear advisors argue with data.']),
-            h('li', {}, [h('b', {}, 'End Season'), ' — the watershed runs: deliveries, maybe a fire, maybe a storm over a burn scar, then a report explaining cause and effect.']),
-            h('li', {}, [h('b', {}, 'Crisis'), ' — when a fire ignites or a storm hits the scar, you fight it live: cut dozer lines, call air tankers, station engines, evacuate, sandbag, pump, open the spillway. An after-action card shows what your response changed.'])
+            h('li', {}, [h('b', {}, 'Conditions'), ' — snowpack, storage, fire danger, drought (left). Ranges shrink once you fund streamgages.']),
+            h('li', {}, [h('b', {}, 'Events'), ' — a card may interrupt with a choice; some consequences arrive later.']),
+            h('li', {}, [h('b', {}, 'Plan'), ' — fund projects, allocate water, set fire policy (right). Click an advisor in town for their take.']),
+            h('li', {}, [h('b', {}, 'End Season'), ' — deliveries, maybe a fire, maybe a storm on a burn scar, then a short report.']),
+            h('li', {}, [h('b', {}, 'Crisis'), ' — fight fires and floods live: lines, tankers, engines, evacuations, sandbags, pumps, spillway.'])
           ]),
           h('h3', {}, 'Controls'),
           h('ul', {}, [
             h('li', {}, [h('kbd', {}, 'Drag'), ' pan · ', h('kbd', {}, 'Right-drag'), ' / ', h('kbd', {}, 'Ctrl-drag'), ' orbit · ', h('kbd', {}, 'Wheel'), ' zoom']),
             h('li', {}, [h('kbd', {}, 'W A S D'), ' / arrows pan · ', h('kbd', {}, 'Q'), ' ', h('kbd', {}, 'E'), ' rotate']),
             h('li', {}, [h('kbd', {}, 'Space'), ' end season · ', h('kbd', {}, '1'), '–', h('kbd', {}, '4'), ' speed · ', h('kbd', {}, 'V'), ' overlay · ', h('kbd', {}, 'Esc'), ' close']),
-            h('li', {}, [h('b', {}, 'During a fire or storm: '), h('kbd', {}, '1'), '–', h('kbd', {}, '5'), ' pick a tool · ', h('kbd', {}, 'Drag'), ' paints lines / sandbags · ', h('kbd', {}, 'Space'), ' pause · ', h('kbd', {}, 'Esc'), ' deselect'])
+            h('li', {}, [h('b', {}, 'Crisis: '), h('kbd', {}, '1'), '–', h('kbd', {}, '5'), ' tool · ', h('kbd', {}, 'Drag'), ' paint · ', h('kbd', {}, 'Space'), ' pause · ', h('kbd', {}, 'Esc'), ' deselect'])
           ])
         ]));
         grid.appendChild(h('div', {}, [
           h('h3', {}, 'Scoring'),
-          h('p', { class: 'small' }, 'Five outcomes, 0–100, each moving 45% of the way toward a target computed from the state of the watershed every season (momentum — bad years linger). Trust moves only through your decisions.'),
           h('div', { class: 'formula' }, 'Resilience = ' + OUT_KEYS.map(function (k) { return Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%·' + k; }).join(' + ')),
-          h('ul', { class: 'small', style: { marginTop: '8px' } }, OUT_KEYS.map(function (k) { return h('li', {}, [h('b', {}, (OUT_NAMES[k] || k) + '. '), (UI.OUTCOME_TIPS[k] || '').replace(/^[^—]+—\s*/, '')]); })),
+          h('ul', { class: 'small', style: { marginTop: '8px' } }, [
+            h('li', {}, 'Five outcomes, 0–100, each drifting 45% of the way toward a target each season — bad years linger.'),
+            h('li', {}, 'Trust moves only through your decisions.')
+          ].concat(OUT_KEYS.map(function (k) { return h('li', {}, [h('b', {}, (OUT_NAMES[k] || k) + '. '), UI.short((UI.OUTCOME_TIPS[k] || '').replace(/^[^—]+—\s*/, ''), 14)]); }))),
+          h('h3', {}, 'Where the numbers come from'),
+          h('ul', { class: 'small' }, ((C.SOURCES && C.SOURCES.length) ? C.SOURCES : [{ label: 'Sources', value: '', note: 'Calibrated to typical Colorado Front Range / West Slope figures.' }]).map(function (r) {
+            return h('li', {}, [h('b', {}, String(r.label || '') + (r.value ? ' · ' + r.value : '') + '. '), String(r.note || '')]);
+          })),
           h('h3', {}, 'Water law, briefly'),
-          h('p', { class: 'small' }, 'Colorado runs on prior appropriation: "first in time, first in right". The tribal reserved right and the Colorado River Compact delivery are senior — the sim delivers them even if you cut them, and your trust suffers. Hydro, recreation and wildlife releases are non-consumptive: the water keeps flowing downstream.'),
+          h('ul', { class: 'small' }, [
+            h('li', {}, 'Prior appropriation: first in time, first in right.'),
+            h('li', {}, 'The tribal right and the Colorado River delivery are senior — delivered even if you cut them, at a cost to trust.'),
+            h('li', {}, 'Hydro, recreation and wildlife releases are non-consumptive: the water keeps flowing.')
+          ]),
           h('h3', {}, 'The fire–water link'),
-          h('p', { class: 'small' }, 'Burned soils shed water instead of absorbing it. A modest storm over a fresh burn scar can produce ten to thirty times the runoff of an unburned slope, carrying ash and sediment into reservoirs and treatment intakes. Thinning, prescribed fire, wetlands, mulch and debris basins all change that math.')
+          h('ul', { class: 'small' }, [
+            h('li', {}, 'Burned soil sheds water: a modest storm on a fresh scar can run 10–30× the normal flow.'),
+            h('li', {}, 'Ash and sediment reach the reservoir and the treatment intake.'),
+            h('li', {}, 'Thinning, prescribed fire, wetlands, mulch and debris basins change that math.')
+          ])
         ]));
         body.appendChild(grid);
       },

@@ -559,7 +559,7 @@ if (fs.existsSync(terrainPath)) {
     const s2 = makeState({ climate: wuiClimate(), fire: Object.assign(makeState().fire, { policy: 'suppress_all' }) });
     const sim2 = F.maybeIgnite(s2, w, WS.RNG.create('t:sa'), { cell: startCell }); F.startTactics(sim2, s2, w);
     assert(Math.abs(sim2.tactics.regenPerStep - 0.45) < 1e-9, 'suppress_all policy: regen 0.45');
-    assert(sim.maxSteps >= 45 && sim.maxSteps <= 70, 'v2 maxSteps 45..70 (' + sim.maxSteps + ')');
+    assert(sim.maxSteps >= 55 && sim.maxSteps <= 90, 'v2 tactical maxSteps 55..90 (' + sim.maxSteps + ')');
     const plain = F.maybeIgnite(makeState({ climate: wuiClimate() }), cloneWorld(base), WS.RNG.create('t:plain'), { cell: startCell });
     assert(!plain.tactics && F.step(plain, makeState(), cloneWorld(base), WS.RNG.create('x')).newlyBurning !== undefined, 'v1 flow without startTactics still steps');
   }

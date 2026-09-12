@@ -19,6 +19,12 @@
   var DIAG_FACTOR = 0.72;          // diagonal neighbours are farther away
   var STATION_RADIUS = 10;         // cells
   var BURN_STEPS_MIN = 2, BURN_STEPS_MAX = 3;
+  // Tactical (player-fought) fires run at ~0.8 s/step: each cell burns 4-6 steps so the front is wide and glowing,
+  // and per-step spread / suppression are scaled by TAC_RATE so the fire's total growth per cell-lifetime stays
+  // the same as v1 (2-3 step cells). maxSteps 55..90 instead of 45..70; a fire that would die before
+  // SMOULDER_UNTIL steps keeps a few cells smouldering (low spread, no suppression) so the player has time to act.
+  var TAC_BURN_MIN = 4, TAC_BURN_MAX = 6, TAC_RATE = 0.62, TAC_STEPS_MIN = 55, TAC_STEPS_SPAN = 35;
+  var SMOULDER_UNTIL = 18, SMOULDER_CELLS = 3, SMOULDER_SPREAD = 0.35;
   var CAP_FRACTION = 0.45;         // single fire <= 45% of forest(+shrub) cells
   var IGNITION_MULT = 1.35;        // v2: fires happen more often
   var IGNITION_CAP = 0.68;         // keeps Extreme summers below a near-certainty
@@ -171,6 +177,7 @@
   }
 
   function zoneOf(world, i) { return (world.zone && world.zone[i] != null) ? world.zone[i] : -1; }
+  function hasKeys(o) { if (!o) return false; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) return true; return false; }
   function zoneById(world, id) {
     if (!world || id == null || id < 0) return null;
     if (typeof world.zoneById === 'function') { try { var z = world.zoneById(id); if (z) return z; } catch (e) { /* fall through */ } }
@@ -309,7 +316,7 @@
       burning: new Set(), burnedSet: new Set(),
       burnState: new Uint8Array(NN), burnAge: new Uint8Array(NN), burnTime: new Uint8Array(NN), severity: new Float32Array(NN),
       cellsBurned: [], zonesTouched: new Set(),
-      stepCount: 0, maxSteps: (opts.maxSteps != null) ? (opts.maxSteps | 0) : 45 + Math.round(25 * d), // v2: 45..70 (v1 tests cap at 70)
+      stepCount: 0, maxSteps: (opts.maxSteps != null) ? (opts.maxSteps | 0) : 45 + Math.round(25 * d), // v2: 45..70 (v1 tests cap at 70); startTactics raises this to 55..90
       windDir: fin(opts.windDir, fin(cl.windDirRad, 0.8)), windSpeed: (opts.windSpeed != null) ? fin(opts.windSpeed, 8) : clamp(fin(cl.windMph, 8), 0, 80),
       danger: d, dangerLabel: dangerLabel(d),
       capCells: (opts.capCells != null) ? (opts.capCells | 0) : Math.max(50, Math.round(CAP_FRACTION * burnable)),
@@ -318,7 +325,7 @@
       // gusts + growth history (for threat())
       gustOff: 0, gustSpd: 1, nextGust: 0, gustDir: 0, gustMph: 0,
       hist: [], bx0: N, by0: N, bx1: -1, by1: -1, sumX: 0, sumY: 0,
-      tactics: null
+      tactics: null, tacticalMode: !!opts.tacticalMode
     };
     fs.gustDir = fs.windDir; fs.gustMph = fs.windSpeed;
     fs.nextGust = GUST_MIN + Math.floor(u01(seed, 0, 0, 12) * (GUST_MAX - GUST_MIN + 1));
@@ -347,7 +354,7 @@
   function igniteCell(fs, world, i, d) {
     if (fs.burnState[i] !== 0) return false;
     fs.burnState[i] = 1; fs.burnAge[i] = 0;
-    fs.burnTime[i] = (effFuel(world, i) > 0.6 || u01(fs.seed, 0, i, 10) < 0.4) ? BURN_STEPS_MAX : BURN_STEPS_MIN;
+    fs.burnTime[i] = burnTimeFor(fs, world, i);
     fs.severity[i] = severityFor(world, i, d);
     fs.burning.add(i); fs.cellsBurned.push(i);
     var z = zoneOf(world, i); if (z >= 0) fs.zonesTouched.add(z);
@@ -357,6 +364,12 @@
     return true;
   }
   function burnOut(fs, i) { fs.burnState[i] = 2; fs.burning.delete(i); fs.burnedSet.add(i); }
+  // Steps a cell burns: 2-3 in v1 (watch-only) fires, 4-6 in tactical ones. Deterministic in (seed, cell) so the replay matches.
+  function burnTimeFor(fs, world, i) {
+    var heavy = effFuel(world, i) > 0.6, u = u01(fs.seed, 0, i, 10);
+    if (!fs.tacticalMode) return (heavy || u < 0.4) ? BURN_STEPS_MAX : BURN_STEPS_MIN;
+    return TAC_BURN_MIN + (heavy ? 1 : 0) + ((u < 0.4) ? 1 : 0); // 4, 5 or 6
+  }
 
   function maybeIgnite(state, world, rng, forced) {
     if (!world || !rng) return null;
@@ -390,7 +403,13 @@
   /* ---------- tactics ---------- */
   function startTactics(fs, state, world) {
     if (!fs) return null;
+    var wasTactical = !!fs.tacticalMode;
     fs.tacticalMode = true; // player-fought fire: automatic station suppression is reduced (see step); the replay inherits this flag
+    if (!wasTactical) {
+      // longer, slower-paced fire: cells already alight get tactical burn times and the step budget grows to 55..90
+      fs.burning.forEach(function (i) { fs.burnTime[i] = burnTimeFor(fs, world, i); });
+      if (fs.stepCount === 0) fs.maxSteps = TAC_STEPS_MIN + Math.round(TAC_STEPS_SPAN * clamp(fin(fs.danger, 0.5), 0, 1));
+    }
     var nSt = 0;
     if (world) { try { nSt = ensureMaps(world).nStations; } catch (e) { nSt = 0; } }
     var suppressAll = !!(state && state.fire && state.fire.policy === 'suppress_all');
@@ -575,6 +594,9 @@
     var elev = world.elev, land = world.land, moisture = world.moisture;
     var small = fs.cellsBurned.length < 40;
     var capReached = fs.cellsBurned.length >= fs.capCells;
+    var tactical = !!fs.tacticalMode;
+    // hot-loop shortcuts: the 8-neighbour zone scans only matter when such a zone exists
+    var anyFB = hasKeys(eff.fuelBreakZones), anyHard = hasKeys(eff.hardenedZones), anyThin = hasKeys(eff.thinnedZones);
 
     var cells = Array.from(fs.burning);
     for (var c = 0; c < cells.length; c++) {
@@ -587,7 +609,7 @@
       // suppression is off while initial attack is en route (first 6 steps) and weak afterwards, so every fire is a fight.
       if (fs.tacticalMode) s *= (stepNo < 6) ? 0 : 0.35;
       var zi = zoneOf(world, i);
-      if ((zi >= 0 && eff.hardenedZones[zi]) || nearZoneFlag(world, i, eff.fuelBreakZones)) s = Math.max(s, 0.35);
+      if ((anyHard && zi >= 0 && eff.hardenedZones[zi]) || (anyFB && nearZoneFlag(world, i, eff.fuelBreakZones))) s = Math.max(s, 0.35);
       s += 0.05 * (1 - d) * (suppressAll ? 1.5 : 1);
       if (small) s += 0.08 * (1 - d);
       if (focus) {
@@ -596,15 +618,20 @@
       }
       // extreme fire weather overwhelms initial attack (crews pull back in 40 mph wind)
       s *= (1 - 0.5 * d) * (1 - 0.35 * ws);
+      if (tactical) s *= TAC_RATE; // cells burn ~2x longer, so per-step extinguish chance halves
       s = clamp(s * strength, 0, 0.9);
-      if (s > 0 && u01(seed, stepNo, i, 8) < s) {
+      // minimum spectacle: in a tactical fire the last few cells smoulder (no suppression, low spread) until step 18
+      var smoulder = tactical && !capReached && stepNo < SMOULDER_UNTIL && fs.burning.size <= SMOULDER_CELLS;
+      if (!smoulder && s > 0 && u01(seed, stepNo, i, 8) < s) {
         fs.severity[i] *= 0.5; burnOut(fs, i); fs.extinguishedCount++; out.extinguished.push(i);
         continue;
       }
       // --- burn-out ---
       fs.burnAge[i]++;
-      if (fs.burnAge[i] > fs.burnTime[i]) { burnOut(fs, i); continue; }
+      var spent = fs.burnAge[i] > fs.burnTime[i];
+      if (spent) { if (!smoulder) { burnOut(fs, i); continue; } fs.burnAge[i] = fs.burnTime[i] + 1; }
       if (capReached) continue;
+      var pMul = spent ? SMOULDER_SPREAD * TAC_RATE : (tactical ? TAC_RATE : 1);
       // --- spread to 8 neighbours ---
       var x = i % N, y = (i / N) | 0;
       for (k = 0; k < 8; k++) {
@@ -621,14 +648,14 @@
         var lv = land ? land[j] : L.FOREST;
         var lf = LAND_FACTOR[lv] || 0; if (lf <= 0) continue;
         var zj = zoneOf(world, j);
-        if (lv === L.RESIDENTIAL && zj >= 0 && eff.hardenedZones[zj]) lf = 0.2;
+        if (anyHard && lv === L.RESIDENTIAL && zj >= 0 && eff.hardenedZones[zj]) lf = 0.2;
         var f = effFuel(world, j); if (f <= 0.02) continue;
         var m = moisture ? clamp(fin(moisture[j], 0.5), 0, 1) : 0.5;
-        var thin = (zj >= 0 && eff.thinnedZones[zj]) ? clamp(fin(+eff.thinnedZones[zj], 0), 0, 1) : 0;
-        var fb = nearZoneFlag(world, j, eff.fuelBreakZones) ? 0.45 : 1;
+        var thin = (anyThin && zj >= 0 && eff.thinnedZones[zj]) ? clamp(fin(+eff.thinnedZones[zj], 0), 0, 1) : 0;
+        var fb = (anyFB && nearZoneFlag(world, j, eff.fuelBreakZones)) ? 0.45 : 1;
         var grade = elev ? (fin(elev[j], 0) - fin(elev[i], 0)) / C.CELL_M : 0;
         var sf = clamp(1 + 1.2 * grade, 0.6, 1.9);
-        var p = BASE_SPREAD * f * Math.pow(1 - m, 1.5) * wf[k] * sf * dangerFactor * (1 - thin * 0.6) * lf * fb * (DIAG[k] ? DIAG_FACTOR : 1) * cross;
+        var p = BASE_SPREAD * f * Math.pow(1 - m, 1.5) * wf[k] * sf * dangerFactor * (1 - thin * 0.6) * lf * fb * (DIAG[k] ? DIAG_FACTOR : 1) * cross * pMul;
         if (T) {
           if (T.wet[j] > 0) p *= (1 - WET_BLOCK * T.wet[j]);
           if (zj >= 0 && T.engines[zj]) p *= ENGINE_SPREAD;
@@ -795,9 +822,8 @@
     if (fs._counterfactual && fs._counterfactual.seed === fs.seed) return fs._counterfactual.result;
     var sim = createSim(state, world, null, fs.startCell, {
       seed: fs.seed, id: fs.id + ':replay', danger: fs.danger, windDir: fs.windDir, windSpeed: fs.windSpeed,
-      maxSteps: fs.maxSteps, capCells: fs.capCells, prescribedEscape: fs.prescribedEscape, forced: fs.forced
+      maxSteps: fs.maxSteps, capCells: fs.capCells, prescribedEscape: fs.prescribedEscape, forced: fs.forced, tacticalMode: !!fs.tacticalMode
     });
-    sim.tacticalMode = !!fs.tacticalMode;
     var guard = 0;
     while (!sim.done && guard++ < 500) step(sim, state, world, null);
     var sum = summarize(sim, state, world);

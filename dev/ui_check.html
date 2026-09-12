@@ -275,6 +275,27 @@
     var steps = [['These are your five outcomes. Hover any bar to see what feeds it.', '#hud-outcomes'], ['Conditions: this season\'s measurements. Ranges mean the readings are uncertain.', '#panel-left'], ['Actions: fund projects, allocate water, manage fire.', '#panel-right'], ['When you are ready, end the season and watch the watershed respond.', '#primary-btn']];
     (function next(i) { if (i >= steps.length) { say('tutorial done'); return; } WS.UI.tutorialStep(steps[i][0], steps[i][1]).then(function (go) { if (go) next(i + 1); else say('tutorial skipped'); }); })(0);
   });
+  /* ---- v3: advisor speech bubbles (what main.js shows when a 3D avatar is clicked) ---- */
+  var bub = { timer: null, t: 0, i: 0 };
+  function stopBubbleOrbit() { if (bub.timer) { clearInterval(bub.timer); bub.timer = null; } }
+  function showAdvisorBubble(i) {
+    var ch = WS.Advisors.CHARACTERS[i % WS.Advisors.CHARACTERS.length], rec = game.getAdvisors('budget').filter(function (r) { return r.characterId === ch.id; })[0];
+    var text = rec ? (rec.headline.replace(/[.!?]?$/, '.') + ' ' + WS.UI.firstSentence(rec.text)) : 'Nothing to add right now — ask me again next season.';
+    WS.UI.showBubble({ id: ch.id, name: ch.name, role: ch.role, color: ch.color, avatarEmoji: ch.avatarEmoji, text: text,
+      actions: [{ label: 'Full advice', onClick: function () { WS.UI.hideBubble(); game.openEvidence('budget'); } }, { label: 'Ask again', onClick: function () { bub.i++; showAdvisorBubble(bub.i); } }],
+      onClose: function (why) { say('bubble closed (' + why + ')'); if (why !== 'replaced') stopBubbleOrbit(); } });
+  }
+  btn('Bubble', function () { stopBubbleOrbit(); showAdvisorBubble(bub.i); WS.UI.moveBubble(window.innerWidth * 0.5, window.innerHeight * 0.55, true); });
+  btn('Bubble: orbit', function () {
+    stopBubbleOrbit(); showAdvisorBubble(bub.i);
+    bub.timer = setInterval(function () {
+      bub.t += 0.02; var cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      var x = cx + Math.cos(bub.t) * cx * 0.9, y = cy + Math.sin(bub.t * 1.3) * cy * 0.9;   /* runs to the edges: exercises clamping + tail + flip */
+      WS.UI.moveBubble(x, y, Math.sin(bub.t * 0.5) > -0.85);                                  /* briefly "behind the camera" → hidden */
+    }, 16);
+  });
+  btn('Bubble: hide', function () { stopBubbleOrbit(); WS.UI.hideBubble(); });
+  btn('Hint', function () { WS.UI.setAdvisorHint(WS.UI.els.advisorHint.hidden ? 'Click an advisor in town to hear their take' : null); });
   btn('Uncertainty ±5%', function () { state.climate.uncertainty = 0.05; WS.UI.refresh(); });
   btn('Empty history', function () { state.history = []; state.log = []; WS.UI.refresh(); });
   btn('Queue 3 modals', function () { WS.UI.showHelp(); WS.UI.showCases(); WS.UI.showCaseStudy(WS.CaseStudies.LIST[2]); });

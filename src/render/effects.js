@@ -1,6 +1,7 @@
 /* Watershed — effects: fire (flames/embers/smoke/glow, intensity 0..1), weather (rain/snow/storm clouds/lightning/fog),
    flood debris particles + flooded-cell water sheets, retardant drop (tanker + spray), data overlays + flow network,
-   cell highlights, mitigation/tactical markers, placement cursor.
+   cell highlights, mitigation/tactical markers, placement cursor, build-scene puffs (fx.dustPuff(x, y, n) brown dust,
+   fx.sparkle(x, y, n) golden sparks — both pooled with the smoke sprites).
    Browser only (needs THREE r128). Exports WS.Effects.init(scene, world, opts) -> fx. */
 (function () {
   'use strict';
@@ -215,6 +216,7 @@
     // =====================================================================
     var fireCol = colObj(PAL.fire), emberCol = colObj(PAL.ember), emberRed = colObj(0xff4a1a);
     var smokeDark = colObj(0x3a3634), smokeLight = colObj(0x9a9a9a), wispCol = colObj(0xb0aca8), smokeBlack = colObj(0x161412);
+    var dustCol = colObj(0xa88f68), sparkCol = colObj(0xfff0b0); // build-scene puffs share the smoke pool (kind 3 = dust, 4 = sparkle)
     var flames = makeSystem(FLAME_CAP, texFlame, THREE.AdditiveBlending, true, false, 'flames');
     var embers = makeSystem(EMBER_CAP, texEmber, THREE.AdditiveBlending, false, false, 'embers'); var emberX = makeExtra(EMBER_CAP);
     var smoke = makeSystem(SMOKE_CAP, texSoft, THREE.NormalBlending, false, true, 'smoke'); var smokeX = makeExtra(SMOKE_CAP);
@@ -293,6 +295,27 @@
       setColor(smoke, n, smokeDark.r, smokeDark.g, smokeDark.b);
       smoke.n = n + 1;
     }
+    /** brown dust puff (kind 3) or golden sparkle (kind 4) at scene point — pooled with the smoke sprites */
+    function spawnPuff(px, py, pz, kind) {
+      var n = smoke.n; if (n >= SMOKE_CAP) return;
+      var o = n * 3, spark = kind === 4;
+      smoke.pos[o] = px + rnd(-0.35, 0.35); smoke.pos[o + 1] = py + rnd(0.05, 0.3); smoke.pos[o + 2] = pz + rnd(-0.35, 0.35);
+      smokeX.vel[o] = rnd(-0.6, 0.6); smokeX.vel[o + 1] = spark ? rnd(1.2, 2.4) : rnd(0.5, 1.1); smokeX.vel[o + 2] = rnd(-0.6, 0.6);
+      smokeX.age[n] = 0; smokeX.life[n] = spark ? rnd(0.5, 0.9) : rnd(0.8, 1.5); smokeX.size0[n] = spark ? rnd(0.12, 0.2) : rnd(0.28, 0.5); smokeX.kind[n] = kind;
+      smoke.size[n] = smokeX.size0[n]; smoke.alpha[n] = 0; smoke.phase[n] = rnd(0, TAU);
+      if (spark) setColor(smoke, n, sparkCol.r, sparkCol.g, sparkCol.b); else setColor(smoke, n, dustCol.r, dustCol.g, dustCol.b);
+      smoke.n = n + 1;
+    }
+    function dustPuff(x, y, n) {
+      x = fin(x, 0) | 0; y = fin(y, 0) | 0; n = Math.max(1, Math.min(40, fin(n, 6) | 0));
+      var px = sceneX(x), pz = sceneZ(y), py = cellH(x, y);
+      for (var k = 0; k < n; k++) spawnPuff(px, py, pz, 3);
+    }
+    function sparkle(x, y, n) {
+      x = fin(x, 0) | 0; y = fin(y, 0) | 0; n = Math.max(1, Math.min(40, fin(n, 8) | 0));
+      var px = sceneX(x), pz = sceneZ(y), py = cellH(x, y) + 0.3;
+      for (var k = 0; k < n; k++) spawnPuff(px, py, pz, 4);
+    }
     function setFireIntensity(level) { fire.level = clamp01(fin(level, 0)); fogDirty = true; }
     function updateFire(dt) {
       var target = fire.n > 0 ? 1 : 0;
@@ -351,13 +374,20 @@
       var dR = smokeDark.r + (smokeBlack.r - smokeDark.r) * dk, dG = smokeDark.g + (smokeBlack.g - smokeDark.g) * dk, dB = smokeDark.b + (smokeBlack.b - smokeDark.b) * dk;
       i = 0;
       while (i < smoke.n) {
-        smokeX.age[i] += dt * ageMul; t = smokeX.age[i] / smokeX.life[i];
+        var kind = smokeX.kind[i], wisp = kind === 1, puff = kind >= 3;
+        smokeX.age[i] += dt * (puff ? 1 : ageMul); t = smokeX.age[i] / smokeX.life[i];
         if (t >= 1) { swapParticle(smoke, smokeX, i, smoke.n - 1); smoke.n--; continue; }
         o = i * 3;
+        if (puff) { // build-scene dust (3) / sparkle (4): short-lived, gravity-settled, no wind coupling, colour fixed at spawn
+          smokeX.vel[o + 1] -= (kind === 4 ? 3.0 : 1.0) * dt;
+          smoke.pos[o] += smokeX.vel[o] * dt; smoke.pos[o + 1] += smokeX.vel[o + 1] * dt; smoke.pos[o + 2] += smokeX.vel[o + 2] * dt;
+          if (kind === 4) { smoke.size[i] = smokeX.size0[i] * (1 - 0.5 * t); smoke.alpha[i] = (1 - t) * 0.95; }
+          else { smoke.size[i] = smokeX.size0[i] + t * 0.9; smoke.alpha[i] = (t < 0.1 ? t / 0.1 : 1) * (1 - t) * 0.55; }
+          i++; continue;
+        }
         smokeX.vel[o] += (wind.x * wsm - smokeX.vel[o]) * dt * 0.5; smokeX.vel[o + 2] += (wind.z * wsm - smokeX.vel[o + 2]) * dt * 0.5;
         smoke.pos[o] += (smokeX.vel[o] + Math.sin(time * 0.7 + smoke.phase[i]) * 0.15) * dt;
         smoke.pos[o + 1] += smokeX.vel[o + 1] * dt; smoke.pos[o + 2] += smokeX.vel[o + 2] * dt;
-        var kind = smokeX.kind[i], wisp = kind === 1;
         smoke.size[i] = smokeX.size0[i] + t * (wisp ? 1.6 : 2.8 + 1.2 * lvl);
         var a = (t < 0.15 ? t / 0.15 : 1) * Math.pow(1 - t, 1.3) * (wisp ? 0.14 : (kind === 2 ? 0.44 : 0.34 + 0.1 * lvl));
         smoke.alpha[i] = a;
@@ -1287,6 +1317,7 @@
 
     var fx = {
       update: update, setFire: setFire, setFireIntensity: setFireIntensity, setWind: setWind, setWeather: setWeather, onFogChange: onFogChange,
+      dustPuff: dustPuff, sparkle: sparkle,
       showDebris: showDebris, clearDebris: clearDebris, setFlooded: setFlooded, playRetardantDrop: playRetardantDrop,
       setOverlay: setOverlay, setHighlight: setHighlight,
       addMarker: addMarker, removeMarker: removeMarker, clearMarkers: clearMarkers, setPlacementCursor: setPlacementCursor, dispose: dispose,

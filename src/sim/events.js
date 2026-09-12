@@ -195,7 +195,7 @@
   var CARDS = [
     {
       id: 'low_snowpack', title: 'Thin Snowpack', icon: '🏔️', severity: 'warn',
-      text: 'The SNOTEL sites on the divide report snow water equivalent far below the median for this date, and the bare south faces above the creek are already brown. Ranchers are eyeing their ditch schedules and the ski hill closed early. Runoff forecasts for the basin have been cut sharply.',
+      text: 'SNOTEL sites on the divide report snow water equivalent far below the median for this date, and the south faces above the creek are already brown. Ranchers are eyeing their ditch schedules, the ski hill closed early, and runoff forecasts have been cut sharply.',
       source: 'Why this happens in Colorado: about 80% of the state\'s water supply starts as mountain snow, and the April 1 snowpack reading sets the year\'s runoff forecast.',
       when: function (state) { var s = season(state); return (s === S.WINTER || s === S.SPRING) && num(climate(state).snowpackPct, 100) < 80; },
       weight: function (state) { return 1.5 + (80 - num(climate(state).snowpackPct, 100)) / 20; }, once: false,
@@ -216,7 +216,7 @@
     },
     {
       id: 'heat_wave', title: 'Heat Dome', icon: '🌡️', severity: 'warn',
-      text: 'A ridge of high pressure parks over the Rockies: 98°F in town for the fifth day, red-flag winds every afternoon, and lawns turning to straw. Sprinklers now account for more than half of the water leaving the treatment plant, and the reservoir drops visibly each morning.',
+      text: 'A ridge of high pressure parks over the Rockies: 98°F in town for the fifth day, red-flag winds every afternoon, and lawns turning to straw. Sprinklers account for more than half of the water leaving the treatment plant, and the reservoir drops each morning.',
       source: 'Why this happens in Colorado: outdoor irrigation drives half or more of Front Range summer water use, and the state has warmed about 2°F since the 1980s, lengthening these spells.',
       when: function (state) { return season(state) === S.SUMMER && num(climate(state).tempAnomF, 0) > 1.5; },
       weight: function (state) { return 1 + num(climate(state).tempAnomF, 0) / 3; }, once: false,
@@ -236,7 +236,7 @@
     },
     {
       id: 'mussels', title: 'Mussel-Fouled Boat at the Ramp', icon: '🐚', severity: 'warn',
-      text: 'A wakeboard boat trailered up from Lake Powell arrives at the marina with a crust of tiny striped shells on its outdrive. The volunteer at the ramp is not sure what to do. If quagga or zebra mussels get into the reservoir, they will coat the intake screens and never leave.',
+      text: 'A wakeboard boat trailered up from Lake Powell arrives at the marina with a crust of tiny striped shells on its outdrive. The ramp volunteer is unsure what to do. If quagga or zebra mussels reach the reservoir, they will coat the intake screens forever.',
       source: 'Why this happens in Colorado: adult zebra mussels were found in the state for the first time at Highline Lake in 2022 and in the Colorado River near Grand Junction in 2024; infested boats from Lake Powell are the main pathway.',
       when: function (state) { return (season(state) === S.SPRING || season(state) === S.SUMMER) && !fx(state).musselInspection; },
       weight: function () { return 1.2; }, once: true,
@@ -263,7 +263,7 @@
     },
     {
       id: 'lightning_fire', title: 'Dry Lightning Over the Divide', icon: '⚡', severity: 'crisis',
-      text: 'An evening thunderstorm rolls off the peaks with plenty of lightning and almost no rain. By dawn a lookout reports a smoke column in the timber above the reservoir. The fuels are cured, the wind is forecast to rise by afternoon, and the sector has not seen fire in decades.',
+      text: 'An evening thunderstorm rolls off the peaks with lightning and almost no rain. By dawn a lookout reports a smoke column in the timber above the reservoir. Fuels are cured, wind is forecast to rise by afternoon, and the sector has not burned in decades.',
       source: 'Why this happens in Colorado: dry lightning from monsoon-edge storms starts many of the state\'s largest fires; the lightning-caused 2020 Pine Gulch Fire near Grand Junction burned about 139,000 acres.',
       when: function (state, world) {
         var s = season(state); var f = fire(state);
@@ -292,7 +292,7 @@
     },
     {
       id: 'storm_forecast', title: 'Flash-Flood Watch on the Burn Scar', icon: '⛈️', severity: 'crisis',
-      text: 'The National Weather Service has issued a flash-flood watch for the burn scar: a slow-moving monsoon cell could drop an inch or more in an hour on slopes where the soil now sheds water like pavement. Debris flows can reach the creek in minutes. The county has perhaps three days.',
+      text: 'The National Weather Service has issued a flash-flood watch for the burn scar: a slow monsoon cell could drop an inch in an hour on slopes that now shed water like pavement. Debris flows can reach the creek in minutes. The county has three days.',
       source: 'Why this happens in Colorado: burned soils repel water and have lost their needle cover, so NWS issues flash-flood watches for burn scars at rain rates harmless on healthy forest, as after the 2020 fires and the 2021 Glenwood Canyon debris flows.',
       when: function (state, world) { var s = season(state); return (s === S.SUMMER || s === S.FALL) && !state.pendingStorm && scarCells(world) >= 40; },
       weight: function (state, world) { return 1.5 + Math.min(2, scarCells(world) / 400); }, once: false,
@@ -321,7 +321,7 @@
     },
     {
       id: 'pipe_leak', title: 'Water Main Leak on Main Street', icon: '🚰', severity: 'info',
-      text: 'Public works found a wet patch of asphalt that never dries; a listening rod confirms a 1950s cast-iron main is weeping under the street. It is losing maybe 40 gallons a minute, and the frost heave this winter has not helped. The crew can dig now or patch and defer.',
+      text: 'Public works found a wet patch of asphalt that never dries; a listening rod confirms a 1950s cast-iron main is weeping under the street, losing maybe 40 gallons a minute. The crew can dig now or patch and defer.',
       source: 'Why this happens in Colorado: utilities commonly lose 10-20% of treated water to leaks, and freeze-thaw cycles plus expansive clay soils crack old cast-iron mains.',
       when: function (state) { return num(fx(state).leakReduction, 0) < 0.18; },
       weight: function (state) { return season(state) === S.WINTER ? 1.4 : 0.9; }, once: false,
@@ -346,7 +346,7 @@
     },
     {
       id: 'federal_funding', title: 'Grant Window Opens', icon: '🏛️', severity: 'info',
-      text: 'A regional planner emails: a federal hazard-mitigation grant round and a Colorado Water Plan grant cycle both close this month. The applications need staff time and a local match, and awards take a year or more to arrive. Small mountain towns rarely win without a shovel-ready project list.',
+      text: 'A regional planner emails: a federal hazard-mitigation grant round and a Colorado Water Plan grant cycle both close this month. Applications need staff time and a local match, and awards take a year or more. Small towns rarely win without a shovel-ready project list.',
       source: 'Why this happens in Colorado: the 2021 infrastructure law, FEMA\'s BRIC program and Colorado Water Plan grants administered by the CWCB fund local watershed and hazard-mitigation work, usually with a local match.',
       when: function (state) { return (state.turn | 0) >= 1; },
       weight: function () { return 0.8; }, once: false,
@@ -367,7 +367,7 @@
     },
     {
       id: 'residents_oppose_burn', title: 'Residents Oppose the Burn', icon: '🪧', severity: 'warn',
-      text: 'Flyers appear at the post office: "Say NO to the burn." A homeowners\' group near the sector remembers a prescribed fire that escaped a decade ago and wants the plan pulled. They have packed the next council meeting and called the newspaper. The burn window is only a few weeks wide.',
+      text: 'Flyers appear at the post office: "Say NO to the burn." A homeowners\' group near the sector remembers a prescribed fire that escaped a decade ago and wants the plan pulled. They have packed the council meeting; the burn window is only weeks wide.',
       source: 'Why this happens in Colorado: the 2012 Lower North Fork prescribed burn near Conifer escaped and killed three people, prompting a moratorium and new certification rules; smoke permits come from the state health department.',
       when: function (state) { return !!(state.projects && state.projects.pendingBurn); },
       weight: function () { return 2.5; }, once: false,
@@ -395,7 +395,7 @@
     },
     {
       id: 'senior_call', title: 'Senior Water Right Places a Call', icon: '⚖️', severity: 'warn',
-      text: 'The water commissioner phones: a senior downstream right dating to the 1880s has placed a call on the creek. Under prior appropriation, every junior diverter upstream, including the town\'s newer ditches and two farms, must shut headgates until the senior right is satisfied. The farms have hay in the ground.',
+      text: 'The water commissioner phones: a senior downstream right from the 1880s has placed a call on the creek. Under prior appropriation, every junior diverter, including the town\'s ditches and two farms, must shut headgates until it is satisfied. The farms have hay in the ground.',
       source: 'Why this happens in Colorado: prior appropriation gives the oldest rights first claim; when a senior right places a "call", the Division Engineer curtails junior diversions upstream regardless of who needs the water most.',
       when: function (state) { var s = season(state); var w = water(state); return (s === S.SUMMER || s === S.FALL) && (droughtLevel(state) >= 2 || num(w.alloc.downstream, 1) < 1 || num(w.alloc.tribal, 1) < 1 || storagePct(state) < 0.5); },
       weight: function (state) { return 1 + droughtLevel(state) * 0.3; }, once: false,
@@ -436,7 +436,7 @@
     },
     {
       id: 'smoke_event', title: 'Smoke Settles in the Valley', icon: '🌫️', severity: 'warn',
-      text: 'Smoke from fires across the West pours over the divide and pools in the valley overnight; you cannot see the ridge from town. The air-quality index reads "very unhealthy," the school cancels recess, and the clinic is filling with wheezing kids and elderly ranchers. It may last a week.',
+      text: 'Smoke from fires across the West pours over the divide and pools in the valley, hiding the ridge. The air-quality index reads "very unhealthy," the school cancels recess, and the clinic fills with wheezing kids and elderly ranchers. It may last a week.',
       source: 'Why this happens in Colorado: smoke from fires in Colorado and neighbouring states pushed Denver-area air quality among the worst in the world on some days in 2020 and 2021.',
       when: function (state) { var s = season(state); return (s === S.SUMMER || s === S.FALL) && (num(climate(state).fireDanger, 0.2) >= 0.35 || num(fire(state).smokeDays, 0) > 0); },
       weight: function (state) { return 0.8 + num(climate(state).fireDanger, 0.2); }, once: false,
@@ -458,7 +458,7 @@
     },
     {
       id: 'subdivision_proposal', title: 'Subdivision Proposal on the Forest Edge', icon: '🏘️', severity: 'info',
-      text: 'A developer wants to build 180 homes on the bench where the pines meet the sagebrush, one road in and out. The tax base needs it, the school needs the families, and the fire chief is quietly appalled. The plat can be approved as drawn, approved with wildfire-code conditions, or denied.',
+      text: 'A developer wants to build 180 homes on the bench where the pines meet the sagebrush, one road in and out. The tax base needs it, the school needs the families, and the fire chief is quietly appalled.',
       source: 'Why this happens in Colorado: nearly half of the state\'s residents live in the wildland-urban interface, and the legislature created a Wildfire Resiliency Code Board in 2023 to write statewide WUI building standards.',
       when: function (state) { return (state.turn | 0) >= 1 && !fire(state).activeFire; },
       weight: function () { return 0.7; }, once: false,
@@ -511,7 +511,7 @@
     },
     {
       id: 'hydro_shortfall', title: 'Hydropower Shortfall', icon: '⚡', severity: 'info',
-      text: 'The small turbine at the dam has been producing a fraction of its rated output: with the pool this low there is little head, and the release schedule has favoured storage. The electric co-op says the town will have to buy replacement power on the market or release more water through the penstock.',
+      text: 'The turbine at the dam is producing a fraction of its rated output: with the pool this low there is little head, and releases have favoured storage. The co-op says the town must buy replacement power or release more water through the penstock.',
       source: 'Why this happens in Colorado: small hydro plants on municipal dams depend on head and release volume, and both fall with the reservoir in a dry year.',
       when: function (state) { var s = season(state); return (s === S.FALL || s === S.WINTER) && (storagePct(state) < 0.5 || num(water(state).alloc.hydro, 1) < 0.8); },
       weight: function () { return 0.8; }, once: false,
@@ -549,7 +549,7 @@
     },
     {
       id: 'tourism_boom', title: 'Boaters Discover the Reservoir', icon: '⛵', severity: 'info',
-      text: 'A full reservoir, a clear creek and a viral video have the marina lot overflowing every weekend with trailers from the Front Range. Motels are booked, the fly shops are hiring, and the ramp line stretches to the highway. The wildlife biologist notes the shorebirds have left the north shore.',
+      text: 'A full reservoir, a clear creek and a viral video have the marina lot overflowing every weekend with Front Range trailers. Motels are booked, fly shops are hiring, and the ramp line reaches the highway. The shorebirds have left the north shore.',
       source: 'Why this happens in Colorado: outdoor recreation is a multi-billion-dollar part of the state economy, and reservoirs full of snowmelt draw boaters from across the Front Range.',
       when: function (state) { var s = season(state); return (s === S.SPRING || s === S.SUMMER) && storagePct(state) > 0.65 && num(reservoir(state).turbidity, 0) < 0.3 && !fire(state).activeFire; },
       weight: function () { return 0.9; }, once: false,
@@ -570,7 +570,7 @@
     },
     {
       id: 'ski_area_request', title: 'Ski Area Asks for Snowmaking Water', icon: '⛷️', severity: 'info',
-      text: 'The ski hill wants to open by Thanksgiving and asks to pump reservoir water for snowmaking through December, when the creek is at its lowest. It is the biggest winter employer in the valley. Most of the water will melt back into the creek in April, but not all of it, and not this winter.',
+      text: 'The ski hill, the valley\'s biggest winter employer, wants to open early and asks to pump reservoir water for snowmaking through December, when the creek is lowest. Most of that water melts back into the creek in April, but not all, and not this winter.',
       source: 'Why this happens in Colorado: ski areas make snow in October-December when streams are at baseflow; snowmaking water is usually pumped from reservoirs, and a share is lost to sublimation before spring.',
       when: function (state) { var s = season(state); return s === S.FALL || s === S.WINTER; },
       weight: function () { return 0.7; }, once: false,
@@ -624,7 +624,7 @@
     },
     {
       id: 'mutual_aid', title: 'Mutual-Aid Request', icon: '🤝', severity: 'info',
-      text: 'The neighbouring county has a fire running toward a town of 3,000 and the state mobilization center asks for an engine, a water tender and six firefighters for two weeks. Your own fire danger is high and the crews you send are crews you will not have if lightning finds your ridge.',
+      text: 'The neighbouring county has a fire running toward a town of 3,000, and the state asks for an engine, a water tender and six firefighters for two weeks. Your own danger is high; crews you send will not be here if lightning finds your ridge.',
       source: 'Why this happens in Colorado: the Resource Mobilization Plan, run by the Division of Fire Prevention and Control, moves engines and crews between counties during large fires, on the understanding that the favour is returned.',
       when: function (state) { return season(state) === S.SUMMER && !fire(state).activeFire; },
       weight: function () { return 0.8; }, once: false,
@@ -645,7 +645,7 @@
     },
     {
       id: 'dust_on_snow', title: 'Dust on the Snowpack', icon: '🟤', severity: 'info',
-      text: 'A spring windstorm out of the Four Corners has painted the high snowfields a rusty brown. Dark snow soaks up sunlight, and the snow scientists say melt will come two to three weeks early and fast. Ditches are not ready, the reservoir is still drawn down for winter, and a lot of water could run past before anyone is set up to catch it.',
+      text: 'A spring windstorm out of the Four Corners has painted the high snowfields rusty brown. Dark snow soaks up sunlight; melt will come weeks early and fast. Ditches are not ready and the reservoir is still drawn down; the early pulse could run past uncaught.',
       source: 'Why this happens in Colorado: dust from the Colorado Plateau darkens the snowpack and can advance melt by several weeks; the Colorado Dust-on-Snow program in Silverton has tracked the events for two decades.',
       when: function (state) { return season(state) === S.SPRING && num(climate(state).snowpackPct, 100) > 55; },
       weight: function () { return 0.9; }, once: false,
@@ -666,7 +666,7 @@
     },
     {
       id: 'beetle_kill', title: 'Beetle Kill in the Timber', icon: '🪲', severity: 'warn',
-      text: 'Hillsides in one forest sector have gone rust-red in a single summer: bark beetles have killed most of the mature pines. Within a few years the needles will drop and the dead trunks will start to fall, leaving a jackstraw of dry fuel exactly where a fire would run hardest.',
+      text: 'Hillsides in one forest sector have gone rust-red in a single summer: bark beetles have killed most of the mature pines. Within a few years the needles drop and the dead trunks fall, leaving a jackstraw of dry fuel where a fire would run hardest.',
       source: 'Why this happens in Colorado: mountain pine beetle killed about 3.4 million acres of forest in the 2000s, followed by spruce beetle, and the dead "gray phase" stands eventually fall and add heavy fuel.',
       when: function (state, world) { var s = season(state); return (s === S.FALL || s === S.WINTER) && zonesOf(world, 'forest').length > 0; },
       weight: function (state) { return 0.7 + (droughtLevel(state) >= 2 ? 0.4 : 0); }, once: false,
@@ -696,7 +696,7 @@
     },
     {
       id: 'flash_drought', title: 'Flash Drought', icon: '☀️', severity: 'crisis',
-      text: 'Six weeks without measurable rain and afternoon highs in the upper 90s have crashed soil moisture from adequate to bone-dry in a month. Pastures are brown, the second hay cutting is gone, and the Drought Monitor just jumped two categories. Demand is spiking as the supply forecast collapses.',
+      text: 'Six weeks without rain and afternoon highs in the upper 90s have crashed soil moisture from adequate to bone-dry. Pastures are brown, the second hay cutting is gone, and the Drought Monitor just jumped two categories. Demand is spiking as the supply forecast collapses.',
       source: 'Why this happens in Colorado: flash droughts in 2012 and 2020 crashed soil moisture in a matter of weeks and pushed most of the state into severe drought within a single summer.',
       when: function (state) { var c = climate(state); return season(state) === S.SUMMER && num(c.precipIn, 3) < 1.2 && num(c.tempAnomF, 0) > 1; },
       weight: function (state) { return 1.3 + droughtLevel(state) * 0.2; }, once: false,

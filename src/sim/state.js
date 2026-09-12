@@ -20,7 +20,7 @@
     var mode = (opts.mode === 'historical') ? 'historical' : 'simulated';
     return {
       seed: seed, mode: mode, years: years, turn: 0, year: 1, season: C.SEASON.WINTER, phase: C.PHASES.BOOT,
-      budget: 12, annualBudget: 12, emergencyFund: 0,
+      budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, trustDelta: 0,
       population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
       climate: { snowpackPct: 100, snowpackPeakPct: 100, snowSWEin: C.HYDRO.AVG_SNOW_SWE_IN, precipIn: 3.2, tempAnomF: 0, soilMoisturePct: 45,

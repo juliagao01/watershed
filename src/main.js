@@ -60,7 +60,7 @@
     C.SECTORS.forEach(function (s) { alloc[s] = 1; zero[s] = 0; });
     return {
       seed: opts.seed, mode: opts.mode || 'simulated', years: opts.years || C.YEARS_DEFAULT, turn: 0, year: 1, season: 0, phase: PH.BOOT,
-      budget: 12, annualBudget: 12, emergencyFund: 0,
+      budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
       climate: { snowpackPct: 100, snowSWEin: 18, precipIn: 3.2, tempAnomF: 0, soilMoisturePct: 45, fireDanger: 0.2, fireDangerLabel: 'Moderate', streamflowCfs: 60, windDirRad: 0.8, windMph: 8, drought: 'None', description: '', uncertainty: 0.15 },
       reservoir: { storageAF: 32000, capacityAF: C.HYDRO.RESERVOIR_CAPACITY_AF, turbidity: 0.05, ashContam: 0, algae: 0 },
@@ -77,7 +77,7 @@
   var RENDER_FNS = ['init', 'setSeason', 'refreshWorld', 'setReservoir', 'setRiverFlow', 'setFire', 'setWeather', 'setWind', 'showDebris', 'clearDebris',
     'setOverlay', 'setHighlight', 'addMarker', 'removeMarker', 'clearMarkers', 'setPlacementCursor', 'flyTo', 'flyToZone', 'setTimeOfDay', 'onCellClick', 'onCellHover', 'getStats', 'dispose',
     // SPEC2 §C tactical APIs (guarded: a v1 renderer simply ignores them)
-    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone'];
+    'setTacticalMode', 'onCellPaint', 'setFlooded', 'playRetardantDrop', 'setFireIntensity', 'pulseZone', 'playBuild'];
   function makeRenderer(real) {
     var r = { real: !!real };
     RENDER_FNS.forEach(function (fn) {
@@ -279,9 +279,10 @@
 
       if (state.turn > 0 && state.season === SEASON.WINTER) {
         var growth = num(state.population) / C.HYDRO.BASE_POPULATION - 1;
-        var bonus = Math.max(0, num(state.annualBudget, 12) * 0.5 * growth);
-        state.budget = num(state.budget) + num(state.annualBudget, 12) + bonus;
-        log('New year: budget +' + fmtM(num(state.annualBudget, 12) + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
+        // growth revenue: half the annual budget per 100% population growth (proportional to the $8.5M base)
+        var bonus = Math.max(0, num(state.annualBudget, 8.5) * 0.5 * growth);
+        state.budget = num(state.budget) + num(state.annualBudget, 8.5) + bonus;
+        log('New year: budget +' + fmtM(num(state.annualBudget, 8.5) + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
         call('Projects', 'tick', state, world);
         call('Fire', 'updateAnnual', state, world);
         state.population = Math.round(num(state.population, C.HYDRO.BASE_POPULATION) * (1 + num(state.growthRate, 0.012)));
@@ -311,8 +312,10 @@
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
-      // SPEC2 §D: the Evidence Board never auto-opens in Winter/Spring (the UI shows a pulsing "Advisors" button instead);
-      // it still auto-opens before a prescribed burn and before a storm (see runPrescribedBurn / runFloodPrep).
+      // SPEC2 §D: the Evidence Board never auto-opens in Winter/Spring; the 3D advisors in town carry the signal instead
+      // (avatars with an urgent take get an alert marker; click one for a speech bubble, "Full advice" opens the board).
+      // It still auto-opens before a prescribed burn and before a storm (see runPrescribedBurn / runFloodPrep).
+      markAdvisorAlerts();
       refresh();
     }
     function freshNotes() {
@@ -440,8 +443,9 @@
       var headline = 'Fire ' + (th.intensity || 'active') + ((th.intensity === 'running' || th.intensity === 'extreme') && dir ? ' ' + dir : '') + ' in ' + Math.round(num(th.windMph, 8)) + ' mph wind' +
         (first ? ' — ' + first.name + (first.burningInside ? ' burning' : ' ' + fmtN(first.distanceCells) + ' cells away') : '');
       var hint = { dozer: 'Drag on the map to cut a line', retardant: 'Click the map to drop retardant', engine: 'Pick a neighborhood for the engine', evacuate: 'Pick a neighborhood to evacuate', mutual_aid: 'Calls neighboring counties (+10 crew points)' }[cr.selected] || 'Pick a tool (1–5); Space pauses';
+      if (cr.mopUp) { headline = 'Fire contained at ' + fmtN(th.acres) + ' acres — crews are mopping up hot spots'; hint = 'After-action report coming up'; }
       return {
-        mode: 'fire', title: 'WILDFIRE — ' + fmtN(th.acres) + ' acres', subtitle: cr.startName, step: cr.step, maxSteps: cr.maxSteps, paused: !!cr.paused, speed: speed,
+        mode: 'fire', title: cr.mopUp ? 'Mop-up — fire contained' : 'WILDFIRE — ' + fmtN(th.acres) + ' acres', subtitle: cr.startName, step: cr.step, maxSteps: cr.maxSteps, paused: !!cr.paused, speed: speed,
         points: { label: 'Crew points', value: Math.round(num(tac.crewPts) * 10) / 10, max: num(tac.crewMax, 30), unit: 'pts' },
         tools: fireToolSpec(),
         threat: {
@@ -607,7 +611,26 @@
         ui.ticker('Fire ' + (th.intensity || 'active') + ' — ' + fmtN(acres) + ' acres, ' + Math.round(num(tac.crewPts)) + ' crew pts');
         prevAcres = acres;
         if (r.done) break;
-        await sleep(520 / speed);
+        await sleep(800 / speed);   // ~0.8 s per step at 1x (cells burn 4-6 steps in tactical mode, so the front stays wide and glowing)
+      }
+      // Mop-up hold (~4 s at 1x): flames fade over 6 sub-frames while the smoke lingers, the HUD reads
+      // "Mop-up — fire contained", then the after-action card. Cosmetic only — the sim is already done.
+      if (crisis) {
+        crisis.mopUp = true; crisis.paused = false; resumeCrisis();
+        ui.alert('Fire contained — crews are mopping up', 'good');
+        ui.ticker('Mop-up — fire contained at ' + fmtN(acres) + ' acres');
+        pushTactical();
+        var fade = burningArr.slice().sort(function (a, b) { return ((a * 2654435761) >>> 0) - ((b * 2654435761) >>> 0); }); // deterministic scatter
+        var fadeBurned = burnedArr.slice(), FADE_FRAMES = 6;
+        for (var ff = 1; ff <= FADE_FRAMES && crisis; ff++) {
+          await sleep(400 / speed);
+          var keep = Math.round(fade.length * (1 - ff / FADE_FRAMES));
+          fadeBurned = fadeBurned.concat(fade.slice(keep)); fade = fade.slice(0, keep);
+          renderer.setFire(ff === FADE_FRAMES ? [] : fade, fadeBurned);
+          renderer.setFireIntensity(0.25 * (1 - ff / FADE_FRAMES));
+        }
+        burnedArr = fadeBurned;
+        if (crisis) await sleep(1600 / speed);
       }
       var report = call('Fire', 'finalize', fireSim, state, world) || { acres: acres, upstreamAcres: 0, structuresLost: 0, zoneIds: threatenedZones(burnedArr), severityAvg: 0, smokeDays: 0, cellsBurned: new Int32Array(burnedArr), startCell: start };
       if (!report.tactics && crisis) { try { report.tactics = fallbackFireTactics(report); } catch (e) { warn('fallback tactics failed', e); } }
@@ -749,11 +772,11 @@
     }
     async function runFloodPrep(storm, prep) {
       var eff = effects();
-      // Emergency fund = $2.5M county baseline + $0.5M per stockpile placement + top-ups event cards already added to
+      // Emergency fund = $2.0M county baseline + $0.5M per stockpile placement + top-ups event cards already added to
       // state.emergencyFund (county reserve, state declaration, federal grant) + any explicit grant flag.
       var grant = 0;
       if (state.flags) { if (typeof state.flags.federalGrantM === 'number') grant += num(state.flags.federalGrantM); else if (state.flags.federalGrant === true || state.flags.federalFunding === true) grant += 2; }
-      var base = 2.5 + 0.5 * num(eff.stockpileBonus, 0);
+      var base = 2.0 + 0.5 * num(eff.stockpileBonus, 0);
       state.emergencyFund = Math.round((base + grant + Math.max(0, num(state.emergencyFund))) * 100) / 100;
       state.mitigations = [];
       placement = { storm: storm, prep: prep, tools: toolList(prep), selected: null, freeLeft: num(eff.stockpileBonus, 0), done: null, fundStart: state.emergencyFund };
@@ -1270,6 +1293,13 @@
         var lastLog = state.log && state.log.length ? state.log[state.log.length - 1] : null;
         if (!(lastLog && res.text && lastLog.text === res.text)) log(res.text || ('Funded ' + id + (targetZoneId != null ? ' in ' + zoneName(world, targetZoneId) : '') + ' for ' + fmtM(cost) + '.'), 'good');
         if (!headless) toast(res.text || ('Funded ' + id), 'good');
+        // In-world build scene (crews, machines, installations) — fire-and-forget; panels dim while it plays.
+        if (!headless && WS.Renderer && typeof WS.Renderer.playBuild === 'function' && state.phase === PH.PLAN) {
+          try {
+            var built = renderer.playBuild(id, targetZoneId, state);
+            if (built && typeof built.then === 'function') { ui.setBusy(true); built.then(function () { ui.setBusy(false); renderer.refreshWorld(); }, function () { ui.setBusy(false); }); }
+          } catch (e) { warn('build scene', e); }
+        }
         renderer.refreshWorld();
         refresh();
       } else if (!headless) toast(res.reason || res.text || 'Could not fund ' + id, 'warn');
@@ -1365,9 +1395,11 @@
       renderer.init(game.container, world, state);
       var cu = renderer.onCellClick(game.handleCellClick); clickUnsub = (typeof cu === 'function') ? cu : null;
       if (has('Renderer', 'onCellPaint')) { var pu = renderer.onCellPaint(onPaint); paintUnsub = (typeof pu === 'function') ? pu : function () { }; }
+      subscribeAdvisors();   // 3D advisor avatars → speech bubbles (no-op when the renderer has no onAdvisorClick)
     };
     game.dispose = function () {
       endCrisis();
+      unsubscribeAdvisors();
       if (paintUnsub) { try { paintUnsub(); } catch (e) { } paintUnsub = null; }
       if (clickUnsub) { try { clickUnsub(); } catch (e) { } clickUnsub = null; }
       renderer.dispose();
@@ -1469,6 +1501,138 @@
     };
     game.getProjectList = function () { return call('Projects', 'listFor', state, world) || []; };
     game.getAdvisors = function (topic) { return call('Advisors', 'getRecommendations', state, world, topic) || []; };
+
+    /* ---------------------------------------------------- ADVISORS: 3D avatars in town → speech bubbles */
+    // Renderer API (built concurrently; every call is guarded, so a renderer without avatars simply never shows bubbles):
+    //   onAdvisorClick(cb) → unsubscribe fn (cb receives an advisor id or {id})
+    //   setAdvisorTalking(id|null), setAdvisorAlert(id, bool)
+    //   advisorScreenPos(id) → { x, y, visible } | [x, y, visible] | null   (screen pixels of the avatar's head)
+    var ADV = { unsub: null, open: null, topic: null, raf: 0, alerted: {}, hintTimer: null };
+    var ADV_ROTATION = ['budget', 'allocation', 'fire_policy', 'drought', 'prescribed_burn', 'flood', 'contamination'];
+    function advTopicForNow() {
+      if (!state) return 'budget';
+      var s = state.season, cl = state.climate || {};
+      if (s === SEASON.WINTER) return 'budget';
+      if (s === SEASON.SPRING) return 'allocation';
+      if (s === SEASON.SUMMER) return /D[1-4]/.test(String(cl.drought || '')) ? 'drought' : 'fire_policy';
+      if (scarCellsOf(world).length > 0) return 'flood';
+      if (num(state.reservoir && state.reservoir.turbidity, 0) > 0.2) return 'contamination';
+      return 'budget';
+    }
+    function advIdOf(arg) {
+      if (arg == null) return null;
+      if (typeof arg === 'object') return arg.id != null ? String(arg.id) : (arg.characterId != null ? String(arg.characterId) : (arg.advisorId != null ? String(arg.advisorId) : null));
+      return String(arg);
+    }
+    function advCharacter(id) {
+      var c = call('Advisors', 'byId', id);
+      if (!c) { var list = (WS.Advisors && WS.Advisors.CHARACTERS) || []; for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) c = list[i]; }
+      return c || { id: id, name: 'Advisor', role: '', color: '#4aa3df', avatarEmoji: '🧑' };
+    }
+    function advFirstSentence(t) {
+      if (WS.UI && typeof WS.UI.firstSentence === 'function') { try { return WS.UI.firstSentence(t, 1); } catch (e) { /* fall through */ } }
+      var m = String(t || '').match(/^[^.!?]*[.!?]/); return m ? m[0] : String(t || '');
+    }
+    function advRecFor(id, topic) {
+      var recs = call('Advisors', 'getRecommendations', state, world, topic) || [];
+      for (var i = 0; i < recs.length; i++) if (recs[i] && String(recs[i].characterId) === String(id)) return recs[i];
+      return null;
+    }
+    function advNextTopic(id, from) {
+      var i = Math.max(0, ADV_ROTATION.indexOf(from));
+      for (var k = 1; k <= ADV_ROTATION.length; k++) { var t = ADV_ROTATION[(i + k) % ADV_ROTATION.length]; if (advRecFor(id, t)) return t; }
+      return from;
+    }
+    function advScreenPos(id) {
+      var p = call('Renderer', 'advisorScreenPos', id);
+      if (!p) return null;
+      if (Array.isArray(p)) return { x: +p[0], y: +p[1], visible: p[2] !== false };
+      var x = p.x != null ? p.x : (p.sx != null ? p.sx : p.left), y = p.y != null ? p.y : (p.sy != null ? p.sy : p.top);
+      return { x: +x, y: +y, visible: p.visible !== false && p.hidden !== true && p.onScreen !== false };
+    }
+    function advStopLoop() { if (ADV.raf) { try { cancelAnimationFrame(ADV.raf); } catch (e) { /* ignore */ } ADV.raf = 0; } }
+    function advLoop() {
+      ADV.raf = 0;
+      if (!ADV.open || !WS.UI || typeof WS.UI.bubbleVisible !== 'function' || !WS.UI.bubbleVisible()) return;
+      if (state && state.phase !== PH.PLAN) { advClose('phase'); return; }
+      var p = advScreenPos(ADV.open);
+      if (p && typeof WS.UI.moveBubble === 'function') WS.UI.moveBubble(p.x, p.y, p.visible);
+      ADV.raf = requestAnimationFrame(advLoop);
+    }
+    /** Close the open bubble (if any) and clear the avatar's talking state. */
+    function advClose(reason) {
+      var id = ADV.open; if (!id) return;
+      ADV.open = null; ADV.topic = null; advStopLoop();
+      if (has('Renderer', 'setAdvisorTalking')) call('Renderer', 'setAdvisorTalking', null);
+      if (reason !== 'hidden' && WS.UI && typeof WS.UI.hideBubble === 'function') WS.UI.hideBubble();
+    }
+    /** Show `id`'s take on `topic` (defaults to the topic that fits this season) as a bubble anchored to the 3D avatar. */
+    function advShow(id, topic) {
+      id = advIdOf(id); if (!id || headless || !state || !WS.UI || typeof WS.UI.showBubble !== 'function') return null;
+      topic = topic || advTopicForNow();
+      var rec = advRecFor(id, topic);
+      if (!rec) { var alt = advNextTopic(id, topic); if (alt !== topic) { topic = alt; rec = advRecFor(id, topic); } }
+      var ch = advCharacter(id);
+      if (ADV.hintTimer) { clearTimeout(ADV.hintTimer); ADV.hintTimer = null; }
+      if (typeof WS.UI.setAdvisorHint === 'function') WS.UI.setAdvisorHint(null);
+      if (ADV.alerted[id] && has('Renderer', 'setAdvisorAlert')) { call('Renderer', 'setAdvisorAlert', id, false); delete ADV.alerted[id]; }
+      var text = rec ? ((rec.headline ? rec.headline.replace(/[.!?]?$/, '.') + ' ' : '') + advFirstSentence(rec.text)) : 'Nothing to add right now — ask me again next season.';
+      var talking = ADV.open === id;
+      ADV.open = id; ADV.topic = topic;
+      WS.UI.showBubble({
+        id: id, name: ch.name, role: ch.role, color: ch.color, avatarEmoji: ch.avatarEmoji, text: text, topic: topic,
+        actions: [
+          { label: 'Full advice', onClick: function () { var t = ADV.topic || topic; advClose('board'); game.openEvidence(t); } },
+          { label: 'Ask again', onClick: function () { advShow(id, advNextTopic(id, ADV.topic || topic)); } }
+        ],
+        onClose: function (why) { if (why === 'replaced') return; if (ADV.open === id) advClose('hidden'); }
+      });
+      if (!talking && has('Renderer', 'setAdvisorTalking')) call('Renderer', 'setAdvisorTalking', id);
+      var p = advScreenPos(id); if (p && typeof WS.UI.moveBubble === 'function') WS.UI.moveBubble(p.x, p.y, p.visible);
+      advStopLoop(); ADV.raf = requestAnimationFrame(advLoop);
+      return rec;
+    }
+    function advOnClick(arg) {
+      var id = advIdOf(arg); if (!id) return;
+      if (ADV.open === id) { advClose('toggle'); return; }
+      advShow(id, null);
+    }
+    function subscribeAdvisors() {
+      unsubscribeAdvisors();
+      if (headless || !has('Renderer', 'onAdvisorClick')) return;
+      var u = call('Renderer', 'onAdvisorClick', advOnClick);
+      ADV.unsub = (typeof u === 'function') ? u : function () { };
+    }
+    function unsubscribeAdvisors() {
+      advClose('dispose');
+      if (ADV.unsub) { try { ADV.unsub(); } catch (e) { /* ignore */ } ADV.unsub = null; }
+      ADV.alerted = {};
+    }
+    /** Start of each PLAN phase: flag advisors with something urgent ('urge' / 'oppose' on this season's topic); one-time hint. */
+    function markAdvisorAlerts() {
+      if (headless || !state) return;
+      if (has('Renderer', 'setAdvisorAlert')) {
+        Object.keys(ADV.alerted).forEach(function (id) { call('Renderer', 'setAdvisorAlert', id, false); });
+        ADV.alerted = {};
+        var topic = advTopicForNow();
+        (call('Advisors', 'getRecommendations', state, world, topic) || []).forEach(function (r) {
+          if (!r || !r.characterId) return;
+          if (r.stance === 'urge' || r.stance === 'oppose') { ADV.alerted[String(r.characterId)] = topic; call('Renderer', 'setAdvisorAlert', String(r.characterId), true); }
+        });
+      }
+      if (has('Renderer', 'onAdvisorClick') && WS.UI && typeof WS.UI.setAdvisorHint === 'function') {
+        var seen = false, ls = storage();
+        try { seen = !!(ls && ls.getItem('watershed.advisorHintSeen')); } catch (e) { seen = false; }
+        if (!seen && !ADV.hintTimer) {
+          try { if (ls) ls.setItem('watershed.advisorHintSeen', '1'); } catch (e) { /* ignore */ }
+          WS.UI.setAdvisorHint('Click an advisor in town to hear their take');
+          ADV.hintTimer = setTimeout(function () { ADV.hintTimer = null; try { WS.UI.setAdvisorHint(null); } catch (e) { /* ignore */ } }, 15000);
+        }
+      }
+    }
+    game.askAdvisor = function (id, topic) { return advShow(id, topic || null); };
+    game.closeAdvisor = function () { advClose('api'); };
+    game.advisorTopic = function () { return advTopicForNow(); };
     game.listZones = function (type) { return (type ? zonesOf(world, type) : (world && world.zones) || []).map(function (z) { return { id: z.id, name: z.name, type: z.type, center: z.center, upstreamOfReservoir: !!z.upstreamOfReservoir }; }); };
     game.getPlacement = function () { return placementSpec(); };
     game.getStats = function () { return Object.assign({}, stats); };

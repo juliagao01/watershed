@@ -105,6 +105,61 @@
     return value === undefined ? null : value;
   };
 
+  /* ------------------------------------------------------------------ text trimming (player feedback: less text) */
+  /** Split prose into sentences (keeps the terminal punctuation). Abbreviations like "Dr." / "Capt." / "U.S." and decimals stay intact. */
+  UI.sentences = function (text) {
+    var s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    if (!s) return [];
+    var guarded = s.replace(/\b(Dr|Capt|Mr|Mrs|Ms|St|No|vs|approx|U\.S|a\.m|p\.m)\./g, function (m) { return m.replace(/\./g, ''); }).replace(/(\d)\.(\d)/g, '$1$2');
+    var parts = guarded.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [guarded];
+    return parts.map(function (p) { return p.replace(//g, '.').trim(); }).filter(Boolean);
+  };
+  /** First `n` sentences of `text` (default 1). */
+  UI.firstSentence = function (text, n) {
+    var parts = UI.sentences(text); n = Math.max(1, fin(n, 1));
+    return parts.slice(0, n).join(' ');
+  };
+  /** Everything after the first `n` sentences ('' if none). */
+  UI.restSentences = function (text, n) { return UI.sentences(text).slice(Math.max(1, fin(n, 1))).join(' '); };
+  /** Trim to ≤ maxWords, cutting at a sentence boundary when one fits, otherwise at a word boundary + "…". */
+  UI.short = function (text, maxWords) {
+    var s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    maxWords = Math.max(3, fin(maxWords, 22));
+    var words = s ? s.split(' ') : [];
+    if (words.length <= maxWords) return s;
+    var parts = UI.sentences(s), acc = '', count = 0;
+    for (var i = 0; i < parts.length; i++) {
+      var w = parts[i].split(' ').length;
+      if (count + w > maxWords) break;
+      acc += (acc ? ' ' : '') + parts[i]; count += w;
+    }
+    if (acc) return acc + (count < words.length ? ' …' : '');
+    var cut = words.slice(0, maxWords).join(' ').replace(/[,;:\-–—]+$/, '');
+    return cut + '…';
+  };
+  /** Lead text + a "more…" disclosure for the rest. opts: { sentences:2, className, moreLabel, lessLabel } → element (or null when text empty). */
+  UI.disclosure = function (text, opts) {
+    opts = opts || {};
+    var n = Math.max(1, fin(opts.sentences, 2));
+    var lead = UI.firstSentence(text, n), rest = UI.restSentences(text, n);
+    if (!lead) return null;
+    var wrap = h('div', { class: 'disclose' + (opts.className ? ' ' + opts.className : '') });
+    var leadEl = h('span', { class: 'lead-text' }, lead);
+    wrap.appendChild(leadEl);
+    if (rest) {
+      var restEl = h('span', { class: 'rest', hidden: true }, ' ' + rest);
+      var btn = h('button', { class: 'more', type: 'button', 'aria-expanded': 'false' }, opts.moreLabel || 'more…');
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = restEl.hidden; restEl.hidden = !open;
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.textContent = open ? (opts.lessLabel || 'less') : (opts.moreLabel || 'more…');
+      });
+      wrap.appendChild(restEl); wrap.appendChild(document.createTextNode(' ')); wrap.appendChild(btn);
+    }
+    return wrap;
+  };
+
   UI.COLORS = { W: '#4aa3df', E: '#6fbf73', P: '#e07a5f', F: '#d4a24c', T: '#e9c46a', water: '#4aa3df', fire: '#ff7a33', forest: '#6fbf73', trust: '#e9c46a', danger: '#e63946' };
   UI.OUTCOME_CLASS = { W: 'water', E: 'forest', P: 'fire', F: 'trust', T: 'trust' };
   UI.OUTCOME_SHORT = { W: 'Water', E: 'Ecosystem', P: 'Safety', F: 'Economy', T: 'Trust' };
@@ -234,6 +289,7 @@
     var m = modalQueue.shift(); modalActive = m;
     var o = m.opts, rootEl = UI.els.modalRoot;
     if (!rootEl) { m.resolve(undefined); modalActive = null; return; }
+    if (UI.hideBubble) UI.hideBubble();   /* an advisor bubble never sits on top of a dialog */
     clear(rootEl);
     var closed = false;
     var close = function (value) {
@@ -301,10 +357,10 @@
     ]);
     E.btnOverlay = h('button', { id: 'btn-overlay', type: 'button', 'data-tip': 'Cycle map overlay (V): none → watershed → fire risk → moisture → burn scar' }, [h('span', { 'aria-hidden': 'true' }, '🗺 '), h('span', { class: 'txt' }, 'Overlay: '), h('span', { class: 'mode' }, 'None')]);
     E.btnOverlay.addEventListener('click', function () { UI.cycleOverlay(); });
-    E.btnEvidence = h('button', { id: 'btn-evidence', type: 'button', 'data-tip': 'Open the Evidence Board: advisors weigh in with data' }, [h('span', { class: 'txt' }, 'Evidence'), h('span', { 'aria-hidden': 'true' }, ' 📊')]);
+    /* "Advisors" opens the full Evidence Board on demand (topic popover). The in-town 3D advisors are the everyday path. */
+    E.btnEvidence = h('button', { id: 'btn-advisors', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'Open the Evidence Board: six advisors, one set of numbers, different conclusions' }, [h('span', { 'aria-hidden': 'true' }, '🗣 '), h('span', { class: 'txt' }, 'Advisors')]);
     E.btnEvidence.addEventListener('click', function (e) { e.stopPropagation(); UI.toggleEvidenceMenu(); });
-    E.btnLog = h('button', { id: 'btn-log', type: 'button', 'data-tip': 'Full log and cause-and-effect timeline' }, [h('span', { class: 'txt' }, 'Log'), h('span', { 'aria-hidden': 'true' }, ' 📓')]);
-    E.btnLog.addEventListener('click', function () { if (UI.showLog) UI.showLog(); });
+    E.btnAdvisors = E.btnEvidence;
     E.btnCases = h('button', { id: 'btn-cases', type: 'button', 'data-tip': 'Case studies from Colorado\'s recent fires, floods and water fights' }, [h('span', { class: 'txt' }, 'Cases'), h('span', { 'aria-hidden': 'true' }, ' 📚')]);
     E.btnCases.addEventListener('click', function () { if (UI.showCases) UI.showCases(); });
     E.btnSave = h('button', { id: 'btn-save', type: 'button', 'data-tip': 'Save to this browser' }, [h('span', { class: 'txt' }, 'Save'), h('span', { 'aria-hidden': 'true' }, ' 💾')]);
@@ -313,7 +369,7 @@
     E.btnLoad.addEventListener('click', function () { UI.callGame('load', [], function (r) { UI.toast(r === false ? 'No saved game found' : 'Game loaded', r === false ? 'warn' : 'good'); UI.refresh(); }); });
     E.btnHelp = h('button', { id: 'btn-help', type: 'button', 'data-tip': 'Controls, phases and how scoring works' }, [h('span', { class: 'txt' }, 'Help'), h('span', { 'aria-hidden': 'true' }, ' ?')]);
     E.btnHelp.addEventListener('click', function () { if (UI.showHelp) UI.showHelp(); });
-    E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnLog, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
+    E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
     /* crisis chip: shown in the top bar while a fire/storm is fought live */
     E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, '🚨'), h('span', { class: 'txt' }, '')]);
     E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
@@ -347,15 +403,15 @@
 
     /* right: actions */
     E.tabs = {};
-    var tabDefs = [['projects', 'Projects'], ['water', 'Water'], ['fire', 'Fire'], ['log', 'Log']];
+    /* The Log tab is gone (player feedback: too much text). UI.renderLog / UI.showLog stay; the season report links to them. */
+    var tabDefs = [['projects', 'Projects'], ['water', 'Water'], ['fire', 'Fire']];
     E.tabbar = h('div', { class: 'tabs', role: 'tablist' }, tabDefs.map(function (t) {
       var b = h('button', { type: 'button', role: 'tab', 'data-tab': t[0], 'aria-selected': 'false', onclick: function () { UI.setTab(t[0]); } }, [t[1], h('span', { class: 'badge', hidden: true }, '')]);
       E.tabs[t[0]] = b; return b;
     }));
-    E.btnAdvisors = h('button', { id: 'btn-advisors', class: 'tiny advisors', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'Ask the advisors: six people read the same numbers and reach different conclusions' }, [h('span', { 'aria-hidden': 'true' }, '🗣 '), 'Advisors']);
-    E.btnAdvisors.addEventListener('click', function (e) { e.stopPropagation(); UI.toggleEvidenceMenu(null, E.btnAdvisors); });
+    if (UI._tab === 'log') UI._tab = 'projects';
     E.panelRight = h('section', { id: 'panel-right', class: 'panel side right', 'aria-label': 'Actions' }, [
-      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('div', { class: 'row' }, [E.btnAdvisors, h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, '▶')])]),
+      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('div', { class: 'row' }, [h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, '▶')])]),
       E.tabbar,
       E.tabBody = h('div', { class: 'body', id: 'tab-body', role: 'tabpanel' })
     ]);
@@ -393,15 +449,26 @@
     E.toasts = h('div', { id: 'toasts', 'aria-live': 'polite' }); ui.appendChild(E.toasts);
     E.tooltip = h('div', { id: 'tooltip', role: 'tooltip' }); ui.appendChild(E.tooltip);
     E.coach = h('div', { id: 'coach', class: 'coach', hidden: true, role: 'dialog', 'aria-label': 'Tutorial' }); ui.appendChild(E.coach);
+    /* advisor speech bubble (anchored to a 3D avatar by UI.moveBubble) + the one-time hint */
+    E.bubble = h('div', { id: 'advisor-bubble', class: 'bubble', hidden: true, role: 'dialog', 'aria-live': 'polite', 'aria-label': 'Advisor' }); ui.appendChild(E.bubble);
+    E.advisorHint = h('div', { id: 'advisor-hint', class: 'advisor-hint', hidden: true, role: 'status' }); ui.appendChild(E.advisorHint);
     E.modalRoot = h('div', { id: 'modal-root', class: 'modal-root' }); ui.appendChild(E.modalRoot);
+    BUB.el = E.bubble; BUB.visible = false;
 
     bindTooltips(ui);
+    /* clicking anywhere outside the bubble (map, panels, buttons) dismisses it; the click that opened it is ignored */
+    document.addEventListener('pointerdown', function (e) {
+      if (!BUB.visible || Date.now() < BUB.ignoreUntil) return;
+      if (E.bubble.contains(e.target)) return;
+      UI.hideBubble();
+    }, true);
     window.addEventListener('resize', function () { UI.syncPanelToggles(); });
     document.addEventListener('keydown', function (e) {
       var tag = ((e.target && e.target.tagName) || '').toLowerCase();
       var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || !!(e.target && e.target.isContentEditable);
       if (e.key === 'Escape') {
         if (UI.toggleEvidenceMenu(false)) return;
+        if (!modalActive && UI.bubbleVisible()) { e.preventDefault(); UI.hideBubble(); return; }
         if (modalActive && !modalActive.critical) { e.preventDefault(); modalActive.close(undefined); return; }
         if (!modalActive && UI.tacticalVisible()) { e.preventDefault(); UI.tacticalDeselect(); }
         return;
@@ -523,7 +590,7 @@
     E.primary.disabled = !enabled;
     E.primary.classList.toggle('warn', warn);
     E.primary.title = p === PH.PLAN ? 'Space: end the ' + seasonName(s.season) + ' planning phase and run the season' : '';
-    if (E.btnAdvisors) E.btnAdvisors.classList.toggle('pulse', p === PH.PLAN && !E.ui.classList.contains('busy'));
+    /* no auto-pulse on the Advisors button any more: the 3D advisors in town carry the "someone has something to say" signal */
   };
 
   /* ------------------------------------------------------------------ phase / toast / ticker / banner */
@@ -1032,6 +1099,89 @@
       }, 260);
     }, 2000);
   }
+
+  /* ------------------------------------------------------------------ Advisor speech bubbles (3D avatars in town) */
+  var BUB = UI._bubble = { el: null, visible: false, spec: null, ignoreUntil: 0, hideTimer: null, x: NaN, y: NaN, side: 'above' };
+  /**
+   * Show one bubble for an advisor. spec: { id, name, role, color, avatarEmoji, text, actions:[{label,onClick}], onClose }
+   * ≤ 240 px wide: name + one-line role, the text, optional buttons ("Full advice" / "Ask again"). Position it with UI.moveBubble.
+   */
+  UI.showBubble = function (spec) {
+    var E = UI.els, el = E.bubble; if (!el) return null;
+    spec = (spec && typeof spec === 'object') ? spec : { text: String(spec == null ? '' : spec) };
+    if (BUB.hideTimer) { clearTimeout(BUB.hideTimer); BUB.hideTimer = null; }
+    var prev = BUB.spec;
+    if (prev && prev !== spec && typeof prev.onClose === 'function' && BUB.visible && prev.id !== spec.id) { try { prev.onClose('replaced'); } catch (e) { console.error(e); } }
+    BUB.spec = spec;
+    clear(el);
+    var color = spec.color || '#4aa3df';
+    el.style.setProperty('--adv', color);
+    el.dataset.advisor = spec.id || '';
+    el.appendChild(h('span', { class: 'tail', 'aria-hidden': 'true' }));
+    el.appendChild(h('div', { class: 'who' }, [
+      spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null,
+      h('div', { class: 'grow' }, [h('div', { class: 'name' }, spec.name || 'Advisor'), spec.role ? h('div', { class: 'role' }, spec.role) : null]),
+      h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: function () { UI.hideBubble(); } }, '×')
+    ]));
+    el.appendChild(h('div', { class: 'txt' }, String(spec.text == null ? '' : spec.text)));
+    var actions = Array.isArray(spec.actions) ? spec.actions.filter(Boolean) : [];
+    if (actions.length) {
+      el.appendChild(h('div', { class: 'acts' }, actions.map(function (a, i) {
+        return h('button', { class: 'tiny' + (i === 0 ? ' primary' : ''), type: 'button', onclick: function (e) { e.stopPropagation(); try { if (typeof a.onClick === 'function') a.onClick(); } catch (err) { console.error(err); } } }, a.label || 'OK');
+      })));
+    }
+    BUB.ignoreUntil = Date.now() + 300;
+    el.hidden = false;
+    BUB.visible = true;
+    el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+    if (isFinite(BUB.x) && isFinite(BUB.y)) UI.moveBubble(BUB.x, BUB.y, true);
+    else { el.style.left = '50%'; el.style.top = '40%'; }
+    return el;
+  };
+  /** Put the bubble's tail at screen point (sx, sy); clamps to the viewport; hides (keeps state) when !visible. */
+  UI.moveBubble = function (sx, sy, visible) {
+    var el = BUB.el; if (!el || !BUB.spec) return;
+    if (visible === false || !isFinite(Number(sx)) || !isFinite(Number(sy))) { if (!el.hidden) el.classList.add('offscreen'); return; }
+    sx = Number(sx); sy = Number(sy);
+    BUB.x = sx; BUB.y = sy;
+    if (!BUB.visible) return;
+    el.classList.remove('offscreen'); el.hidden = false;
+    var vw = window.innerWidth, vh = window.innerHeight, bw = el.offsetWidth || 240, bh = el.offsetHeight || 120;
+    var gap = 14, pad = 8;
+    var side = (sy - bh - gap < pad) ? 'below' : 'above';
+    var top = side === 'above' ? sy - bh - gap : sy + gap;
+    top = Math.max(pad, Math.min(vh - bh - pad, top));
+    var left = sx - bw / 2;
+    left = Math.max(pad, Math.min(vw - bw - pad, left));
+    var tailX = Math.max(14, Math.min(bw - 14, sx - left));
+    if (el.style.left !== left + 'px') el.style.left = left + 'px';
+    if (el.style.top !== top + 'px') el.style.top = top + 'px';
+    el.style.setProperty('--tail-x', tailX + 'px');
+    if (BUB.side !== side) { BUB.side = side; el.classList.toggle('below', side === 'below'); }
+  };
+  UI.hideBubble = function () {
+    var el = BUB.el, spec = BUB.spec;
+    if (!el || !BUB.visible) return false;
+    BUB.visible = false; BUB.spec = null; BUB.x = NaN; BUB.y = NaN;
+    el.classList.remove('in');
+    el.classList.add('out');
+    BUB.hideTimer = setTimeout(function () { el.hidden = true; el.classList.remove('out'); el.classList.remove('offscreen'); BUB.hideTimer = null; }, 160);
+    if (spec && typeof spec.onClose === 'function') { try { spec.onClose('hidden'); } catch (e) { console.error(e); } }
+    return true;
+  };
+  UI.bubbleVisible = function () { return !!BUB.visible; };
+  UI.bubbleAdvisor = function () { return BUB.visible && BUB.spec ? (BUB.spec.id || null) : null; };
+  /** Small unobtrusive hint near the bottom-left ("Click an advisor in town to hear their take"). null hides it. */
+  UI.setAdvisorHint = function (text) {
+    var el = UI.els.advisorHint; if (!el) return;
+    if (text == null || text === false || text === '') { el.classList.remove('in'); el.hidden = true; return; }
+    clear(el);
+    el.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, '🗣'));
+    el.appendChild(h('span', { class: 'txt' }, String(text)));
+    el.appendChild(h('button', { class: 'x', type: 'button', 'aria-label': 'Dismiss hint', onclick: function () { UI.setAdvisorHint(null); } }, '×'));
+    el.hidden = false;
+    el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+  };
 
   /* ------------------------------------------------------------------ Log tab */
   function logEntryNode(e, idx) {

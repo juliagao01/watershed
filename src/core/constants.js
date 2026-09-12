@@ -48,6 +48,24 @@
       AF_PER_CFS_DAY: 1.9835
     },
 
+    // "Where the numbers come from" — headline figures vs. approximate Colorado references (UI shows this list; wording is deliberately cautious)
+    SOURCES: [
+      { label: 'Population & water use', value: '12,400 people at 118 gpcd (~1,640 AF/yr)', note: 'Colorado municipal systems typically run roughly 100-160 gallons per person per day system-wide; small mountain towns are often 100-130.' },
+      { label: 'Reservoir', value: '42,000 AF, 4,000 AF dead pool', note: 'Comparable to a mid-sized Colorado municipal reservoir (Lemon, Rifle Gap and Vallecito span roughly 14,000-130,000 AF); a dead pool near 10% of capacity is typical.' },
+      { label: 'Watershed yield & snowpack', value: '58 sq mi, ~35,000-37,000 AF/yr, 18 in April-1 SWE', note: 'About 620 AF per sq mi (~12 in of runoff), within the roughly 300-1,000 AF/sq mi seen in high-elevation Colorado headwaters; mountain SNOTEL sites typically peak at 15-30 in of SWE.' },
+      { label: 'Irrigated farms', value: '3,100 acres at 2.6 AF/acre (~8,100 AF/yr)', note: 'Hay and pasture consumptive use in Colorado mountain valleys is roughly 2-3 AF/acre; headgate diversions run higher because much of the water returns to the stream.' },
+      { label: 'Senior rights & minimum flow', value: 'Tribal 1,500 AF/yr; downstream delivery 9,000 AF/yr; instream flow 14 cfs', note: 'Scaled-down stand-ins: settled tribal reserved rights and Colorado River Compact obligations are far larger in reality; CWCB instream-flow rights on small mountain streams are typically about 1-30 cfs.' },
+      { label: 'Annual budget & storm fund', value: '$8.5M/yr resilience budget, $2.0M emergency fund', note: 'A county-scale capital and grant budget for water, fire and flood resilience (~$700 per resident per year); Colorado counties lean heavily on state and federal grants for projects this size.' },
+      { label: 'Forest thinning', value: '$2.8M per forest sector (1,900-3,600 acres)', note: 'Mechanical thinning in Colorado typically costs roughly $1,000-3,000 per acre; the game price treats about the highest-priority half of a sector.' },
+      { label: 'Prescribed burn', value: '$0.6M per burn unit (~2,500 acres)', note: 'Prescribed fire typically runs about $100-500 per acre, cheaper than thinning but weather-limited and with escape risk.' },
+      { label: 'Home hardening', value: '$1.8M per neighborhood (~70 homes)', note: 'Defensible-space and ignition-resistant retrofit grants are typically about $5,000-30,000 per home.' },
+      { label: 'Streamgages & SNOTEL', value: '$1.2M to build, $0.1M/yr upkeep', note: 'Operating a USGS or Colorado DWR streamgage costs roughly $20,000-40,000 per gage per year; the capital cost covers several gages plus snow telemetry.' },
+      { label: 'Wetland restoration', value: '$2.2M for ~150 floodplain acres', note: 'Low-tech beaver-mimicry and floodplain reconnection typically run about $5,000-20,000 per acre; full channel reconstruction costs more.' },
+      { label: 'Treatment & warning system', value: 'Treatment upgrade $3.5M; flood & fire warning $1.0M', note: 'Post-fire treatment upgrades (turbidity, taste-and-odour) for a town this size typically cost several million dollars; ALERT-style gage and siren networks run roughly $0.5-2M.' },
+      { label: 'Flood damage', value: '$0.12M per flooded residential cell', note: 'NFIP claims in Colorado floods have averaged roughly $30,000-60,000 per home; a 2.5-acre cell holds a few homes.' },
+      { label: 'Fire tactics', value: 'Crew points; mutual aid $1.5M', note: 'For scale: a large air-tanker drop costs roughly $10,000-20,000, a dozer line about $2,000-5,000 per 100 m; the mutual-aid fee stands in for a county cost-share on a multi-day incident.' }
+    ],
+
     // rendering conventions (shared by all render modules)
     RENDER: {
       CELL: 1.0,          // scene units per cell

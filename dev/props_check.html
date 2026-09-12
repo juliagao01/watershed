@@ -24,6 +24,12 @@
     <button id="ignite">Ignite / spread</button><button id="finalize">Finalize burn</button><button id="clearfire">Clear fire</button>
     <button id="crops">Crop health −</button><button id="wind">Wind ↻</button>
   </div>
+  <div>
+    <button id="talk">Talk: next advisor</button><button id="alert">Alert: toggle current</button><button id="fly">Fly to current</button>
+    <span id="who"></span>
+  </div>
+  <div class="hint">click the map: logs <code>advisorAt</code> hits below</div>
+  <div id="log" style="white-space:pre;font-family:ui-monospace,monospace;font-size:11px;max-height:120px;overflow:auto"></div>
   <div id="stats"></div>
   <div id="err"></div>
 </div>
@@ -32,6 +38,7 @@
 <script src="../src/core/constants.js"></script>
 <script src="../src/core/rng.js"></script>
 <script src="../src/world/terrain.js" onerror="window.__noTerrain = true"></script>
+<script src="../src/sim/advisors.js" onerror="window.__noAdvisors = true"></script>
 <script src="../src/render/props.js"></script>
 <script>
 (function () {
@@ -209,10 +216,10 @@
 
   // ------------------------------------------------------------ props
   var t0 = performance.now();
-  var props = WS.Props.build(world, scene, { heightAt: heightAt });
+  var props = WS.Props.build(world, scene, { heightAt: heightAt, camera: camera, viewHeight: function () { return innerHeight; } });
   var buildMs = performance.now() - t0;
   props.setWind(state.climate.windDirRad, state.climate.windMph);
-  window.__props = props; window.__world = world; window.__state = state; // console debugging
+  window.__props = props; window.__world = world; window.__state = state; window.__camera = camera; // console debugging
 
   // ------------------------------------------------------------ camera orbit
   var target = new THREE.Vector3(C.toScene(84, 74, 0).x, heightAt(C.toScene(84, 74, 0).x, C.toScene(84, 74, 0).z), C.toScene(84, 74, 0).z), yaw = 0.6, pitch = 0.9, dist = 50;
@@ -249,6 +256,31 @@
   document.getElementById('clearfire').addEventListener('click', function () { state.fire.activeFire = null; fireCells = []; props.setFire([]); });
   document.getElementById('crops').addEventListener('click', function () { for (var i = 0; i < NN; i++) if (world.land[i] === LAND.FARM) world.cropHealth[i] = Math.max(0, world.cropHealth[i] - 0.25); props.refresh(world, state); });
   document.getElementById('wind').addEventListener('click', function () { state.climate.windDirRad += 0.8; state.climate.windMph = 5 + (state.climate.windMph + 12) % 40; props.setWind(state.climate.windDirRad, state.climate.windMph); });
+
+  // ------------------------------------------------------------ advisors
+  var advIds = props.advisors().map(function (a) { return a.id; }), talkIdx = -1, logEl = document.getElementById('log'), whoEl = document.getElementById('who');
+  function log(msg) { logEl.textContent = msg + '\n' + logEl.textContent.split('\n').slice(0, 12).join('\n'); }
+  function current() { return talkIdx >= 0 ? advIds[talkIdx] : null; }
+  document.getElementById('talk').addEventListener('click', function () {
+    talkIdx = (talkIdx + 1) % (advIds.length + 1); if (talkIdx === advIds.length) talkIdx = -1;
+    props.setAdvisorTalking(current()); whoEl.textContent = current() ? 'talking: ' + current() : 'talking: none';
+  });
+  var alertOn = {};
+  document.getElementById('alert').addEventListener('click', function () { var id = current(); if (!id) return; alertOn[id] = !alertOn[id]; props.setAdvisorAlert(id, alertOn[id]); log('alert ' + id + ' ' + alertOn[id]); });
+  document.getElementById('fly').addEventListener('click', function () {
+    var id = current(); if (!id) return; var a = props.advisors().filter(function (x) { return x.id === id; })[0]; if (!a) return;
+    target.copy(a.position); dist = 22; placeCam();
+  });
+  var rc = new THREE.Raycaster(), ndc = new THREE.Vector2(), downAt = null;
+  renderer.domElement.addEventListener('pointerdown', function (e) { downAt = { x: e.clientX, y: e.clientY }; });
+  renderer.domElement.addEventListener('pointerup', function (e) {
+    if (!downAt || Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 5) return; downAt = null;
+    ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); rc.setFromCamera(ndc, camera);
+    var hitId = props.advisorHit(rc), h = rc.intersectObject(terrain)[0];
+    var atId = h ? props.advisorAt(h.point.x, h.point.z, 1.2) : null;
+    log('click → advisorHit=' + hitId + '  advisorAt=' + atId + (h ? '  @ ' + h.point.x.toFixed(1) + ',' + h.point.z.toFixed(1) : ''));
+  });
+  props.advisors().forEach(function (a) { var c = C.sceneToCell(a.position.x, a.position.z); log(a.id + ' home cell ' + c.x + ',' + c.y + ' land=' + C.LAND_NAMES[world.land[c.y * N + c.x]]); });
 
   // ------------------------------------------------------------ loop
   var statsEl = document.getElementById('stats'), last = performance.now(), frames = 0, fpsT = 0, fps = 0;

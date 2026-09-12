@@ -8,9 +8,10 @@
   var R = WS.Renderer = {};
 
   var ctx = null, world = null, state = null;
-  var terrain = null, water = null, props = null, fx = null;
+  var terrain = null, water = null, props = null, fx = null, builds = null;
   var heightAt = null, dom = null;
-  var clickFns = [], hoverFns = [], paintFns = [];
+  var clickFns = [], hoverFns = [], paintFns = [], advClickFns = [], advHoverFns = [];
+  var advHovered = null, advRay = null, advNdc = null, cursorSet = false;
   var hovered = { x: -1, y: -1, i: -1 }, hoverValid = false, lastHoverT = 0;
   var down = { x: 0, y: 0, t: 0, active: false, button: -1 };
   /* tactical paint stroke: Uint8 stamp per stroke (stroke id, array cleared on wrap), pending cells collected into one
@@ -20,7 +21,7 @@
   var pulseSeq = 0, pulseTimer = null, hlOwner = null;
   var placementType = null, overlayMode = 'none', season = 0, seasonClimate = null;
   var lastWind = { dir: 0.8, mph: 8 };
-  var broken = { water: false, props: false, fx: false };
+  var broken = { water: false, props: false, fx: false, builds: false };
   var bound = false;
 
   function num(v, d) { v = +v; return isFinite(v) ? v : d; }
@@ -51,6 +52,43 @@
   }
   function stateSeason() { return (state && isFinite(+state.season)) ? clamp(state.season | 0, 0, 3) : season; }
 
+  /* ---------- advisors ---------- */
+  function advisorUnderPointer(clientX, clientY) {
+    if (!ctx || !props || typeof props.advisorAt !== 'function') return null;
+    var id = null;
+    if (typeof props.advisorHit === 'function' && dom && ctx.camera) {           // raycast the figures first (clicking the head/torso)
+      if (!advRay) { advRay = new THREE.Raycaster(); advNdc = new THREE.Vector2(); }
+      var r = dom.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        advNdc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+        ctx.camera.updateMatrixWorld();
+        advRay.setFromCamera(advNdc, ctx.camera);
+        id = guard('props.advisorHit', function () { return props.advisorHit(advRay); }) || null;
+      }
+    }
+    if (!id) {                                                                   // else nearest figure to the picked terrain point
+      var p = ctx.pick(clientX, clientY, terrain ? terrain.mesh : null);
+      if (p) id = guard('props.advisorAt', function () { return props.advisorAt(p.sx, p.sz, 1.2); }) || null;
+    }
+    return id;
+  }
+  function setAdvisorHover(id) {
+    if (id === advHovered) return;
+    advHovered = id;
+    var el = (ctx && ctx.container) ? ctx.container : dom;
+    if (el && el.style) {
+      if (id) { el.style.cursor = 'pointer'; cursorSet = true; }
+      else if (cursorSet) { el.style.cursor = ''; cursorSet = false; }
+    }
+    for (var i = 0; i < advHoverFns.length; i++) { try { advHoverFns[i](id); } catch (err) { console.error('[Renderer] advisor hover handler failed:', err); } }
+  }
+  function advisorOf(id) {
+    if (!props || typeof props.advisors !== 'function') return null;
+    var list = guard('props.advisors', function () { return props.advisors(); }) || [];
+    for (var k = 0; k < list.length; k++) if (list[k] && list[k].id === id) return list[k];
+    return null;
+  }
+
   /* ---------- pointer → cell events ---------- */
   function emit(fns, cell) {
     for (var i = 0; i < fns.length; i++) { try { fns[i](cell); } catch (err) { console.error('[Renderer] cell handler failed:', err); } }
@@ -59,6 +97,8 @@
     var t = nowMs();
     if (!force && t - lastHoverT < 33) return;
     lastHoverT = t;
+    if (!tactical && !paint.active) setAdvisorHover(advisorUnderPointer(clientX, clientY));
+    else if (advHovered) setAdvisorHover(null);
     var cell = R.pickCell(clientX, clientY);
     if (cell) {
       if (hoverValid && cell.i === hovered.i) return;
@@ -138,6 +178,10 @@
     if (e.pointerType !== 'touch' && e.button !== 0) return;
     var dx = e.clientX - down.x, dy = e.clientY - down.y;
     if (dx * dx + dy * dy > 25 || nowMs() - down.t > 300) return;
+    if (!tactical && advClickFns.length) {
+      var aid = advisorUnderPointer(e.clientX, e.clientY);
+      if (aid) { emit(advClickFns, aid); return; }                                 // advisor click swallows the cell click
+    }
     var cell = R.pickCell(e.clientX, e.clientY);
     if (cell) {
       hovered.x = cell.x; hovered.y = cell.y; hovered.i = cell.i; hoverValid = true;
@@ -159,6 +203,7 @@
   function onPointerCancel() { endPaint(); down.active = false; }
   function onPointerLeave() {
     down.active = false;
+    if (advHovered) setAdvisorHover(null);
     if (paint.active && !(dom && dom.hasPointerCapture && paint.pointerId >= 0 && dom.hasPointerCapture(paint.pointerId))) endPaint();
     if (hoverValid) {
       hoverValid = false; hovered.x = hovered.y = hovered.i = -1;
@@ -214,6 +259,9 @@
     if (fx && fx.update && !broken.fx) {
       try { fx.update(dt, ctx.camera); } catch (err) { broken.fx = true; console.error('[Renderer] fx.update failed; disabled:', err); }
     }
+    if (builds && builds.update && !broken.builds) {
+      try { builds.update(dt); } catch (err) { broken.builds = true; console.error('[Renderer] builds.update failed; disabled:', err); }
+    }
   }
 
   /* ---------- API ---------- */
@@ -240,7 +288,7 @@
       if (water && water.group && !water.group.parent) ctx.scene.add(water.group);
     }
     if (WS.Props && WS.Props.build && world) {
-      props = guard('Props.build', function () { return WS.Props.build(world, ctx.scene, { heightAt: heightAt }); }) || null;
+      props = guard('Props.build', function () { return WS.Props.build(world, ctx.scene, { heightAt: heightAt, camera: ctx.camera, viewHeight: function () { return ctx._h; } }); }) || null;
       if (props && props.group && props.group.isObject3D && !props.group.parent) ctx.scene.add(props.group);
     }
     if (WS.Effects && WS.Effects.init && world) {
@@ -248,6 +296,10 @@
       if (fx && typeof fx.onFogChange === 'function') {
         guard('onFogChange', function () { fx.onFogChange(onFxFog); });
       }
+    }
+    if (WS.Builds && WS.Builds.init && world) {
+      builds = guard('Builds.init', function () { return WS.Builds.init(ctx.scene, world, { props: props, fx: fx, heightAt: heightAt, camera: ctx.camera }); }) || null;
+      if (builds && builds.installed) guard('builds.installed', function () { builds.installed(state, world); });
     }
 
     // initial state
@@ -265,7 +317,7 @@
     return R;
   };
 
-  R.setState = function (s) { state = s || null; };
+  R.setState = function (s) { state = s || null; if (builds && builds.installed) guard('builds.installed', function () { builds.installed(state, world); }); };
 
   R.pickCell = function (clientX, clientY) {
     if (!ctx || !WS.C) return null;
@@ -286,6 +338,36 @@
     return function () { var k = hoverFns.indexOf(fn); if (k >= 0) hoverFns.splice(k, 1); };
   };
   R.getHoveredCell = function () { return hoverValid ? { x: hovered.x, y: hovered.y, i: hovered.i } : null; };
+
+  /* ---------- advisors (people avatars in the scene) ---------- */
+  R.onAdvisorClick = function (fn) {        // fn(id) — a plain click on an advisor figure (not in tactical mode); the cell click is not emitted
+    if (typeof fn !== 'function') return function () {};
+    advClickFns.push(fn);
+    return function () { var k = advClickFns.indexOf(fn); if (k >= 0) advClickFns.splice(k, 1); };
+  };
+  R.onAdvisorHover = function (fn) {        // fn(id|null) — pointer enters/leaves an advisor; cursor becomes a pointer meanwhile
+    if (typeof fn !== 'function') return function () {};
+    advHoverFns.push(fn);
+    return function () { var k = advHoverFns.indexOf(fn); if (k >= 0) advHoverFns.splice(k, 1); };
+  };
+  R.getAdvisors = function () { return (props && typeof props.advisors === 'function') ? (guard('props.advisors', function () { return props.advisors(); }) || []) : []; };
+  R.getHoveredAdvisor = function () { return advHovered; };
+  /* screen position of the advisor's head (+1.9 units): { sx, sy, x, y, visible, dist } (x/y alias sx/sy) or null when unknown */
+  R.advisorScreenPos = function (id) {
+    if (!ctx) return null;
+    var a = advisorOf(id); if (!a || !a.position) return null;
+    var p = ctx.project(a.position.x, a.position.y + 1.9, a.position.z);
+    var dist = ctx.camera ? ctx.camera.position.distanceTo(a.position) : 0;
+    var vis = !!p.visible && p.sx >= 0 && p.sy >= 0 && p.sx <= ctx._w && p.sy <= ctx._h;
+    return { sx: p.sx, sy: p.sy, x: p.sx, y: p.sy, visible: vis, dist: dist };
+  };
+  R.setAdvisorTalking = function (id) { if (props && props.setAdvisorTalking) guard('props.setAdvisorTalking', function () { props.setAdvisorTalking(id == null ? null : String(id)); }); };
+  R.setAdvisorAlert = function (id, on) { if (props && props.setAdvisorAlert) guard('props.setAdvisorAlert', function () { props.setAdvisorAlert(String(id), !!on); }); };
+  R.flyToAdvisor = function (id, dist) {
+    if (!ctx) return;
+    var a = advisorOf(id); if (!a || !a.position) return;
+    ctx.focus(a.position.x, a.position.z, dist == null ? 22 : num(dist, 22), { smooth: true });
+  };
 
   /* ---------- tactical mode (SPEC2 §C) ---------- */
   R.setTacticalMode = function (on) {
@@ -353,7 +435,22 @@
     var sl = snowlineFor(season, seasonClimate);
     if (terrain && terrain.recolor) guard('terrain.recolor', function () { terrain.recolor(world, state, season, { snowlineElev: sl }); });
     if (props && props.refresh) guard('props.refresh', function () { props.refresh(world, state); });
+    if (builds && builds.installed) guard('builds.installed', function () { builds.installed(state, world); });
     if (overlayMode !== 'none' && fx && fx.setOverlay) guard('fx.setOverlay', function () { fx.setOverlay(overlayMode, world, state); });
+  };
+
+  /* Funded-project build scene (WS.Builds): fly the camera to the site (~0.6 s), play the 3–5 s in-world construction,
+     then refresh persistent installations. Always resolves; resolves immediately when Builds is absent or the id is unknown. */
+  R.playBuild = function (projectId, targetZoneId, s) {
+    if (s) state = s;
+    if (!ctx || !builds || !builds.play) return Promise.resolve();
+    var site = guard('builds.siteFor', function () { return builds.siteFor(projectId, targetZoneId); }) || null;
+    var wait = 0;
+    if (site) { R.flyTo(site.x, site.y, site.dist == null ? 30 : site.dist); wait = 650; }
+    return new Promise(function (resolve) { setTimeout(resolve, wait); })
+      .then(function () { return builds.play(projectId, targetZoneId, state); })
+      .catch(function (err) { console.error('[Renderer] playBuild failed:', err); })
+      .then(function () { R.refreshWorld(); });
   };
 
   R.setReservoir = function (fracFull, turbidity, ash) {
@@ -450,6 +547,7 @@
     unbind();
     if (ctx) ctx.stopLoop();
     if (props && props.dispose) guard('props.dispose', function () { props.dispose(); });
+    if (builds && builds.dispose) guard('builds.dispose', function () { builds.dispose(); });
     if (fx && fx.dispose) guard('fx.dispose', function () { fx.dispose(); });
     if (water && water.dispose) guard('water.dispose', function () { water.dispose(); });
     if (terrain) {
@@ -460,13 +558,14 @@
       }
     }
     if (ctx) guard('ctx.dispose', function () { ctx.dispose(); });
-    ctx = null; R._ctx = null; dom = null; terrain = water = props = fx = null; heightAt = null;
+    ctx = null; R._ctx = null; dom = null; terrain = water = props = fx = builds = null; heightAt = null;
     hoverValid = false; hovered.x = hovered.y = hovered.i = -1; down.active = false;
     placementType = null; overlayMode = 'none'; tactical = false; paint.active = false; paint.pending = []; paint.pointerId = -1;
     if (pulseTimer) { clearTimeout(pulseTimer); pulseTimer = null; } hlOwner = null;
-    clickFns.length = 0; hoverFns.length = 0; paintFns.length = 0;
+    clickFns.length = 0; hoverFns.length = 0; paintFns.length = 0; advClickFns.length = 0; advHoverFns.length = 0;
+    advHovered = null; cursorSet = false;
   };
 
   R._ctx = null;
-  R._modules = function () { return { ctx: ctx, terrain: terrain, water: water, props: props, fx: fx, world: world, state: state }; };
+  R._modules = function () { return { ctx: ctx, terrain: terrain, water: water, props: props, fx: fx, builds: builds, world: world, state: state }; };
 })();

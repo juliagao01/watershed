@@ -124,10 +124,10 @@ assert(byId.prescribed_burn.seasonsAllowed.length === 2 && byId.prescribed_burn.
 // budget math
 {
   const st = makeState(), w = makeWorld(), rng = WS.RNG.create(1);
-  assert(P.canFund(st, w, 'streamgages').ok === true, 'canFund streamgages with $12M');
+  assert(P.canFund(st, w, 'streamgages').ok === true, 'canFund streamgages with $8.5M');
   const r = P.fund(st, w, 'streamgages', null, rng);
   assert(r.ok && typeof r.text === 'string', 'fund streamgages ok with text');
-  assert(Math.abs(st.budget - 10.8) < 1e-9, 'budget exactly 12 - 1.2 = 10.8 (got ' + st.budget + ')');
+  assert(Math.abs(st.budget - 7.3) < 1e-9, 'budget exactly 8.5 - 1.2 = 7.3 (got ' + st.budget + ')');
   assert(P.effects(st).sensorCoverage === 1, 'sensorCoverage=1 after streamgages (memo invalidated by _rev)');
   const again = P.canFund(st, w, 'streamgages');
   assert(!again.ok && /funded/i.test(again.reason), 'streamgages cannot be funded twice');
@@ -166,7 +166,7 @@ assert(byId.prescribed_burn.seasonsAllowed.length === 2 && byId.prescribed_burn.
   assert(r.ok, 'thinning funded in ' + z.name);
   const after = zoneMeanFuel(w, z);
   assert(Math.abs(after - before * 0.55) < 1e-4, 'zone fuel multiplied by 0.55 (' + before.toFixed(3) + ' -> ' + after.toFixed(3) + ')');
-  assert(Math.abs(st.budget - (12 - byId.forest_thinning.costM)) < 1e-9, 'thinning cost deducted exactly');
+  assert(Math.abs(st.budget - (8.5 - byId.forest_thinning.costM)) < 1e-9, 'thinning cost deducted exactly');
   assert(P.effects(st).thinnedZones[z.id] === 1, 'thinnedZones strength 1.0');
   assert(!P.canFund(st, w, 'forest_thinning', z.id).ok, 'same zone cannot be re-thinned while fresh');
   assert(P.canFund(st, w, 'forest_thinning', forest[1].id).ok, 'another forest zone can be thinned');
@@ -199,7 +199,7 @@ assert(byId.prescribed_burn.seasonsAllowed.length === 2 && byId.prescribed_burn.
   st.season = C.SEASON.SPRING;
   const b = P.fund(st, w, 'prescribed_burn', forest[2].id, rng);
   assert(b.ok && st.projects.pendingBurn && st.projects.pendingBurn.zoneId === forest[2].id && st.projects.pendingBurn.turn === st.turn, 'prescribed burn sets pendingBurn {zoneId, turn}');
-  assert(Math.abs(st.budget - (12 - byId.prescribed_burn.costM)) < 1e-9, 'prescribed burn charged');
+  assert(Math.abs(st.budget - (8.5 - byId.prescribed_burn.costM)) < 1e-9, 'prescribed burn charged');
   assert(!P.canFund(st, w, 'prescribed_burn', forest[3].id).ok, 'only one pending burn at a time');
   assert(P.fund(st, w, 'home_hardening', nb[0].id, rng).ok && P.effects(st).hardenedZones[nb[0].id] === true, 'home_hardening sets hardenedZones');
   assert(!P.canFund(st, w, 'home_hardening', nb[0].id).ok, 'home_hardening not repeatable in the same neighborhood');
@@ -330,7 +330,7 @@ assert(delayedCards >= 8, 'at least 8 cards schedule delayed consequences (' + d
     const s = makeState(); const r = ch.apply(s, w, rng);
     assert(typeof r.text === 'string' && s.fire.responseBudget >= 0.5 && s.fire.responseBudget <= 1.5, 'fire choice ' + k + ' sets responseBudget in 0.5..1.5 (' + s.fire.responseBudget + ')');
     assert(s.fire.crewFocus === null || ['town', 'watershed', 'farms'].includes(s.fire.crewFocus), 'fire choice ' + k + ' crewFocus valid');
-    assert(Math.abs(s.budget - (12 - ch.costM)) < 1e-9, 'fire choice ' + k + ' charged ' + ch.costM);
+    assert(Math.abs(s.budget - (8.5 - ch.costM)) < 1e-9, 'fire choice ' + k + ' charged ' + ch.costM);
     focuses.push(s.fire.crewFocus);
   });
   assert(focuses.includes('town') && focuses.includes('watershed') && focuses.includes('farms') && focuses.includes(null), 'all four crew focuses available');
