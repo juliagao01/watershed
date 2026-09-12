@@ -37,7 +37,7 @@
       var v = attrs[k];
       if (v == null || v === false) continue;
       if (k === 'class') el.setAttribute('class', v);
-      else if (k === 'style' && typeof v === 'object') { for (var sk in v) el.style[sk] = v[sk]; }
+      else if (k === 'style' && typeof v === 'object') { for (var sk in v) { if (sk.charAt(0) === '-') el.style.setProperty(sk, v[sk]); else el.style[sk] = v[sk]; } }
       else if (k === 'dataset') { for (var d in v) el.dataset[d] = v[d]; }
       else if (k.slice(0, 2) === 'on' && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === 'html') el.innerHTML = v; /* trusted static markup only (icons) */

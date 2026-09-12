@@ -1076,7 +1076,9 @@
     /** merged body: torso, neck, head, hair silhouette, hat, glasses band, chest accessory (legs/arms are separate) */
     function playerBodyGeo(s, c) {
       var p = [], hair = c.hair, hatOn = s.hat && s.hat !== 'none', hs = s.hair;
-      p.push(part(BOX, c.torso, 0, 0.94, 0, 0, 0.44, 0.62, 0.27), part(BOX, c.trim, 0, 0.655, 0, 0, 0.46, 0.07, 0.29));
+      var male = s.body === 'male', bw = male ? 0.52 : 0.4, bd = male ? 0.3 : 0.25;
+      p.push(part(BOX, c.torso, 0, 0.94, 0, 0, bw, 0.62, bd), part(BOX, c.trim, 0, 0.655, 0, 0, bw + 0.02, 0.07, bd + 0.02));
+      if (male) p.push(part(BOX, c.torso, 0, 1.18, 0, 0, bw + 0.14, 0.12, bd));   // shoulders
       p.push(part(CYL8, c.skin, 0, 1.27, 0, 0, 0.14, 0.08, 0.14), part(SPH, c.skin, 0, 1.44, 0, 0, 0.34, 0.36, 0.34));
       // hair: ten styles collapsed to a few silhouettes (big styles shrink to a short cap under a hat)
       if (hatOn && (hs === 'afro' || hs === 'curly' || hs === 'wavy')) hs = 'short';

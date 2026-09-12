@@ -7,6 +7,7 @@
   var WS = root.WS = root.WS || {};
 
   var OPTIONS = {
+    body: ['female', 'male'],
     skin: [{ id: 's1', hex: '#f6d3b8' }, { id: 's2', hex: '#e8b894' }, { id: 's3', hex: '#c98f66' }, { id: 's4', hex: '#a56a45' }, { id: 's5', hex: '#7a4a2e' }, { id: 's6', hex: '#4d2f1e' }],
     hair: ['short', 'buzz', 'curly', 'long', 'ponytail', 'bun', 'braids', 'bald', 'afro', 'wavy'],
     hairColor: [{ id: 'h1', hex: '#2b1d14' }, { id: 'h2', hex: '#5a3a22' }, { id: 'h3', hex: '#a3652f' }, { id: 'h4', hex: '#d9b06a' }, { id: 'h5', hex: '#b5b5b5' }, { id: 'h6', hex: '#c0392b' }],
@@ -20,11 +21,11 @@
     accessory: ['none', 'clipboard', 'binoculars', 'radio', 'scarf']
   };
   var KEYS = Object.keys(OPTIONS);
-  var DEFAULT = { skin: 's2', hair: 'short', hairColor: 'h2', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' };
+  var DEFAULT = { body: 'female', skin: 's2', hair: 'short', hairColor: 'h2', eyes: 'round', brows: 'soft', mouth: 'smile', facialHair: 'none', glasses: 'none', hat: 'none', outfit: 'o1', accessory: 'none' };
   /** Human-readable labels for the creator UI. */
   var LABELS = {
-    skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory',
-    values: { short: 'Short', buzz: 'Buzz', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', braids: 'Braids', bald: 'Bald', afro: 'Afro', wavy: 'Wavy',
+    body: 'Body', skin: 'Skin', hair: 'Hair', hairColor: 'Hair colour', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', facialHair: 'Facial hair', glasses: 'Glasses', hat: 'Hat', outfit: 'Outfit', accessory: 'Accessory',
+    values: { female: 'Female', male: 'Male', short: 'Short', buzz: 'Buzz', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', braids: 'Braids', bald: 'Bald', afro: 'Afro', wavy: 'Wavy',
       round: 'Round', almond: 'Almond', narrow: 'Narrow', soft: 'Soft', straight: 'Straight', arched: 'Arched', smile: 'Smile', neutral: 'Neutral', grin: 'Grin',
       none: 'None', stubble: 'Stubble', beard: 'Beard', moustache: 'Moustache', square: 'Square', sun: 'Sunglasses', cap: 'Cap', widebrim: 'Wide brim', beanie: 'Beanie', helmet: 'Fire helmet', hardhat: 'Hard hat',
       clipboard: 'Clipboard', binoculars: 'Binoculars', radio: 'Radio', scarf: 'Scarf' }
@@ -94,25 +95,31 @@
     else { ctx.save(); ctx.translate(cx, cy); ctx.scale(rx, ry); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.restore(); }
     ctx.closePath();
   }
+  var CUR_BODY = 'female';   /* set by draw() before any path is built */
   function headPath(ctx) {
-    /* slightly narrower jaw than crown: a bezier head rather than a pure ellipse */
-    var cx = HEAD.cx, top = HEAD.cy - HEAD.ry, bottom = HEAD.cy + HEAD.ry;
+    /* slightly narrower jaw than crown: a bezier head rather than a pure ellipse; the jaw is squarer for the male body type */
+    var cx = HEAD.cx, top = HEAD.cy - HEAD.ry, bottom = HEAD.cy + HEAD.ry, male = CUR_BODY === 'male';
+    var jw = male ? 22.5 : 20.5, jl = male ? 21.5 : 18.5, ch = male ? 14 : 10;
     ctx.beginPath();
     ctx.moveTo(cx, top);
-    ctx.bezierCurveTo(cx + 17, top, cx + 23, 30, cx + 21, 46);
-    ctx.bezierCurveTo(cx + 19.5, 60, cx + 11, bottom, cx, bottom);
-    ctx.bezierCurveTo(cx - 11, bottom, cx - 19.5, 60, cx - 21, 46);
+    ctx.bezierCurveTo(cx + 17, top, cx + 23, 30, cx + jw, 46);
+    ctx.bezierCurveTo(cx + jl, 60, cx + ch, bottom, cx, bottom);
+    ctx.bezierCurveTo(cx - ch, bottom, cx - jl, 60, cx - jw, 46);
     ctx.bezierCurveTo(cx - 23, 30, cx - 17, top, cx, top);
     ctx.closePath();
   }
   function bodyPath(ctx) {
+    var male = CUR_BODY === 'male';
     ctx.beginPath();
-    ctx.moveTo(6, 104);
-    ctx.lineTo(8, 90);
-    ctx.bezierCurveTo(10, 79, 22, 75, 36, 73);
-    ctx.lineTo(64, 73);
-    ctx.bezierCurveTo(78, 75, 90, 79, 92, 90);
-    ctx.lineTo(94, 104);
+    if (male) {
+      ctx.moveTo(3, 104); ctx.lineTo(5, 88);
+      ctx.bezierCurveTo(7, 77, 20, 73, 36, 71.5); ctx.lineTo(64, 71.5);
+      ctx.bezierCurveTo(80, 73, 93, 77, 95, 88); ctx.lineTo(97, 104);
+    } else {
+      ctx.moveTo(9, 104); ctx.lineTo(11, 91);
+      ctx.bezierCurveTo(13, 80, 24, 76, 37, 74); ctx.lineTo(63, 74);
+      ctx.bezierCurveTo(76, 76, 87, 80, 89, 91); ctx.lineTo(91, 104);
+    }
     ctx.closePath();
   }
   /** Fill `pathFn` two-tone (base + warm shadow crescent offset by dx,dy) and outline it. */
@@ -534,6 +541,7 @@
     ctx.setTransform(size / 100, 0, 0, size / 100, (W - size) / 2, (Hh - size) / 2);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     var lw = Math.max(1.2, Math.min(3, size / 48)) * 100 / size;   /* ≈ 2 px at 96 px */
+    CUR_BODY = spec.body === 'male' ? 'male' : 'female';
     var skin = hexOf('skin', spec.skin), hc = hexOf('hairColor', spec.hairColor), outfit = hexOf('outfit', spec.outfit);
     var skinDark = shade(skin, 0.18);
 
@@ -544,7 +552,8 @@
     /* 2. hair behind the head (drapes over the shoulders) */
     hairBack(ctx, spec, hc, lw);
     /* 3. neck (shadow under the chin) */
-    twoTone(ctx, function (c) { c.beginPath(); roundRect(c, 43, 58, 14, 20, 3); }, skinDark, shade(skin, 0.36), 0, 5, lw);
+    var nw = CUR_BODY === 'male' ? 17 : 12;
+    twoTone(ctx, function (c) { c.beginPath(); roundRect(c, 50 - nw / 2, 58, nw, 20, 3); }, skinDark, shade(skin, 0.36), 0, 5, lw);
     /* 4. ears */
     [29.5, 70.5].forEach(function (x) {
       twoTone(ctx, function (c) { ellipsePath(c, x, 46.5, 4.2, 5.6); }, skin, skinDark, x < 50 ? 1.5 : -2.5, -1.5, lw);
@@ -558,6 +567,10 @@
     /* 6. features (beard under the mouth, moustache over it) */
     drawFacialHair(ctx, spec, hc, lw, 'beard');
     drawEyes(ctx, spec, lw, expr);
+    if (CUR_BODY === 'female') {   /* eyelashes at the outer corners */
+      ctx.lineWidth = lw * 0.75; ctx.strokeStyle = OUTLINE;
+      [41, 59].forEach(function (x) { var d = x < 50 ? -1 : 1, ox = x + d * 3.7; ctx.beginPath(); ctx.moveTo(ox, 44.6); ctx.lineTo(ox + d * 1.5, 42.8); ctx.moveTo(ox - d * 1.2, 43.2); ctx.lineTo(ox - d * 0.4, 41.6); ctx.stroke(); });
+    }
     drawBrows(ctx, spec, hc, lw, expr);
     drawNose(ctx, lw);
     drawMouth(ctx, spec, lw, expr);
