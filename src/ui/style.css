@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap");
 
 /* ------------------------------------------------------------------
    WATERSHED — UI stylesheet
@@ -1166,3 +1166,20 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 .swatches-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches-row .sw { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; font-family: var(--mono); color: var(--ink-2); }
 .swatches-row .sw i { display: block; width: 44px; height: 28px; border: 1.5px solid var(--ink); background: var(--c); }
+
+/* ---- title screen ------------------------------------------------ */
+#title-screen { position: fixed; inset: 0; z-index: 400; background: var(--paper, #f3ead8); pointer-events: auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#title-screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#title-screen .t-inner { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 18px; transform: translateY(-14vh); }
+#title-screen .t-word { font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(56px, 11vw, 148px); letter-spacing: 0.06em; color: var(--water, #1f6f8b); line-height: 1; display: inline-flex; text-shadow: 0 3px 0 #d9cfb3; }
+#title-screen .t-word span { display: inline-block; animation: t-bob 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * 0.14s); }
+#title-screen .t-sub { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 15px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2, #5d5346); margin-top: -4px; }
+#title-screen .t-play { margin-top: 26px; font-family: "Fredoka", "IBM Plex Sans", system-ui, sans-serif; font-weight: 600; font-size: 22px; letter-spacing: 0.08em; padding: 12px 44px; border-radius: 999px; background: var(--water, #1f6f8b); color: var(--paper, #f3ead8); border: 3px solid var(--ink, #2a241d); cursor: pointer; box-shadow: 0 4px 0 var(--ink, #2a241d); transition: transform 120ms ease, box-shadow 120ms ease; }
+#title-screen .t-play:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ink, #2a241d); }
+#title-screen .t-play:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink, #2a241d); }
+#title-screen .t-play:focus-visible { outline: 3px solid var(--trust, #a8741a); outline-offset: 3px; }
+#title-screen .t-hint { font-size: 12px; color: var(--ink-3, #8a7d6b); letter-spacing: 0.1em; text-transform: uppercase; }
+#title-screen.leaving { animation: t-leave 520ms ease forwards; }
+@keyframes t-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes t-leave { to { opacity: 0; transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { #title-screen .t-word span { animation: none; } #title-screen.leaving { animation: none; } }

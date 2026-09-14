@@ -2,7 +2,7 @@
 <title>Watershed</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap");
 
 /* ------------------------------------------------------------------
    WATERSHED — UI stylesheet
@@ -1170,6 +1170,23 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 .swatches-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches-row .sw { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; font-family: var(--mono); color: var(--ink-2); }
 .swatches-row .sw i { display: block; width: 44px; height: 28px; border: 1.5px solid var(--ink); background: var(--c); }
+
+/* ---- title screen ------------------------------------------------ */
+#title-screen { position: fixed; inset: 0; z-index: 400; background: var(--paper, #f3ead8); pointer-events: auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#title-screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#title-screen .t-inner { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 18px; transform: translateY(-14vh); }
+#title-screen .t-word { font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(56px, 11vw, 148px); letter-spacing: 0.06em; color: var(--water, #1f6f8b); line-height: 1; display: inline-flex; text-shadow: 0 3px 0 #d9cfb3; }
+#title-screen .t-word span { display: inline-block; animation: t-bob 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * 0.14s); }
+#title-screen .t-sub { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 15px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2, #5d5346); margin-top: -4px; }
+#title-screen .t-play { margin-top: 26px; font-family: "Fredoka", "IBM Plex Sans", system-ui, sans-serif; font-weight: 600; font-size: 22px; letter-spacing: 0.08em; padding: 12px 44px; border-radius: 999px; background: var(--water, #1f6f8b); color: var(--paper, #f3ead8); border: 3px solid var(--ink, #2a241d); cursor: pointer; box-shadow: 0 4px 0 var(--ink, #2a241d); transition: transform 120ms ease, box-shadow 120ms ease; }
+#title-screen .t-play:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ink, #2a241d); }
+#title-screen .t-play:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink, #2a241d); }
+#title-screen .t-play:focus-visible { outline: 3px solid var(--trust, #a8741a); outline-offset: 3px; }
+#title-screen .t-hint { font-size: 12px; color: var(--ink-3, #8a7d6b); letter-spacing: 0.1em; text-transform: uppercase; }
+#title-screen.leaving { animation: t-leave 520ms ease forwards; }
+@keyframes t-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes t-leave { to { opacity: 0; transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { #title-screen .t-word span { animation: none; } #title-screen.leaving { animation: none; } }
 
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
@@ -16004,7 +16021,89 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
   };
 
   /* ================================================================== INTRO */
+  /* ================================================================== TITLE SCREEN
+     Opaque paper page: the wordmark in a rounded font, a drop that falls into expanding ripples, Play. */
+  UI.showTitle = function () {
+    return new Promise(function (resolve) {
+      var word = 'WATERSHED';
+      var cv = h('canvas', { 'aria-hidden': 'true' });
+      var letters = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
+        word.split('').map(function (ch, i) { return h('span', { style: { '--i': String(i) }, 'aria-hidden': 'true' }, ch); }));
+      var play = h('button', { type: 'button', class: 't-play', id: 'title-play' }, 'Play');
+      var el = h('div', { id: 'title-screen', role: 'dialog', 'aria-label': 'Watershed title' }, [
+        cv,
+        h('div', { class: 't-inner' }, [letters, h('div', { class: 't-sub' }, 'A Colorado water game'), play, h('div', { class: 't-hint' }, 'Press Enter or Space')])
+      ]);
+      document.body.appendChild(el);
+      try { play.focus(); } catch (e) { /* ignore */ }
+
+      /* --- ripple animation ------------------------------------------------- */
+      var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1), W = 0, H = 0;
+      var reduced = false; try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
+      var ripples = [], drops = [], t0 = 0, raf = 0, nextDrop = 0, alive = true;
+      var ink = '#1f6f8b', paper = '#f3ead8', line = '#d9cfb3';
+      function resize() { W = el.clientWidth || innerWidth; H = el.clientHeight || innerHeight; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+      function spawnDrop(x) { drops.push({ x: x, y: -30, vy: 0, r: 9 + Math.random() * 5 }); }
+      function splash(x, y, big) {
+        var n = big ? 4 : 3;
+        for (var i = 0; i < n; i++) ripples.push({ x: x, y: y, r: 4 + i * 6, v: 55 + i * 12, a: 0.9 - i * 0.18, w: big ? 3 : 2, born: i * 0.12 });
+      }
+      function waterLine() { return H * 0.78; }
+      function frame(ts) {
+        if (!alive) return;
+        if (!t0) t0 = ts;
+        var t = (ts - t0) / 1000, dt = 1 / 60;
+        ctx.clearRect(0, 0, W, H);
+        /* faint contour lines (paper texture) */
+        ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.globalAlpha = 1;
+        for (var c = 0; c < 9; c++) { var yy = 40 + c * (H / 9); ctx.beginPath(); for (var x = 0; x <= W; x += 24) { var y = yy + Math.sin(x * 0.012 + c * 1.7) * 9 + Math.sin(x * 0.03 + c) * 3; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke(); }
+        var wl = waterLine();
+        /* still water surface: a soft band */
+        ctx.fillStyle = '#e4dcc4'; ctx.fillRect(0, wl - 2, W, 4);
+        /* drops */
+        if (!reduced && t > nextDrop) { spawnDrop(W * (0.3 + Math.random() * 0.4)); nextDrop = t + 1.6 + Math.random() * 1.4; }
+        for (var i = drops.length - 1; i >= 0; i--) {
+          var d = drops[i]; d.vy += 900 * dt; d.y += d.vy * dt;
+          ctx.fillStyle = ink; ctx.beginPath(); ctx.moveTo(d.x, d.y - d.r * 1.6); ctx.quadraticCurveTo(d.x + d.r * 1.1, d.y - d.r * 0.2, d.x, d.y + d.r * 0.9); ctx.quadraticCurveTo(d.x - d.r * 1.1, d.y - d.r * 0.2, d.x, d.y - d.r * 1.6); ctx.fill();
+          ctx.fillStyle = paper; ctx.beginPath(); ctx.arc(d.x - d.r * 0.3, d.y - d.r * 0.4, d.r * 0.22, 0, Math.PI * 2); ctx.fill();
+          if (d.y >= wl) { splash(d.x, wl, d.r > 12); drops.splice(i, 1); }
+        }
+        /* ripples: expanding ellipses (perspective-flattened) */
+        for (i = ripples.length - 1; i >= 0; i--) {
+          var rp = ripples[i]; rp.born -= dt; if (rp.born > 0) continue;
+          rp.r += rp.v * dt; rp.a -= dt * 0.32; if (rp.a <= 0) { ripples.splice(i, 1); continue; }
+          ctx.globalAlpha = Math.max(0, rp.a); ctx.strokeStyle = ink; ctx.lineWidth = rp.w;
+          ctx.beginPath(); ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        /* reflection of the word: a rippled mirror hint below the surface */
+        ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = ink; ctx.font = '700 ' + Math.round(Math.min(148, Math.max(56, W * 0.11)) * 0.9) + 'px Fredoka, "IBM Plex Sans", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.translate(W / 2, wl + 8); ctx.scale(1, -0.32);
+        for (var s2 = 0; s2 < 5; s2++) { var off = Math.sin(t * 2.2 + s2) * 3; ctx.fillText(word, off, -s2 * 4); }
+        ctx.restore();
+        raf = requestAnimationFrame(frame);
+      }
+      function finish() {
+        if (!alive) return; alive = false; cancelAnimationFrame(raf);
+        window.removeEventListener('resize', resize); document.removeEventListener('keydown', onKey);
+        el.classList.add('leaving');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); resolve(); }, reduced ? 0 : 520);
+      }
+      function onKey(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); finish(); } }
+      window.addEventListener('resize', resize); document.addEventListener('keydown', onKey);
+      play.addEventListener('click', finish);
+      resize();
+      if (reduced) { /* one static splash so the page still reads */ splash(W / 2, waterLine(), true); ripples.forEach(function (r) { r.born = 0; r.r = 60; }); }
+      raf = requestAnimationFrame(frame);
+      /* the first drop lands right under the word */
+      setTimeout(function () { if (alive) spawnDrop(W / 2); }, 400);
+    });
+  };
+
   UI.showIntro = function () {
+    return UI.showTitle().then(function () { return UI._showSetup(); });
+  };
+  UI._showSetup = function () {
     return UI.modal({
       className: 'intro wide', critical: true,
       render: function (body, close) {

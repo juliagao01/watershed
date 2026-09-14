@@ -445,7 +445,89 @@
   };
 
   /* ================================================================== INTRO */
+  /* ================================================================== TITLE SCREEN
+     Opaque paper page: the wordmark in a rounded font, a drop that falls into expanding ripples, Play. */
+  UI.showTitle = function () {
+    return new Promise(function (resolve) {
+      var word = 'WATERSHED';
+      var cv = h('canvas', { 'aria-hidden': 'true' });
+      var letters = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
+        word.split('').map(function (ch, i) { return h('span', { style: { '--i': String(i) }, 'aria-hidden': 'true' }, ch); }));
+      var play = h('button', { type: 'button', class: 't-play', id: 'title-play' }, 'Play');
+      var el = h('div', { id: 'title-screen', role: 'dialog', 'aria-label': 'Watershed title' }, [
+        cv,
+        h('div', { class: 't-inner' }, [letters, h('div', { class: 't-sub' }, 'A Colorado water game'), play, h('div', { class: 't-hint' }, 'Press Enter or Space')])
+      ]);
+      document.body.appendChild(el);
+      try { play.focus(); } catch (e) { /* ignore */ }
+
+      /* --- ripple animation ------------------------------------------------- */
+      var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1), W = 0, H = 0;
+      var reduced = false; try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
+      var ripples = [], drops = [], t0 = 0, raf = 0, nextDrop = 0, alive = true;
+      var ink = '#1f6f8b', paper = '#f3ead8', line = '#d9cfb3';
+      function resize() { W = el.clientWidth || innerWidth; H = el.clientHeight || innerHeight; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+      function spawnDrop(x) { drops.push({ x: x, y: -30, vy: 0, r: 9 + Math.random() * 5 }); }
+      function splash(x, y, big) {
+        var n = big ? 4 : 3;
+        for (var i = 0; i < n; i++) ripples.push({ x: x, y: y, r: 4 + i * 6, v: 55 + i * 12, a: 0.9 - i * 0.18, w: big ? 3 : 2, born: i * 0.12 });
+      }
+      function waterLine() { return H * 0.78; }
+      function frame(ts) {
+        if (!alive) return;
+        if (!t0) t0 = ts;
+        var t = (ts - t0) / 1000, dt = 1 / 60;
+        ctx.clearRect(0, 0, W, H);
+        /* faint contour lines (paper texture) */
+        ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.globalAlpha = 1;
+        for (var c = 0; c < 9; c++) { var yy = 40 + c * (H / 9); ctx.beginPath(); for (var x = 0; x <= W; x += 24) { var y = yy + Math.sin(x * 0.012 + c * 1.7) * 9 + Math.sin(x * 0.03 + c) * 3; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke(); }
+        var wl = waterLine();
+        /* still water surface: a soft band */
+        ctx.fillStyle = '#e4dcc4'; ctx.fillRect(0, wl - 2, W, 4);
+        /* drops */
+        if (!reduced && t > nextDrop) { spawnDrop(W * (0.3 + Math.random() * 0.4)); nextDrop = t + 1.6 + Math.random() * 1.4; }
+        for (var i = drops.length - 1; i >= 0; i--) {
+          var d = drops[i]; d.vy += 900 * dt; d.y += d.vy * dt;
+          ctx.fillStyle = ink; ctx.beginPath(); ctx.moveTo(d.x, d.y - d.r * 1.6); ctx.quadraticCurveTo(d.x + d.r * 1.1, d.y - d.r * 0.2, d.x, d.y + d.r * 0.9); ctx.quadraticCurveTo(d.x - d.r * 1.1, d.y - d.r * 0.2, d.x, d.y - d.r * 1.6); ctx.fill();
+          ctx.fillStyle = paper; ctx.beginPath(); ctx.arc(d.x - d.r * 0.3, d.y - d.r * 0.4, d.r * 0.22, 0, Math.PI * 2); ctx.fill();
+          if (d.y >= wl) { splash(d.x, wl, d.r > 12); drops.splice(i, 1); }
+        }
+        /* ripples: expanding ellipses (perspective-flattened) */
+        for (i = ripples.length - 1; i >= 0; i--) {
+          var rp = ripples[i]; rp.born -= dt; if (rp.born > 0) continue;
+          rp.r += rp.v * dt; rp.a -= dt * 0.32; if (rp.a <= 0) { ripples.splice(i, 1); continue; }
+          ctx.globalAlpha = Math.max(0, rp.a); ctx.strokeStyle = ink; ctx.lineWidth = rp.w;
+          ctx.beginPath(); ctx.ellipse(rp.x, rp.y, rp.r, rp.r * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        /* reflection of the word: a rippled mirror hint below the surface */
+        ctx.save(); ctx.globalAlpha = 0.14; ctx.fillStyle = ink; ctx.font = '700 ' + Math.round(Math.min(148, Math.max(56, W * 0.11)) * 0.9) + 'px Fredoka, "IBM Plex Sans", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.translate(W / 2, wl + 8); ctx.scale(1, -0.32);
+        for (var s2 = 0; s2 < 5; s2++) { var off = Math.sin(t * 2.2 + s2) * 3; ctx.fillText(word, off, -s2 * 4); }
+        ctx.restore();
+        raf = requestAnimationFrame(frame);
+      }
+      function finish() {
+        if (!alive) return; alive = false; cancelAnimationFrame(raf);
+        window.removeEventListener('resize', resize); document.removeEventListener('keydown', onKey);
+        el.classList.add('leaving');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); resolve(); }, reduced ? 0 : 520);
+      }
+      function onKey(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); finish(); } }
+      window.addEventListener('resize', resize); document.addEventListener('keydown', onKey);
+      play.addEventListener('click', finish);
+      resize();
+      if (reduced) { /* one static splash so the page still reads */ splash(W / 2, waterLine(), true); ripples.forEach(function (r) { r.born = 0; r.r = 60; }); }
+      raf = requestAnimationFrame(frame);
+      /* the first drop lands right under the word */
+      setTimeout(function () { if (alive) spawnDrop(W / 2); }, 400);
+    });
+  };
+
   UI.showIntro = function () {
+    return UI.showTitle().then(function () { return UI._showSetup(); });
+  };
+  UI._showSetup = function () {
     return UI.modal({
       className: 'intro wide', critical: true,
       render: function (body, close) {
