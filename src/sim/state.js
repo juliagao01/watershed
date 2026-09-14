@@ -33,7 +33,8 @@
     var raw = (p.name != null) ? p.name : base.name;
     var name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, PLAYER_NAME_MAX).trim();
     if (!name) name = PLAYER_DEFAULT_NAME;
-    return { name: name, face: normalizeFace(p.face, base.face), title: PLAYER_TITLE };
+    var title = (typeof p.title === 'string' && p.title.trim()) ? p.title.trim().slice(0, 32) : PLAYER_TITLE;   // XP levels rename the title
+    return { name: name, face: normalizeFace(p.face, base.face), title: title };
   }
 
   /** Full default state for the given opts. Every field in SPEC §3 is present. */
@@ -63,6 +64,8 @@
       flags: {},
       stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
       lastSeasonReport: null,
+      quiz: { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] },   // field quiz: question ids asked, score, current / best streak
+      xp: { points: 0, level: 1, grants: 0 },   // field XP from correct quiz answers; levels pay a knowledge grant and a title
       player: defaultPlayer()   // SPEC3 §C: set from the intro creator (main.js), carried by saves
     };
   }
@@ -152,6 +155,10 @@
         s.water.shortage[k] = Math.max(0, num(s.water.shortage[k], 0));
       }
       s.player = normalizePlayer(s.player);
+      if (!isPlain(s.quiz)) s.quiz = defaults({}).quiz;
+      if (!Array.isArray(s.quiz.asked)) s.quiz.asked = [];
+      if (!Array.isArray(s.quiz.lastUnlocked)) s.quiz.lastUnlocked = [];
+      ['correct', 'total', 'streak', 'best'].forEach(function (k) { s.quiz[k] = Math.max(0, Math.round(num(s.quiz[k], 0))); });
       return s;
     },
 

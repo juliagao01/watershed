@@ -1,5 +1,5 @@
 /* Watershed — Case studies. Real Colorado events unlocked by what the player just experienced.
-   Exports WS.CaseStudies = { LIST, byId(id), checkUnlocks(state, world), linkTo(id, state) }. Runs in Node (no DOM).
+   Exports WS.CaseStudies = { LIST, byId(id), checkUnlocks(state, world), linkTo(id, state), pickQuiz(state, rng) }. Runs in Node (no DOM).
    Figures are deliberately approximate ("about", "roughly") and conservative. */
 (function () {
   'use strict';
@@ -201,8 +201,105 @@
     }
   ];
 
+  // ---------------------------------------------------------------- field quiz bank (2 questions per case; q ≤ 20 words, options ≤ 8, why ≤ 16)
+  // Figures repeat the summaries above; nothing here is more precise than its source.
+  var QUIZ = {
+    cameron_peak: [
+      { q: 'Roughly how large was the 2020 Cameron Peak Fire?', options: ['About 20,000 acres', 'About 208,000 acres', 'About 2 million acres'], answer: 1, why: 'About 208,000 acres, the largest wildfire in Colorado history.' },
+      { q: 'What did storms over the Cameron Peak burn scar do to the Poudre River?', options: ['Sent ash and sediment into intakes', 'Raised the snowpack', 'Nothing measurable'], answer: 0, why: 'Ash and debris in 2021 forced utilities to stop drawing river water.' }
+    ],
+    east_troublesome: [
+      { q: 'In October 2020, how far did East Troublesome run in about a day?', options: ['About 2 miles', 'About 17 miles', 'About 90 miles'], answer: 1, why: 'Some 17 miles, growing about 100,000 acres in a single day.' },
+      { q: 'What finally slowed the East Troublesome Fire?', options: ['Snowfall', 'A dozer line', 'The Continental Divide'], answer: 0, why: 'Snow slowed it after it jumped the Divide; about 193,000 acres burned.' }
+    ],
+    marshall: [
+      { q: 'What carried the Marshall Fire on December 30, 2021?', options: ['Dense mountain forest', 'Wind-driven grass, then homes', 'Beetle-killed lodgepole'], answer: 1, why: 'A wind-driven grass fire; homes ignited homes, more than 1,000 destroyed.' },
+      { q: 'About how many homes did the Marshall Fire destroy?', options: ['About 100', 'More than 1,000', 'About 10,000'], answer: 1, why: 'More than 1,000 homes on only about 6,000 acres: Colorado\'s most destructive.' }
+    ],
+    colorado_river: [
+      { q: 'Roughly how many people rely on the Colorado River?', options: ['About 4 million', 'About 40 million', 'About 400 million'], answer: 1, why: 'Roughly 40 million people across seven states and Mexico.' },
+      { q: 'What did the 1922 Colorado River Compact do?', options: ['Split the river between two basins', 'Built Hoover Dam', 'Banned irrigation in Colorado'], answer: 0, why: 'It divided about 15 million acre-feet a year between Upper and Lower Basins.' }
+    ],
+    shoshone: [
+      { q: 'How old is the Shoshone hydro plant\'s senior water right?', options: ['It dates to 1902', 'It dates to 1972', 'It dates to 2023'], answer: 0, why: 'Priority date 1902, about 1,250 cfs, among the river\'s most senior rights.' },
+      { q: 'Why is the Shoshone right called non-consumptive?', options: ['Water returns to the river after the turbines', 'It uses no water at all', 'It runs only in winter'], answer: 0, why: 'Water passes through turbines and returns; a call keeps 1,250 cfs flowing.' }
+    ],
+    monitoring: [
+      { q: 'What does a SNOTEL site measure?', options: ['Snow water equivalent', 'Stream temperature', 'Boat traffic'], answer: 0, why: 'Snow water equivalent at roughly 800 mountain sites feeds April 1 forecasts.' },
+      { q: 'About how many SNOTEL sites are in Colorado?', options: ['About 10', 'More than 100', 'About 5,000'], answer: 1, why: 'More than 100 of roughly 800 western SNOTEL sites are in Colorado.' }
+    ],
+    mussels: [
+      { q: 'How do zebra and quagga mussels mostly spread between lakes?', options: ['On trailered boats', 'Carried by birds', 'Through groundwater'], answer: 0, why: 'Mainly on trailered boats; Colorado has inspected boats since 2008.' },
+      { q: 'What happened at Highline Lake in 2022?', options: ['Adult zebra mussels were confirmed', 'The dam failed', 'It froze solid'], answer: 0, why: 'Colorado\'s first adult zebra mussels, 2022; the lake was drained to fight them.' }
+    ],
+    hayman: [
+      { q: 'Where did Hayman Fire sediment end up?', options: ['Strontia Springs Reservoir', 'Lake Powell', 'The Arkansas River'], answer: 0, why: 'Sediment filled Strontia Springs; Denver Water spent about $27 million.' },
+      { q: 'What did Denver Water start doing after Hayman?', options: ['Co-funding forest thinning upstream', 'Building a new dam', 'Abandoning the South Platte'], answer: 0, why: 'From Forests to Faucets, 2010: paying for thinning beats treating water later.' }
+    ],
+    buffalo_creek: [
+      { q: 'What hit Buffalo Creek two months after its 1996 fire?', options: ['A flash flood', 'A second fire', 'A drought'], answer: 0, why: 'About 2 inches of rain in under an hour caused a deadly flash flood.' },
+      { q: 'Why did an ordinary storm flood Buffalo Creek?', options: ['The burn scar shed water like pavement', 'The dam gates were opened', 'Snowmelt peaked early'], answer: 0, why: 'Bare, water-repellent soil after a 12,000-acre burn sent rain straight downhill.' }
+    ],
+    grizzly_creek: [
+      { q: 'What closed Interstate 70 in Glenwood Canyon in summer 2021?', options: ['Debris flows off the burn scar', 'A rockslide from an earthquake', 'A record snowstorm'], answer: 0, why: 'Monsoon rain on the 2020 scar buried I-70 for about 2 weeks.' },
+      { q: 'What did Glenwood Springs do when ash fouled its creek intakes?', options: ['Switched to other supplies', 'Shut off all water', 'Boiled the river'], answer: 0, why: 'It switched sources temporarily; Grizzly Creek burned about 32,000 acres above town.' }
+    ],
+    flood_2013: [
+      { q: 'Roughly how much rain fell on Boulder in the September 2013 flood week?', options: ['About 2 inches', 'About 17 inches', 'About 60 inches'], answer: 1, why: 'Roughly 17 inches in a week, near Boulder\'s normal annual total.' },
+      { q: 'About how many homes did the 2013 Front Range flood destroy?', options: ['About 18', 'About 1,800', 'About 180,000'], answer: 1, why: 'About 1,800 homes destroyed and at least 8 people killed.' }
+    ],
+    beaver_mimicry: [
+      { q: 'What does a beaver dam analog do to a headwater stream?', options: ['Slows water and raises the water table', 'Speeds water to the reservoir', 'Blocks fish for good'], answer: 0, why: 'Slowed water raises the water table and stores runoff into late summer.' },
+      { q: 'What did 2020 research find about beaver-dammed corridors during wildfires?', options: ['They stayed green while surroundings burned', 'They burned hottest', 'They dried up first'], answer: 0, why: 'A 2020 study found beaver-dammed corridors stayed green through wildfires.' }
+    ]
+  };
+  LIST.forEach(function (cs) { cs.quiz = arr(QUIZ[cs.id]); });
+
   var BY_ID = {};
   LIST.forEach(function (cs) { BY_ID[cs.id] = cs; });
+
+  // ---------------------------------------------------------------- field quiz: one question per season
+  var FIRE_CASES = ['cameron_peak', 'east_troublesome', 'marshall', 'hayman', 'buffalo_creek', 'grizzly_creek'];
+  var FLOOD_CASES = ['flood_2013', 'buffalo_creek', 'grizzly_creek', 'beaver_mimicry'];
+  var DRY_CASES = ['colorado_river', 'shoshone', 'monitoring'];
+  function questionId(cs, i) { return cs.id + ':' + i; }
+  /* cases whose story matches what the season just did: fire → fire cases, a storm → flood cases, a dry year → river / rights / measurement */
+  function relevantCases(state) {
+    var st = obj(state), rep = obj(st.lastSeasonReport), out = [];
+    if (rep.fire || fin(obj(st.fire).seasonAcres) > 0) out = out.concat(FIRE_CASES);
+    if (rep.flood || rep.storm) out = out.concat(FLOOD_CASES);
+    if (droughtLevel(state) >= 2 || fin(climate(state).snowpackPct, 100) < 80) out = out.concat(DRY_CASES);
+    return out;
+  }
+  /** pickQuiz(state, rng) → { id, caseId, caseTitle, q, options, answer, why } | null.
+      Prefers a case unlocked this season (state.quiz.lastUnlocked), then any unlocked case, then a case relevant to the season,
+      else round-robin by turn. A question id (`caseId:index`) in state.quiz.asked is not repeated until every question has been asked.
+      Option order is shuffled with `rng` (deterministic) and `answer` remapped. */
+  function pickQuiz(state, rng) {
+    state = obj(state);
+    var quiz = obj(state.quiz), asked = arr(quiz.asked).map(String);
+    var rnd = (rng && typeof rng.next === 'function') ? rng : null;
+    function pick(list) { return list.length === 1 ? list[0] : list[rnd ? Math.floor(rnd.next() * list.length) : 0]; }
+    function unasked(cs) { return arr(cs.quiz).map(function (q, i) { return i; }).filter(function (i) { return asked.indexOf(questionId(cs, i)) < 0; }); }
+    function open(ids) { return ids.map(function (id) { return BY_ID[String(id)]; }).filter(function (cs) { return cs && unasked(cs).length > 0; }); }
+    var all = LIST.filter(function (cs) { return arr(cs.quiz).length > 0; });
+    if (!all.length) return null;
+    var tiers = [arr(quiz.lastUnlocked), arr(state.unlockedCases), relevantCases(state)], cands = null, i;
+    for (i = 0; i < tiers.length && !cands; i++) { var t = open(tiers[i]); if (t.length) cands = t; }
+    var fresh = false;
+    if (!cands) {
+      var pool = all.filter(function (cs) { return unasked(cs).length > 0; });
+      if (!pool.length) { pool = all; fresh = true; }   // every question asked: start over
+      cands = [pool[Math.max(0, Math.round(fin(state.turn))) % pool.length]];
+    }
+    var cs = pick(cands);
+    var idx = pick(fresh ? arr(cs.quiz).map(function (q, k) { return k; }) : unasked(cs));
+    var q = obj(arr(cs.quiz)[idx]);
+    var order = arr(q.options).map(function (o, k) { return k; });
+    if (rnd) { for (var a = order.length - 1; a > 0; a--) { var b = Math.floor(rnd.next() * (a + 1)); var tmp = order[a]; order[a] = order[b]; order[b] = tmp; } }
+    return { id: questionId(cs, idx), caseId: cs.id, caseTitle: cs.title, q: String(q.q || ''),
+      options: order.map(function (k) { return String(q.options[k]); }), answer: Math.max(0, order.indexOf(fin(q.answer))), why: String(q.why || '') };
+  }
 
   // ---------------------------------------------------------------- API
   function safeUnlock(cs, state, world) {
@@ -228,6 +325,7 @@
     LIST: LIST,
     byId: function (id) { return BY_ID[id] || null; },
     checkUnlocks: checkUnlocks,
-    linkTo: linkTo
+    linkTo: linkTo,
+    pickQuiz: pickQuiz
   };
 })();

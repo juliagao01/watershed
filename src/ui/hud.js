@@ -898,14 +898,17 @@
     var E = UI.els, chip = E.playerChip; if (!chip) return;
     var p = UI.player();
     if (!p) { chip.hidden = true; E.playerChipKey = ''; return; }
-    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face);
+    var xp = (UI.game && typeof UI.game.getXP === 'function') ? UI.game.getXP() : null;
+    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face) + '|' + (xp ? xp.points + ':' + xp.level : '');
     if (key === E.playerChipKey && !chip.hidden) return;
     E.playerChipKey = key;
     clear(chip);
     chip.appendChild(UI.portrait(p.face, 28, { title: p.name }));
-    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name)]));
-    chip.setAttribute('aria-label', p.name + ', ' + p.title + ' — fly to your character');
-    chip.setAttribute('data-tip', p.title + ' · click to fly to your character');
+    var bar = xp ? h('div', { class: 'xpbar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(xp.perLevel), 'aria-valuenow': String(xp.into), 'aria-label': 'Field XP' }, [h('i', { style: { width: Math.round(100 * xp.into / xp.perLevel) + '%' } })]) : null;
+    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), h('div', { class: 'pt' }, xp ? ('Lv ' + xp.level + ' · ' + xp.title) : p.title), bar]));
+    var xpTip = xp ? ' · Level ' + xp.level + ' ' + xp.title + ' · ' + xp.points + ' XP (' + xp.into + '/' + xp.perLevel + ' to next)' : '';
+    chip.setAttribute('aria-label', p.name + ', ' + (xp ? xp.title : p.title) + xpTip + ' — fly to your character');
+    chip.setAttribute('data-tip', (xp ? xp.title : p.title) + xpTip + ' · click to fly to your character');
     chip.hidden = false;
   };
 

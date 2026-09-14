@@ -82,6 +82,7 @@
     timeline: [{ turn: 6, year: 2, season: 2, entries: [{ text: 'A century of suppression left Troublesome Bench at 78% fuel load; the lightning strike found dry, dense fuel and ran 4,120 acres in three days.', kind: 'fire' }, { text: 'Your thinning in Cameron Ridge slowed the western flank; the fire stopped at the treated boundary.', kind: 'good' }] }],
     history: history, unlockedCases: ['cameron_peak', 'streamgages'], seenCases: ['streamgages'],
     flags: {}, stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0.04, hydroMWh: 1800, recreationVisits: 42000 }, lastSeasonReport: null,
+    quiz: { asked: ['cameron_peak:0', 'streamgages:0', 'marshall:1', 'shoshone:0', 'east_troublesome:0', 'cameron_peak:1', 'marshall:0'], correct: 5, total: 7, streak: 2, best: 3, lastUnlocked: [] },
     /* v3: the player character (normally set from the intro creator) */
     player: { name: 'Director Rivera', face: WS.Faces.PRESETS[0].face, title: 'Water-Resilience Director' }
   };
@@ -281,6 +282,11 @@
   });
   btn('Case study', function () { WS.UI.showCaseStudy(WS.CaseStudies.LIST[0]); });
   btn('Cases', function () { WS.UI.showCases(); });
+  btn('Quiz', function () {
+    WS.UI.showQuiz({ id: 'cameron_peak:0', caseId: 'cameron_peak', caseTitle: 'Cameron Peak Fire', q: 'Roughly how large was the 2020 Cameron Peak Fire?',
+      options: ['About 2 million acres', 'About 208,000 acres', 'About 20,000 acres'], answer: 1, why: 'About 208,000 acres, the largest wildfire in Colorado history.' })
+      .then(function (r) { say('quiz → ' + JSON.stringify(r)); });
+  });
   btn('End', function () { WS.UI.showEnd({ R: 71.4, grade: { letter: 'B', title: 'Weathering It' }, outcomes: state.outcomes, highlights: ['Kept the tribal right whole every season.', 'One fire, 4,120 acres, three homes lost.', 'The debris basin paid for itself in a single storm.'], lessons: ['Fuel treatment above the reservoir is water-supply infrastructure.', 'Uncertainty is a cost; gauges are cheap.'], stats: state.stats }); });
   btn('Help', function () { WS.UI.showHelp(); });
   btn('Log', function () { WS.UI.showLog(); });

@@ -21,6 +21,7 @@ const CAP = {
   project: { name: 3, summary: 8, detail: 24, tradeoff: 10, fundText: 12 },
   scoring: { reason: 12, highlight: 10, highlights: 4, lesson: 12, lessons: 3 },
   cases: { lesson: 12, linkTo: 16 },
+  quiz: { q: 20, option: 8, options: 3, why: 16, perCase: 2 },
   main: { timelineEntry: 12, timelinePerSeason: 4, aaHeadline: 8, aaSummary: 14, aaAction: 6, aaLessons: 1, aaLesson: 12, toast: 10, ticker: 8, tutorial: 8, alert: 5, log: 14 }
 };
 const OWNED_LOG_FILES = /src\/(main|sim\/events|sim\/projects|sim\/scoring|sim\/casestudies|sim\/advisors)\.js/;
@@ -169,6 +170,36 @@ function stressedState(seed, world) {
   checkScoringAndCases('fresh', freshState(7), world, {});
   checkScoringAndCases('stressed', stressed, stressedWorld, { flood: { floodedHouses: 6, damageM: 2.4, injuriesRisk: 0.5 }, fire: { acres: 2200, structuresLost: 4 } });
   checkGroup('scoring: reasons ≤ 12; highlights ≤ 10 words × ≤ 4; lessons ≤ 12 words × ≤ 3 — cases: lesson ≤ 12, linkTo ≤ 16');
+
+  /* ---------------------------------------------------------------- field quiz bank (casestudies.js) + pickQuiz output */
+  WS.CaseStudies.LIST.forEach(cs => {
+    const qs = Array.isArray(cs.quiz) ? cs.quiz : [];
+    if (qs.length !== CAP.quiz.perCase) violations.push('quiz ' + cs.id + ': ' + qs.length + ' questions, expected ' + CAP.quiz.perCase);
+    qs.forEach((q, i) => {
+      const tag = cs.id + '[' + i + ']', opts = Array.isArray(q.options) ? q.options : [];
+      check('quiz.q', tag, q.q, CAP.quiz.q);
+      if (opts.length !== CAP.quiz.options) violations.push('quiz ' + tag + ': ' + opts.length + ' options, expected exactly ' + CAP.quiz.options);
+      opts.forEach((o, k) => check('quiz.option', tag + '[' + k + ']', o, CAP.quiz.option));
+      if (!(Number.isInteger(q.answer) && q.answer >= 0 && q.answer < opts.length)) violations.push('quiz ' + tag + ': answer ' + q.answer + ' out of range');
+      if (new Set(opts.map(String)).size !== opts.length) violations.push('quiz ' + tag + ': duplicate options');
+      check('quiz.why', tag, q.why, CAP.quiz.why);
+    });
+  });
+  {
+    const s = freshState(7); s.unlockedCases = ['shoshone']; s.quiz = { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
+    for (let i = 0; i < 6; i++) {
+      const p = WS.CaseStudies.pickQuiz(s, WS.RNG.create(100 + i));
+      if (!p) { violations.push('pickQuiz #' + i + ': returned null'); break; }
+      check('quiz.picked.q', p.id, p.q, CAP.quiz.q);
+      p.options.forEach((o, k) => check('quiz.picked.option', p.id + '[' + k + ']', o, CAP.quiz.option));
+      check('quiz.picked.why', p.id, p.why, CAP.quiz.why);
+      check('quiz.picked.caseTitle', p.id, p.caseTitle, 8);
+      const src = WS.CaseStudies.byId(p.caseId).quiz[+p.id.split(':')[1]];
+      if (p.options[p.answer] !== src.options[src.answer]) violations.push('pickQuiz ' + p.id + ': answer not remapped after shuffle');
+      s.quiz.asked.push(p.id);
+    }
+  }
+  checkGroup('field quiz: 2 per case, q ≤ 20, exactly 3 options ≤ 8, why ≤ 16, answer in range; pickQuiz keeps the caps and remaps the answer');
 
   /* ---------------------------------------------------------------- main.js: headless seasons with a recording UI + log attribution */
   const logs = [];   // { text, file }

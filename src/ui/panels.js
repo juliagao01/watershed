@@ -128,7 +128,7 @@
     tile.appendChild(h('div', { class: 'top' }, [h('span', { class: 'icon', 'aria-hidden': 'true' }, icon(d.icon || 'dot', 22)), UI.info(tip)]));
     tile.appendChild(h('div', { class: 'name', 'data-tip': shortName !== fullName ? fullName : null }, shortName));
     var pips = null;
-    if (maxLevel > 1) {
+    if (maxLevel > 1 && level > 0) {   /* pips only once funded: six empty squares per tile read as a dashed line across the panel */
       pips = h('span', { class: 'pips', role: 'img', 'aria-label': 'Level ' + level + ' of ' + maxLevel, 'data-tip': 'Level ' + level + ' / ' + maxLevel });
       for (var i = 0; i < maxLevel; i++) pips.appendChild(h('i', { class: i < level ? 'on' : '' }));
     }
@@ -900,7 +900,84 @@
     });
   };
 
+  /* ================================================================== FIELD QUIZ (one case-study question after each season report) */
+  /** q: { caseId, caseTitle, q, options:[3 strings], answer, why } → Promise<{ choice, correct }>. Keys 1/2/3 answer, Enter continues. */
+  UI.showQuiz = function (q) {
+    q = (q && typeof q === 'object') ? q : {};
+    var options = safeList(q.options).slice(0, 3).map(String), answer = Math.round(fin(q.answer, 0));
+    if (!options.length) return Promise.resolve({ choice: -1, correct: false });
+    var LETTERS = ['A', 'B', 'C'], s = st();
+    var choice = -1, buttons = [], continueBtn = null, why = null, closeFn = null, onKey = null;
+    function sound(name) { try { if (WS.Sound && typeof WS.Sound.play === 'function') WS.Sound.play(name); } catch (e) { /* silent */ } }
+    function result() { return { choice: choice, correct: choice === answer }; }
+    function finish() { if (choice >= 0 && closeFn) closeFn(result()); }
+    function pick(i) {
+      if (choice >= 0 || i < 0 || i >= options.length) return;
+      choice = i;
+      var ok = i === answer;
+      buttons.forEach(function (b, k) {
+        b.disabled = true;
+        if (k === answer) { b.classList.add('right'); b.setAttribute('aria-label', b.getAttribute('aria-label') + ', correct answer'); }
+        else if (k === i) { b.classList.add('wrong'); b.setAttribute('aria-label', b.getAttribute('aria-label') + ', your answer, wrong'); }
+      });
+      if (why) {
+        clear(why);
+        why.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(ok ? 'check' : 'cross', 14)));
+        why.appendChild(h('span', {}, [h('b', {}, ok ? 'Right.' : 'Not quite.'), String(q.why || '')]));
+        var xpv = q.xp && (ok ? q.xp.onCorrect : q.xp.onWrong);
+        if (xpv && xpv.gain > 0) why.appendChild(h('span', { class: 'chip xp', 'data-tip': xpv.levelUp ? 'Level ' + xpv.level + ' · ' + xpv.title + ' · +$0.5M grant' : xpv.next + ' XP to the next level' }, [icon('star', 11), '+' + xpv.gain + ' XP' + (xpv.levelUp ? ' · Level up!' : '')]));
+        why.classList.toggle('bad', !ok); why.hidden = false;
+      }
+      sound(ok ? 'good' : 'bad');
+      if (continueBtn) { continueBtn.disabled = false; setTimeout(function () { try { continueBtn.focus(); } catch (e) { /* ignore */ } }, 0); }
+    }
+    return UI.modal({
+      icon: 'book', eyebrow: 'Field quiz', title: 'Year ' + fin(s.year, 1) + ' · ' + seasonName(s.season), className: 'narrow quiz', critical: true,
+      render: function (body, close) {
+        closeFn = close;
+        if (q.caseTitle) body.appendChild(h('div', { class: 'case-meta' }, h('span', { class: 'chip trust', 'data-tip': 'From the case study: ' + q.caseTitle }, [icon('book', 11), ' ', UI.cap(q.caseTitle, 5)])));
+        body.appendChild(h('p', { class: 'lead quiz-q' }, String(q.q || '')));
+        var list = h('div', { class: 'quiz-opts', role: 'group', 'aria-label': 'Answers: press 1, 2 or 3' });
+        options.forEach(function (text, i) {
+          var b = h('button', { class: 'quiz-opt', type: 'button', 'data-choice': i, 'aria-label': LETTERS[i] + '. ' + text, 'data-tip': 'Key ' + (i + 1), onclick: function () { pick(i); } },
+            [h('span', { class: 'letter', 'aria-hidden': 'true' }, LETTERS[i]), h('span', { class: 'txt' }, text)]);
+          buttons.push(b); list.appendChild(b);
+        });
+        body.appendChild(list);
+        why = h('div', { class: 'quiz-why', role: 'status', 'aria-live': 'polite', hidden: true });
+        body.appendChild(why);
+        onKey = function (ev) {
+          var tag = (ev.target && ev.target.tagName) || '';
+          if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+          if (choice < 0 && /^[1-3]$/.test(ev.key)) { pick(+ev.key - 1); ev.preventDefault(); ev.stopPropagation(); }
+          else if (choice >= 0 && ev.key === 'Enter') { finish(); ev.preventDefault(); ev.stopPropagation(); }
+          else if (/^[1-4]$/.test(ev.key)) ev.stopPropagation();   /* keep the speed keys out of the quiz */
+        };
+        document.addEventListener('keydown', onKey);
+      },
+      foot: function (foot, close) {
+        var read = h('button', { class: 'ghost', type: 'button', 'data-tip': 'Opens the case study after this quiz', 'aria-label': 'Read the case study ' + (q.caseTitle || '') + ' after this quiz',
+          onclick: function () { read.disabled = true; read.classList.add('queued'); read.appendChild(h('span', {}, [' ', icon('check', 11)])); call('openCaseStudy', [q.caseId]); } }, [icon('book', 12), ' Read the case']);
+        continueBtn = h('button', { class: 'primary', type: 'button', disabled: true, onclick: function () { finish(); } }, ['Continue ', icon('play', 12)]);
+        foot.appendChild(h('span', { class: 'left' }, q.caseId ? read : null));
+        foot.appendChild(continueBtn);
+      },
+      onClose: function () { if (onKey) document.removeEventListener('keydown', onKey); }
+    }).then(function (v) { return (v && typeof v === 'object') ? v : result(); });
+  };
+
   /* ================================================================== END */
+  /** Field-quiz score tile: correct/total (green from 70%); best streak in the tooltip. Nothing when no question was asked. */
+  function knowledgeTile(qz) {
+    qz = (qz && typeof qz === 'object') ? qz : {};
+    var total = Math.round(fin(qz.total)), correct = Math.round(fin(qz.correct)), best = Math.round(fin(qz.best));
+    if (total <= 0) return null;
+    var xp = (UI.game && typeof UI.game.getXP === 'function') ? UI.game.getXP() : null;
+    var el = stat('Knowledge', correct + '/' + total + (xp ? ' · Lv ' + xp.level : ''), null, correct / total >= 0.7 ? 'good' : '');
+    el.setAttribute('data-tip', 'Field quiz: ' + correct + ' of ' + total + ' correct' + (best > 1 ? ' · best streak ' + best : ''));
+    el.setAttribute('aria-label', 'Field quiz: ' + correct + ' of ' + total + ' correct');
+    return el;
+  }
   UI.showEnd = function (summary) {
     summary = summary || {};
     var s = st();
@@ -925,7 +1002,8 @@
           stat('Flood', money(stats.floodDamageM)),
           stat('Sediment', Math.round(fin(stats.sedimentTons)).toLocaleString(), 't'),
           stat('Outage', Math.round(fin(stats.contaminationOutageDays)), 'd'),
-          stat('People', Math.round(fin(s.population)).toLocaleString())
+          stat('People', Math.round(fin(s.population)).toLocaleString()),
+          knowledgeTile(summary.quiz || s.quiz)
         ]));
         /* highlights: ≤ 3 icon rows of ≤ 10 words; lessons behind Details */
         var hl = safeList(summary.highlights).slice(0, 3), ls = safeList(summary.lessons);

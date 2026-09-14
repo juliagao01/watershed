@@ -214,7 +214,7 @@
       return { letter: g[0], title: g[1], R: Math.round(R * 10) / 10 };
     },
 
-    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats } */
+    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz } */
     finalSummary: function (state) {
       state = state || {};
       var o = state.outcomes || {}, stats = state.stats || {}, fire = state.fire || {}, flags = state.flags || {}, hist = Array.isArray(state.history) ? state.history : [];
@@ -234,6 +234,8 @@
       if (fin(stats.floodDamageM, 0) > 0) highlights.push('Floods: $' + r1(stats.floodDamageM).toFixed(1) + 'M damage, ' + Math.round(fin(stats.sedimentTons, 0)).toLocaleString() + ' t sediment' + (fin(stats.contaminationOutageDays, 0) > 0 ? ', ' + Math.round(stats.contaminationOutageDays) + ' outage days' : '') + '.');
       else if (fin(stats.contaminationOutageDays, 0) > 0) highlights.push('Treatment plant offline ' + Math.round(stats.contaminationOutageDays) + ' days from ash.');
       else highlights.push('Hydro ' + Math.round(fin(stats.hydroMWh, 0)).toLocaleString() + ' MWh · ' + Math.round(fin(stats.recreationVisits, 0)).toLocaleString() + ' recreation visits.');
+      var quiz = state.quiz || {};
+      if (fin(quiz.total, 0) > 0) highlights.splice(Math.min(3, highlights.length), 0, 'Field quiz: ' + Math.round(fin(quiz.correct, 0)) + ' of ' + Math.round(fin(quiz.total, 0)) + ' correct' + (fin(quiz.best, 0) >= 3 ? ', best streak ' + Math.round(quiz.best) : '') + '.');
       highlights = highlights.slice(0, 4);
 
       if (fin(o.W, 0) < 60) lessons.push('Water security slipped: leak detection, irrigation and intake protection buy margin early.');
@@ -251,7 +253,8 @@
       return { R: R, grade: g, outcomes: { W: fin(o.W, 0), E: fin(o.E, 0), P: fin(o.P, 0), F: fin(o.F, 0), T: fin(o.T, 0) }, highlights: highlights, lessons: lessons,
         stats: { floodDamageM: fin(stats.floodDamageM, 0), sedimentTons: fin(stats.sedimentTons, 0), contaminationOutageDays: fin(stats.contaminationOutageDays, 0),
           cropLossPct: fin(stats.cropLossPct, 0), hydroMWh: fin(stats.hydroMWh, 0), recreationVisits: fin(stats.recreationVisits, 0),
-          totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed } };
+          totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed },
+        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) } };
     }
   };
 })();

@@ -108,7 +108,7 @@
     return r;
   }
   // UI adapter: every method returns a Promise. Headless: `decide` callbacks answer cards; everything else is a no-op.
-  var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showEnd', 'showHelp', 'toast', 'ticker',
+  var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showQuiz', 'showEnd', 'showHelp', 'toast', 'ticker',
     'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
     // SPEC2 §D tactical HUD / after-action (guarded: missing fns resolve immediately, so crisis loops never stall)
     'showTactical', 'updateTactical', 'hideTactical', 'alert', 'showAfterAction'];
@@ -125,6 +125,13 @@
         try { if (typeof u.decide.card === 'function') idx = u.decide.card(card); } catch (e) { idx = 0; }
         idx = clamp(Math.floor(num(idx, 0)), 0, Math.max(0, ((card && card.choices) || []).length - 1));
         return Promise.resolve(idx);
+      };
+      // field quiz: decide.quiz(q) → option index (optional); the default answers correctly so headless runs stay deterministic
+      u.showQuiz = function (q) {
+        var answer = num(q && q.answer, 0), choice = answer;
+        try { if (typeof u.decide.quiz === 'function') choice = u.decide.quiz(q); } catch (e) { choice = answer; }
+        choice = clamp(Math.floor(num(choice, answer)), 0, Math.max(0, ((q && q.options) || []).length - 1));
+        return Promise.resolve({ choice: choice, correct: choice === answer });
       };
     }
     return u;
@@ -373,7 +380,7 @@
       turnNotes = freshNotes();
       state.year = 1 + Math.floor(state.turn / 4);
       state.season = state.turn % 4;
-      state.trustDelta = 0;
+      state.trustDelta = clamp(num(state.trustDelta, 0), 0, 0.5);   // scoring zeroed it; only last season's field-quiz bonus (+0.5) carries over
       state.fire.seasonAcres = 0;
       state.mitigations = state.mitigations || [];
       var turnRng = rng.fork('turn' + state.turn);
@@ -1275,6 +1282,57 @@
       return out.slice(0, 4);
     }
 
+    /* ---------------------------------------------------- field quiz (one case-study question after every season report) */
+    function firstWords(text, n) { return String(text == null ? '' : text).replace(/\s+/g, ' ').trim().split(' ').slice(0, n).join(' '); }
+    /* Field XP: +10 per correct answer (+5 on a streak of 2+); every 25 XP is a level. Each level pays a $0.5M knowledge
+       grant and a new title on the player chip. */
+    var XP_PER = 10, XP_STREAK = 5, XP_LEVEL = 25, XP_GRANT = 0.5;
+    var XP_TITLES = ['Trainee', 'Ranger', 'Hydrologist', 'Fire Marshal', 'Watershed Steward', 'River Keeper', 'Basin Legend'];
+    function xpState() { if (!state.xp || typeof state.xp !== 'object') state.xp = { points: 0, level: 1, grants: 0 }; return state.xp; }
+    function xpTitle(level) { return XP_TITLES[clamp(Math.round(num(level, 1)) - 1, 0, XP_TITLES.length - 1)]; }
+    function xpPreview(correct, streakBefore) {
+      var x = xpState(), gain = correct ? XP_PER + (streakBefore >= 1 ? XP_STREAK : 0) : 0;
+      var pts = num(x.points) + gain, level = 1 + Math.floor(pts / XP_LEVEL);
+      return { gain: gain, points: pts, level: level, levelUp: level > num(x.level, 1), title: xpTitle(level), next: XP_LEVEL - (pts % XP_LEVEL) };
+    }
+    function xpApply(correct, streakBefore) {
+      var x = xpState(), pv = xpPreview(correct, streakBefore);
+      x.points = pv.points;
+      if (pv.levelUp) {
+        x.level = pv.level; x.grants = num(x.grants) + XP_GRANT;
+        state.budget = Math.round((num(state.budget) + XP_GRANT) * 100) / 100;
+        if (state.player) state.player.title = pv.title;
+        log('Level ' + pv.level + ' ' + pv.title + ': +' + fmtM(XP_GRANT) + ' knowledge grant.', 'good');
+        if (!headless) { ui.alert('Level up: ' + pv.title, 'good'); if (has('Renderer', 'setPlayer') && state.player) renderer.setPlayer(state.player.face, state.player.name); }
+      }
+      return pv;
+    }
+    game.getXP = function () { var x = xpState(); return { points: num(x.points), level: num(x.level, 1), title: xpTitle(x.level), perLevel: XP_LEVEL, into: num(x.points) % XP_LEVEL, grants: num(x.grants) }; };
+    async function runFieldQuiz(turnRng) {
+      if (!has('CaseStudies', 'pickQuiz') || typeof ui.showQuiz !== 'function') return;
+      var quiz = state.quiz = (state.quiz && typeof state.quiz === 'object') ? state.quiz : { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
+      if (!Array.isArray(quiz.asked)) quiz.asked = [];
+      var q = call('CaseStudies', 'pickQuiz', state, turnRng.fork('quiz'));
+      if (!q || !q.id) return;
+      var res = null;
+      q.xp = { onCorrect: xpPreview(true, num(quiz.streak)), onWrong: xpPreview(false, 0) };   // lets the card show "+10 XP" / level-up
+      try { res = await ui.showQuiz(q); } catch (e) { fail('field quiz', e); res = null; }
+      if (!res || typeof res !== 'object' || !isFinite(num(res.choice, NaN))) return;   // dismissed: nothing recorded
+      var correct = Math.round(num(res.choice)) === num(q.answer);
+      quiz.asked.push(String(q.id));
+      quiz.total = num(quiz.total) + 1;
+      var streakBefore = num(quiz.streak);
+      if (correct) { quiz.correct = num(quiz.correct) + 1; quiz.streak = num(quiz.streak) + 1; quiz.best = Math.max(num(quiz.best), quiz.streak); state.trustDelta = num(state.trustDelta) + 0.5; }
+      else quiz.streak = 0;
+      xpApply(correct, streakBefore);
+      if (!headless) refresh();
+      var title = firstWords(q.caseTitle, 6);
+      log('Quiz ' + (correct ? 'correct' : 'missed') + ': ' + title + ' · ' + quiz.correct + ' of ' + quiz.total + '.', correct ? 'good' : 'info');
+      // the season's timeline gets a 5th line; the report keeps its own ≤ 4 entries
+      var tl = state.timeline[state.timeline.length - 1];
+      if (tl && tl.turn === state.turn) { tl.entries = (tl.entries || []).slice(); tl.entries.push({ text: 'Quiz: ' + (correct ? 'correct' : 'missed') + ' — ' + title, kind: correct ? 'good' : 'info', delta: null, priority: 0 }); }
+    }
+
     /* ---------------------------------------------------- endSeason */
     async function endSeasonCore() {
       var turnRng = rng.fork('turn' + state.turn);
@@ -1331,6 +1389,8 @@
       state.unlockedCases = state.unlockedCases || []; state.seenCases = state.seenCases || [];
       newly.forEach(function (id) { if (state.unlockedCases.indexOf(id) < 0) state.unlockedCases.push(id); });
       ctx.unlocked = newly.slice();
+      if (!state.quiz || typeof state.quiz !== 'object') state.quiz = { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
+      state.quiz.lastUnlocked = newly.slice();   // the field quiz prefers a case unlocked this season
 
       // timeline + report
       var entries = buildTimeline(ctx);
@@ -1358,6 +1418,7 @@
         var cs = ((WS.CaseStudies && WS.CaseStudies.LIST) || []).filter(function (c) { return c.id === newly[u]; })[0];
         if (cs) { if (state.seenCases.indexOf(cs.id) < 0) state.seenCases.push(cs.id); try { await ui.showCaseStudy(cs); } catch (e) { fail('case study', e); } }
       }
+      await runFieldQuiz(turnRng);
       renderer.clearMarkers();
       renderer.setFire([], []);
       renderer.setFireIntensity(0);

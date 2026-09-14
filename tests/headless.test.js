@@ -69,6 +69,12 @@ function policy(log) {
     assert(s.resilience >= 0 && s.resilience <= 100, 'seed ' + seed + ': resilience ' + s.resilience.toFixed(1) + ' within 0..100');
     assert(s.timeline.length === YEARS * 4 && s.timeline.every(t => t.entries && t.entries.length >= 1 && t.entries.every(e => typeof e.text === 'string' && e.text.length > 10)), 'seed ' + seed + ': timeline non-empty every turn');
     assert(s.history.length >= YEARS * 4 || !HAS.State, 'seed ' + seed + ': history snapshot every turn' + (HAS.State ? '' : ' (fallback state)'));
+    const qz = s.quiz || {};
+    assert(qz.total === YEARS * 4 && Array.isArray(qz.asked) && qz.asked.length === qz.total, 'seed ' + seed + ': one field-quiz question every season (' + qz.total + ')');
+    const bank = WS.CaseStudies.LIST.reduce((n, cs) => n + ((cs.quiz || []).length), 0);
+    assert(new Set(qz.asked.slice(0, bank)).size === Math.min(bank, qz.asked.length) && qz.asked.every(id => WS.CaseStudies.byId(id.split(':')[0])), 'seed ' + seed + ': no question repeated before the ' + bank + '-question bank was used up');
+    assert(isFinite(qz.correct) && qz.correct === qz.total && qz.best === qz.total && qz.streak === qz.total, 'seed ' + seed + ': default headless answers are right (' + qz.correct + '/' + qz.total + ', streak ' + qz.streak + ')');
+    assert(s.timeline.every(t => t.entries.some(e => /^Quiz: (correct|missed) — /.test(e.text))), 'seed ' + seed + ': every season\'s timeline carries a quiz line');
     const st = drv.stats();
     fires += st.fires; floods += st.floods; storms += st.storms;
     console.log('  seed ' + seed + ': R=' + s.resilience.toFixed(1) + ' fires=' + st.fires + ' storms=' + st.storms + ' floods=' + st.floods + ' cards=' + st.cards + ' burnedAcres=' + Math.round(s.fire.totalAcres) + ' budget=' + s.budget.toFixed(1));
@@ -86,6 +92,7 @@ function policy(log) {
     assert(b.state.turn === a.state.turn && b.state.year === a.state.year, 'deserialize restored turn/year (' + b.state.turn + ')');
     if (HAS.State) assert(Math.abs(b.state.reservoir.storageAF - a.state.reservoir.storageAF) < 1e-6 && JSON.stringify(b.state.outcomes) === JSON.stringify(a.state.outcomes), 'deserialize restored storage/outcomes');
     else skip('deserialize fidelity', 'State');
+    assert(JSON.stringify(b.state.quiz) === JSON.stringify(a.state.quiz) && b.state.quiz.total === 5, 'deserialize restored the quiz record (' + b.state.quiz.total + ' asked)');
     if (a.world && b.world) { let same = true; for (let i = 0; i < a.world.burn.length; i++) if (Math.abs(a.world.burn[i] - b.world.burn[i]) > 0.002) { same = false; break; } assert(same, 'world burn layer survived the round-trip'); }
     for (let i = 0; i < 3; i++) await b.runSeason();
     let e2 = null; try { noNaN(b.state, 'loaded'); } catch (e) { e2 = e; }
@@ -93,6 +100,35 @@ function policy(log) {
     // the driver also exposes load(str)
     const c = WS.Game.createHeadless({ seed: 99, years: 4, decide: policy() }).load(blob);
     assert(c.state.seed === a.state.seed, 'driver.load(str) restores the saved seed');
+  }
+
+  // field quiz: decide.quiz answers, the score in state / finalSummary, and pickQuiz's no-repeat rule
+  {
+    let seen = 0;
+    const dec = policy(); dec.quiz = q => { seen++; return (q.answer + 1) % q.options.length; };   // always wrong
+    const w = WS.Game.createHeadless({ seed: 5, years: 2, decide: dec });
+    await w.runAll();
+    const qz = w.state.quiz;
+    assert(seen === 8 && qz.total === 8 && qz.correct === 0 && qz.streak === 0 && qz.best === 0, 'decide.quiz(q) chooses the option: 8 asked, 0 correct when always wrong');
+    const fs2 = WS.Scoring.finalSummary(w.state);
+    assert(fs2.quiz && fs2.quiz.total === 8 && fs2.highlights.some(h => /^Field quiz: 0 of 8 correct/.test(h)), 'finalSummary carries the quiz score and a "Field quiz: 0 of 8 correct." highlight');
+    assert(w.state.log.filter(l => /^Quiz missed: /.test(l.text)).length === 8, 'a "Quiz missed" log line per season');
+    const dec2 = policy(); dec2.quiz = q => q.answer;
+    const v = WS.Game.createHeadless({ seed: 5, years: 1, decide: dec2 });
+    await v.runSeason(); const t1 = v.state.trustDelta; await v.runSeason();
+    assert(v.state.quiz.correct === 2 && v.state.log.some(l => /^Quiz correct: /.test(l.text)) && t1 === 0.5, 'a correct answer logs "Quiz correct" and queues +0.5 trust for next season');
+    // pickQuiz: 30 draws on one state never repeat a question id until all are used
+    const st0 = WS.State.create({ seed: 1, years: 4 }), ids = [];
+    const bank = WS.CaseStudies.LIST.reduce((n, cs) => n + cs.quiz.length, 0);
+    for (let i = 0; i < 30; i++) { const p = WS.CaseStudies.pickQuiz(st0, WS.RNG.create(i)); if (!p) break; ids.push(p.id); st0.quiz.asked.push(p.id); }
+    assert(ids.length === 30 && new Set(ids.slice(0, bank)).size === bank && ids.slice(0, bank).every(id => st0.quiz.asked.indexOf(id) >= 0), 'pickQuiz: 30 draws, the first ' + bank + ' are all distinct, then it starts over');
+    assert(ids.every(id => { const p = WS.CaseStudies.byId(id.split(':')[0]); return p && p.quiz[+id.split(':')[1]]; }), 'pickQuiz ids resolve to bank questions');
+    // preference: a case unlocked this season comes first, then any unlocked case
+    const st1 = WS.State.create({ seed: 1, years: 4 }); st1.unlockedCases = ['mussels', 'hayman']; st1.quiz.lastUnlocked = ['hayman'];
+    assert(WS.CaseStudies.pickQuiz(st1, WS.RNG.create(1)).caseId === 'hayman', 'pickQuiz prefers a case unlocked this season');
+    st1.quiz.asked = ['hayman:0', 'hayman:1'];
+    assert(WS.CaseStudies.pickQuiz(st1, WS.RNG.create(1)).caseId === 'mussels', 'then falls back to another unlocked case once that one is used up');
+    assert(WS.CaseStudies.pickQuiz({}, null) && WS.CaseStudies.pickQuiz(null, null), 'pickQuiz tolerates an empty state and no rng');
   }
 
   // historical mode

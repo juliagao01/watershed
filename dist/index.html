@@ -321,7 +321,7 @@ input[type="range"] { width: 100%; accent-color: var(--water); height: 22px; mar
 .card .reason { font-size: 11.5px; color: var(--ink-3); flex: 1 1 100%; }
 .card .reason.bad { color: var(--danger); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
-.pips i { width: 8px; height: 8px; border-radius: 1px; background: var(--paper-3); box-shadow: 0 0 0 1px var(--ink-3) inset; }
+.pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--paper-3); box-shadow: 0 0 0 1px var(--ink-3) inset; }
 .pips i.on { background: var(--forest); box-shadow: 0 0 0 1px var(--ink) inset; }
 
 /* water tab */
@@ -884,7 +884,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 
 /* ---- responsive ------------------------------------------------- */
 @media (max-width: 1640px) {
-  .player-chip .pt { display: none; }
+  .player-chip .pt { display: block; }
   .player-chip .pn { max-width: 120px; }
   .brand .sub { display: none; }
 }
@@ -1197,6 +1197,40 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 .gauge .stack, .gauge .drought { display: flex; gap: 3px; }
 .gauge .stack i, .gauge .drought i { flex: 1 1 0; min-width: 0; width: auto; }
 #panel-left .body, #conditions { overflow-x: hidden; }
+
+/* field quiz (one case-study question after each season report) */
+.modal.quiz .stamp { color: var(--forest); border-color: var(--forest); }
+.modal.quiz .quiz-q { font-weight: 600; margin-top: 4px; }
+.quiz-opts { display: flex; flex-direction: column; gap: 8px; }
+.quiz-opt {
+  display: flex; align-items: center; gap: 10px; text-align: left; white-space: normal; width: 100%; padding: 9px 12px; font-size: 13.5px;
+  background: var(--paper-2); border: 1.5px solid var(--ink-3); border-radius: var(--radius-s);
+}
+.quiz-opt:hover:not(:disabled) { border-color: var(--ink); background: var(--paper); }
+.quiz-opt .letter {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--paper);
+  display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; font-weight: 700;
+}
+.quiz-opt .txt { flex: 1 1 auto; }
+.quiz-opt:disabled { opacity: 0.5; }
+.quiz-opt.right, .quiz-opt.wrong { opacity: 1; }
+.quiz-opt.right { border-color: var(--forest); background: var(--forest-tint); color: var(--forest); }
+.quiz-opt.right .letter { border-color: var(--forest); background: var(--forest); color: var(--paper); }
+.quiz-opt.wrong { border-color: var(--danger); background: var(--danger-tint); color: var(--danger); }
+.quiz-opt.wrong .letter { border-color: var(--danger); background: var(--danger); color: var(--paper); }
+.quiz-why { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 8px 10px; font-size: 12.5px; color: var(--ink-2); border-left: 3px solid var(--forest); background: var(--forest-tint); }
+.quiz-why .ic { flex: 0 0 auto; color: var(--forest); margin-top: 1px; display: inline-flex; }
+.quiz-why.bad { border-left-color: var(--danger); background: var(--danger-tint); }
+.quiz-why.bad .ic { color: var(--danger); }
+.quiz-why b { color: var(--ink); margin-right: 4px; }
+.modal.quiz .mfoot .left button { font-size: 12px; }
+.modal.quiz .mfoot .left button.queued { color: var(--forest); }
+
+/* field XP */
+.player-chip .pt { display: block; font-size: 9.5px; }
+.player-chip .xpbar { height: 4px; background: var(--paper-3); border: 1px solid var(--ink); margin-top: 3px; width: 110px; max-width: 100%; }
+.player-chip .xpbar i { display: block; height: 100%; background: var(--trust); }
+.chip.xp { background: var(--trust); color: var(--paper); border-color: var(--ink); margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
 
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
@@ -2187,7 +2221,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var raw = (p.name != null) ? p.name : base.name;
     var name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, PLAYER_NAME_MAX).trim();
     if (!name) name = PLAYER_DEFAULT_NAME;
-    return { name: name, face: normalizeFace(p.face, base.face), title: PLAYER_TITLE };
+    var title = (typeof p.title === 'string' && p.title.trim()) ? p.title.trim().slice(0, 32) : PLAYER_TITLE;   // XP levels rename the title
+    return { name: name, face: normalizeFace(p.face, base.face), title: title };
   }
 
   /** Full default state for the given opts. Every field in SPEC §3 is present. */
@@ -2217,6 +2252,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       flags: {},
       stats: { floodDamageM: 0, sedimentTons: 0, contaminationOutageDays: 0, cropLossPct: 0, hydroMWh: 0, recreationVisits: 0 },
       lastSeasonReport: null,
+      quiz: { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] },   // field quiz: question ids asked, score, current / best streak
+      xp: { points: 0, level: 1, grants: 0 },   // field XP from correct quiz answers; levels pay a knowledge grant and a title
       player: defaultPlayer()   // SPEC3 §C: set from the intro creator (main.js), carried by saves
     };
   }
@@ -2306,6 +2343,10 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
         s.water.shortage[k] = Math.max(0, num(s.water.shortage[k], 0));
       }
       s.player = normalizePlayer(s.player);
+      if (!isPlain(s.quiz)) s.quiz = defaults({}).quiz;
+      if (!Array.isArray(s.quiz.asked)) s.quiz.asked = [];
+      if (!Array.isArray(s.quiz.lastUnlocked)) s.quiz.lastUnlocked = [];
+      ['correct', 'total', 'streak', 'best'].forEach(function (k) { s.quiz[k] = Math.max(0, Math.round(num(s.quiz[k], 0))); });
       return s;
     },
 
@@ -6792,7 +6833,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       return { letter: g[0], title: g[1], R: Math.round(R * 10) / 10 };
     },
 
-    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats } */
+    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz } */
     finalSummary: function (state) {
       state = state || {};
       var o = state.outcomes || {}, stats = state.stats || {}, fire = state.fire || {}, flags = state.flags || {}, hist = Array.isArray(state.history) ? state.history : [];
@@ -6812,6 +6853,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       if (fin(stats.floodDamageM, 0) > 0) highlights.push('Floods: $' + r1(stats.floodDamageM).toFixed(1) + 'M damage, ' + Math.round(fin(stats.sedimentTons, 0)).toLocaleString() + ' t sediment' + (fin(stats.contaminationOutageDays, 0) > 0 ? ', ' + Math.round(stats.contaminationOutageDays) + ' outage days' : '') + '.');
       else if (fin(stats.contaminationOutageDays, 0) > 0) highlights.push('Treatment plant offline ' + Math.round(stats.contaminationOutageDays) + ' days from ash.');
       else highlights.push('Hydro ' + Math.round(fin(stats.hydroMWh, 0)).toLocaleString() + ' MWh · ' + Math.round(fin(stats.recreationVisits, 0)).toLocaleString() + ' recreation visits.');
+      var quiz = state.quiz || {};
+      if (fin(quiz.total, 0) > 0) highlights.splice(Math.min(3, highlights.length), 0, 'Field quiz: ' + Math.round(fin(quiz.correct, 0)) + ' of ' + Math.round(fin(quiz.total, 0)) + ' correct' + (fin(quiz.best, 0) >= 3 ? ', best streak ' + Math.round(quiz.best) : '') + '.');
       highlights = highlights.slice(0, 4);
 
       if (fin(o.W, 0) < 60) lessons.push('Water security slipped: leak detection, irrigation and intake protection buy margin early.');
@@ -6829,7 +6872,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       return { R: R, grade: g, outcomes: { W: fin(o.W, 0), E: fin(o.E, 0), P: fin(o.P, 0), F: fin(o.F, 0), T: fin(o.T, 0) }, highlights: highlights, lessons: lessons,
         stats: { floodDamageM: fin(stats.floodDamageM, 0), sedimentTons: fin(stats.sedimentTons, 0), contaminationOutageDays: fin(stats.contaminationOutageDays, 0),
           cropLossPct: fin(stats.cropLossPct, 0), hydroMWh: fin(stats.hydroMWh, 0), recreationVisits: fin(stats.recreationVisits, 0),
-          totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed } };
+          totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed },
+        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) } };
     }
   };
 })();
@@ -6837,7 +6881,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 </script>
 <script>/* src/sim/casestudies.js */
 /* Watershed — Case studies. Real Colorado events unlocked by what the player just experienced.
-   Exports WS.CaseStudies = { LIST, byId(id), checkUnlocks(state, world), linkTo(id, state) }. Runs in Node (no DOM).
+   Exports WS.CaseStudies = { LIST, byId(id), checkUnlocks(state, world), linkTo(id, state), pickQuiz(state, rng) }. Runs in Node (no DOM).
    Figures are deliberately approximate ("about", "roughly") and conservative. */
 (function () {
   'use strict';
@@ -7039,8 +7083,105 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     }
   ];
 
+  // ---------------------------------------------------------------- field quiz bank (2 questions per case; q ≤ 20 words, options ≤ 8, why ≤ 16)
+  // Figures repeat the summaries above; nothing here is more precise than its source.
+  var QUIZ = {
+    cameron_peak: [
+      { q: 'Roughly how large was the 2020 Cameron Peak Fire?', options: ['About 20,000 acres', 'About 208,000 acres', 'About 2 million acres'], answer: 1, why: 'About 208,000 acres, the largest wildfire in Colorado history.' },
+      { q: 'What did storms over the Cameron Peak burn scar do to the Poudre River?', options: ['Sent ash and sediment into intakes', 'Raised the snowpack', 'Nothing measurable'], answer: 0, why: 'Ash and debris in 2021 forced utilities to stop drawing river water.' }
+    ],
+    east_troublesome: [
+      { q: 'In October 2020, how far did East Troublesome run in about a day?', options: ['About 2 miles', 'About 17 miles', 'About 90 miles'], answer: 1, why: 'Some 17 miles, growing about 100,000 acres in a single day.' },
+      { q: 'What finally slowed the East Troublesome Fire?', options: ['Snowfall', 'A dozer line', 'The Continental Divide'], answer: 0, why: 'Snow slowed it after it jumped the Divide; about 193,000 acres burned.' }
+    ],
+    marshall: [
+      { q: 'What carried the Marshall Fire on December 30, 2021?', options: ['Dense mountain forest', 'Wind-driven grass, then homes', 'Beetle-killed lodgepole'], answer: 1, why: 'A wind-driven grass fire; homes ignited homes, more than 1,000 destroyed.' },
+      { q: 'About how many homes did the Marshall Fire destroy?', options: ['About 100', 'More than 1,000', 'About 10,000'], answer: 1, why: 'More than 1,000 homes on only about 6,000 acres: Colorado\'s most destructive.' }
+    ],
+    colorado_river: [
+      { q: 'Roughly how many people rely on the Colorado River?', options: ['About 4 million', 'About 40 million', 'About 400 million'], answer: 1, why: 'Roughly 40 million people across seven states and Mexico.' },
+      { q: 'What did the 1922 Colorado River Compact do?', options: ['Split the river between two basins', 'Built Hoover Dam', 'Banned irrigation in Colorado'], answer: 0, why: 'It divided about 15 million acre-feet a year between Upper and Lower Basins.' }
+    ],
+    shoshone: [
+      { q: 'How old is the Shoshone hydro plant\'s senior water right?', options: ['It dates to 1902', 'It dates to 1972', 'It dates to 2023'], answer: 0, why: 'Priority date 1902, about 1,250 cfs, among the river\'s most senior rights.' },
+      { q: 'Why is the Shoshone right called non-consumptive?', options: ['Water returns to the river after the turbines', 'It uses no water at all', 'It runs only in winter'], answer: 0, why: 'Water passes through turbines and returns; a call keeps 1,250 cfs flowing.' }
+    ],
+    monitoring: [
+      { q: 'What does a SNOTEL site measure?', options: ['Snow water equivalent', 'Stream temperature', 'Boat traffic'], answer: 0, why: 'Snow water equivalent at roughly 800 mountain sites feeds April 1 forecasts.' },
+      { q: 'About how many SNOTEL sites are in Colorado?', options: ['About 10', 'More than 100', 'About 5,000'], answer: 1, why: 'More than 100 of roughly 800 western SNOTEL sites are in Colorado.' }
+    ],
+    mussels: [
+      { q: 'How do zebra and quagga mussels mostly spread between lakes?', options: ['On trailered boats', 'Carried by birds', 'Through groundwater'], answer: 0, why: 'Mainly on trailered boats; Colorado has inspected boats since 2008.' },
+      { q: 'What happened at Highline Lake in 2022?', options: ['Adult zebra mussels were confirmed', 'The dam failed', 'It froze solid'], answer: 0, why: 'Colorado\'s first adult zebra mussels, 2022; the lake was drained to fight them.' }
+    ],
+    hayman: [
+      { q: 'Where did Hayman Fire sediment end up?', options: ['Strontia Springs Reservoir', 'Lake Powell', 'The Arkansas River'], answer: 0, why: 'Sediment filled Strontia Springs; Denver Water spent about $27 million.' },
+      { q: 'What did Denver Water start doing after Hayman?', options: ['Co-funding forest thinning upstream', 'Building a new dam', 'Abandoning the South Platte'], answer: 0, why: 'From Forests to Faucets, 2010: paying for thinning beats treating water later.' }
+    ],
+    buffalo_creek: [
+      { q: 'What hit Buffalo Creek two months after its 1996 fire?', options: ['A flash flood', 'A second fire', 'A drought'], answer: 0, why: 'About 2 inches of rain in under an hour caused a deadly flash flood.' },
+      { q: 'Why did an ordinary storm flood Buffalo Creek?', options: ['The burn scar shed water like pavement', 'The dam gates were opened', 'Snowmelt peaked early'], answer: 0, why: 'Bare, water-repellent soil after a 12,000-acre burn sent rain straight downhill.' }
+    ],
+    grizzly_creek: [
+      { q: 'What closed Interstate 70 in Glenwood Canyon in summer 2021?', options: ['Debris flows off the burn scar', 'A rockslide from an earthquake', 'A record snowstorm'], answer: 0, why: 'Monsoon rain on the 2020 scar buried I-70 for about 2 weeks.' },
+      { q: 'What did Glenwood Springs do when ash fouled its creek intakes?', options: ['Switched to other supplies', 'Shut off all water', 'Boiled the river'], answer: 0, why: 'It switched sources temporarily; Grizzly Creek burned about 32,000 acres above town.' }
+    ],
+    flood_2013: [
+      { q: 'Roughly how much rain fell on Boulder in the September 2013 flood week?', options: ['About 2 inches', 'About 17 inches', 'About 60 inches'], answer: 1, why: 'Roughly 17 inches in a week, near Boulder\'s normal annual total.' },
+      { q: 'About how many homes did the 2013 Front Range flood destroy?', options: ['About 18', 'About 1,800', 'About 180,000'], answer: 1, why: 'About 1,800 homes destroyed and at least 8 people killed.' }
+    ],
+    beaver_mimicry: [
+      { q: 'What does a beaver dam analog do to a headwater stream?', options: ['Slows water and raises the water table', 'Speeds water to the reservoir', 'Blocks fish for good'], answer: 0, why: 'Slowed water raises the water table and stores runoff into late summer.' },
+      { q: 'What did 2020 research find about beaver-dammed corridors during wildfires?', options: ['They stayed green while surroundings burned', 'They burned hottest', 'They dried up first'], answer: 0, why: 'A 2020 study found beaver-dammed corridors stayed green through wildfires.' }
+    ]
+  };
+  LIST.forEach(function (cs) { cs.quiz = arr(QUIZ[cs.id]); });
+
   var BY_ID = {};
   LIST.forEach(function (cs) { BY_ID[cs.id] = cs; });
+
+  // ---------------------------------------------------------------- field quiz: one question per season
+  var FIRE_CASES = ['cameron_peak', 'east_troublesome', 'marshall', 'hayman', 'buffalo_creek', 'grizzly_creek'];
+  var FLOOD_CASES = ['flood_2013', 'buffalo_creek', 'grizzly_creek', 'beaver_mimicry'];
+  var DRY_CASES = ['colorado_river', 'shoshone', 'monitoring'];
+  function questionId(cs, i) { return cs.id + ':' + i; }
+  /* cases whose story matches what the season just did: fire → fire cases, a storm → flood cases, a dry year → river / rights / measurement */
+  function relevantCases(state) {
+    var st = obj(state), rep = obj(st.lastSeasonReport), out = [];
+    if (rep.fire || fin(obj(st.fire).seasonAcres) > 0) out = out.concat(FIRE_CASES);
+    if (rep.flood || rep.storm) out = out.concat(FLOOD_CASES);
+    if (droughtLevel(state) >= 2 || fin(climate(state).snowpackPct, 100) < 80) out = out.concat(DRY_CASES);
+    return out;
+  }
+  /** pickQuiz(state, rng) → { id, caseId, caseTitle, q, options, answer, why } | null.
+      Prefers a case unlocked this season (state.quiz.lastUnlocked), then any unlocked case, then a case relevant to the season,
+      else round-robin by turn. A question id (`caseId:index`) in state.quiz.asked is not repeated until every question has been asked.
+      Option order is shuffled with `rng` (deterministic) and `answer` remapped. */
+  function pickQuiz(state, rng) {
+    state = obj(state);
+    var quiz = obj(state.quiz), asked = arr(quiz.asked).map(String);
+    var rnd = (rng && typeof rng.next === 'function') ? rng : null;
+    function pick(list) { return list.length === 1 ? list[0] : list[rnd ? Math.floor(rnd.next() * list.length) : 0]; }
+    function unasked(cs) { return arr(cs.quiz).map(function (q, i) { return i; }).filter(function (i) { return asked.indexOf(questionId(cs, i)) < 0; }); }
+    function open(ids) { return ids.map(function (id) { return BY_ID[String(id)]; }).filter(function (cs) { return cs && unasked(cs).length > 0; }); }
+    var all = LIST.filter(function (cs) { return arr(cs.quiz).length > 0; });
+    if (!all.length) return null;
+    var tiers = [arr(quiz.lastUnlocked), arr(state.unlockedCases), relevantCases(state)], cands = null, i;
+    for (i = 0; i < tiers.length && !cands; i++) { var t = open(tiers[i]); if (t.length) cands = t; }
+    var fresh = false;
+    if (!cands) {
+      var pool = all.filter(function (cs) { return unasked(cs).length > 0; });
+      if (!pool.length) { pool = all; fresh = true; }   // every question asked: start over
+      cands = [pool[Math.max(0, Math.round(fin(state.turn))) % pool.length]];
+    }
+    var cs = pick(cands);
+    var idx = pick(fresh ? arr(cs.quiz).map(function (q, k) { return k; }) : unasked(cs));
+    var q = obj(arr(cs.quiz)[idx]);
+    var order = arr(q.options).map(function (o, k) { return k; });
+    if (rnd) { for (var a = order.length - 1; a > 0; a--) { var b = Math.floor(rnd.next() * (a + 1)); var tmp = order[a]; order[a] = order[b]; order[b] = tmp; } }
+    return { id: questionId(cs, idx), caseId: cs.id, caseTitle: cs.title, q: String(q.q || ''),
+      options: order.map(function (k) { return String(q.options[k]); }), answer: Math.max(0, order.indexOf(fin(q.answer))), why: String(q.why || '') };
+  }
 
   // ---------------------------------------------------------------- API
   function safeUnlock(cs, state, world) {
@@ -7066,7 +7207,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     LIST: LIST,
     byId: function (id) { return BY_ID[id] || null; },
     checkUnlocks: checkUnlocks,
-    linkTo: linkTo
+    linkTo: linkTo,
+    pickQuiz: pickQuiz
   };
 })();
 
@@ -14996,14 +15138,17 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var E = UI.els, chip = E.playerChip; if (!chip) return;
     var p = UI.player();
     if (!p) { chip.hidden = true; E.playerChipKey = ''; return; }
-    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face);
+    var xp = (UI.game && typeof UI.game.getXP === 'function') ? UI.game.getXP() : null;
+    var key = p.name + '|' + p.title + '|' + JSON.stringify(p.face) + '|' + (xp ? xp.points + ':' + xp.level : '');
     if (key === E.playerChipKey && !chip.hidden) return;
     E.playerChipKey = key;
     clear(chip);
     chip.appendChild(UI.portrait(p.face, 28, { title: p.name }));
-    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name)]));
-    chip.setAttribute('aria-label', p.name + ', ' + p.title + ' — fly to your character');
-    chip.setAttribute('data-tip', p.title + ' · click to fly to your character');
+    var bar = xp ? h('div', { class: 'xpbar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(xp.perLevel), 'aria-valuenow': String(xp.into), 'aria-label': 'Field XP' }, [h('i', { style: { width: Math.round(100 * xp.into / xp.perLevel) + '%' } })]) : null;
+    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), h('div', { class: 'pt' }, xp ? ('Lv ' + xp.level + ' · ' + xp.title) : p.title), bar]));
+    var xpTip = xp ? ' · Level ' + xp.level + ' ' + xp.title + ' · ' + xp.points + ' XP (' + xp.into + '/' + xp.perLevel + ' to next)' : '';
+    chip.setAttribute('aria-label', p.name + ', ' + (xp ? xp.title : p.title) + xpTip + ' — fly to your character');
+    chip.setAttribute('data-tip', (xp ? xp.title : p.title) + xpTip + ' · click to fly to your character');
     chip.hidden = false;
   };
 
@@ -15714,7 +15859,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     tile.appendChild(h('div', { class: 'top' }, [h('span', { class: 'icon', 'aria-hidden': 'true' }, icon(d.icon || 'dot', 22)), UI.info(tip)]));
     tile.appendChild(h('div', { class: 'name', 'data-tip': shortName !== fullName ? fullName : null }, shortName));
     var pips = null;
-    if (maxLevel > 1) {
+    if (maxLevel > 1 && level > 0) {   /* pips only once funded: six empty squares per tile read as a dashed line across the panel */
       pips = h('span', { class: 'pips', role: 'img', 'aria-label': 'Level ' + level + ' of ' + maxLevel, 'data-tip': 'Level ' + level + ' / ' + maxLevel });
       for (var i = 0; i < maxLevel; i++) pips.appendChild(h('i', { class: i < level ? 'on' : '' }));
     }
@@ -16486,7 +16631,84 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     });
   };
 
+  /* ================================================================== FIELD QUIZ (one case-study question after each season report) */
+  /** q: { caseId, caseTitle, q, options:[3 strings], answer, why } → Promise<{ choice, correct }>. Keys 1/2/3 answer, Enter continues. */
+  UI.showQuiz = function (q) {
+    q = (q && typeof q === 'object') ? q : {};
+    var options = safeList(q.options).slice(0, 3).map(String), answer = Math.round(fin(q.answer, 0));
+    if (!options.length) return Promise.resolve({ choice: -1, correct: false });
+    var LETTERS = ['A', 'B', 'C'], s = st();
+    var choice = -1, buttons = [], continueBtn = null, why = null, closeFn = null, onKey = null;
+    function sound(name) { try { if (WS.Sound && typeof WS.Sound.play === 'function') WS.Sound.play(name); } catch (e) { /* silent */ } }
+    function result() { return { choice: choice, correct: choice === answer }; }
+    function finish() { if (choice >= 0 && closeFn) closeFn(result()); }
+    function pick(i) {
+      if (choice >= 0 || i < 0 || i >= options.length) return;
+      choice = i;
+      var ok = i === answer;
+      buttons.forEach(function (b, k) {
+        b.disabled = true;
+        if (k === answer) { b.classList.add('right'); b.setAttribute('aria-label', b.getAttribute('aria-label') + ', correct answer'); }
+        else if (k === i) { b.classList.add('wrong'); b.setAttribute('aria-label', b.getAttribute('aria-label') + ', your answer, wrong'); }
+      });
+      if (why) {
+        clear(why);
+        why.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(ok ? 'check' : 'cross', 14)));
+        why.appendChild(h('span', {}, [h('b', {}, ok ? 'Right.' : 'Not quite.'), String(q.why || '')]));
+        var xpv = q.xp && (ok ? q.xp.onCorrect : q.xp.onWrong);
+        if (xpv && xpv.gain > 0) why.appendChild(h('span', { class: 'chip xp', 'data-tip': xpv.levelUp ? 'Level ' + xpv.level + ' · ' + xpv.title + ' · +$0.5M grant' : xpv.next + ' XP to the next level' }, [icon('star', 11), '+' + xpv.gain + ' XP' + (xpv.levelUp ? ' · Level up!' : '')]));
+        why.classList.toggle('bad', !ok); why.hidden = false;
+      }
+      sound(ok ? 'good' : 'bad');
+      if (continueBtn) { continueBtn.disabled = false; setTimeout(function () { try { continueBtn.focus(); } catch (e) { /* ignore */ } }, 0); }
+    }
+    return UI.modal({
+      icon: 'book', eyebrow: 'Field quiz', title: 'Year ' + fin(s.year, 1) + ' · ' + seasonName(s.season), className: 'narrow quiz', critical: true,
+      render: function (body, close) {
+        closeFn = close;
+        if (q.caseTitle) body.appendChild(h('div', { class: 'case-meta' }, h('span', { class: 'chip trust', 'data-tip': 'From the case study: ' + q.caseTitle }, [icon('book', 11), ' ', UI.cap(q.caseTitle, 5)])));
+        body.appendChild(h('p', { class: 'lead quiz-q' }, String(q.q || '')));
+        var list = h('div', { class: 'quiz-opts', role: 'group', 'aria-label': 'Answers: press 1, 2 or 3' });
+        options.forEach(function (text, i) {
+          var b = h('button', { class: 'quiz-opt', type: 'button', 'data-choice': i, 'aria-label': LETTERS[i] + '. ' + text, 'data-tip': 'Key ' + (i + 1), onclick: function () { pick(i); } },
+            [h('span', { class: 'letter', 'aria-hidden': 'true' }, LETTERS[i]), h('span', { class: 'txt' }, text)]);
+          buttons.push(b); list.appendChild(b);
+        });
+        body.appendChild(list);
+        why = h('div', { class: 'quiz-why', role: 'status', 'aria-live': 'polite', hidden: true });
+        body.appendChild(why);
+        onKey = function (ev) {
+          var tag = (ev.target && ev.target.tagName) || '';
+          if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+          if (choice < 0 && /^[1-3]$/.test(ev.key)) { pick(+ev.key - 1); ev.preventDefault(); ev.stopPropagation(); }
+          else if (choice >= 0 && ev.key === 'Enter') { finish(); ev.preventDefault(); ev.stopPropagation(); }
+          else if (/^[1-4]$/.test(ev.key)) ev.stopPropagation();   /* keep the speed keys out of the quiz */
+        };
+        document.addEventListener('keydown', onKey);
+      },
+      foot: function (foot, close) {
+        var read = h('button', { class: 'ghost', type: 'button', 'data-tip': 'Opens the case study after this quiz', 'aria-label': 'Read the case study ' + (q.caseTitle || '') + ' after this quiz',
+          onclick: function () { read.disabled = true; read.classList.add('queued'); read.appendChild(h('span', {}, [' ', icon('check', 11)])); call('openCaseStudy', [q.caseId]); } }, [icon('book', 12), ' Read the case']);
+        continueBtn = h('button', { class: 'primary', type: 'button', disabled: true, onclick: function () { finish(); } }, ['Continue ', icon('play', 12)]);
+        foot.appendChild(h('span', { class: 'left' }, q.caseId ? read : null));
+        foot.appendChild(continueBtn);
+      },
+      onClose: function () { if (onKey) document.removeEventListener('keydown', onKey); }
+    }).then(function (v) { return (v && typeof v === 'object') ? v : result(); });
+  };
+
   /* ================================================================== END */
+  /** Field-quiz score tile: correct/total (green from 70%); best streak in the tooltip. Nothing when no question was asked. */
+  function knowledgeTile(qz) {
+    qz = (qz && typeof qz === 'object') ? qz : {};
+    var total = Math.round(fin(qz.total)), correct = Math.round(fin(qz.correct)), best = Math.round(fin(qz.best));
+    if (total <= 0) return null;
+    var xp = (UI.game && typeof UI.game.getXP === 'function') ? UI.game.getXP() : null;
+    var el = stat('Knowledge', correct + '/' + total + (xp ? ' · Lv ' + xp.level : ''), null, correct / total >= 0.7 ? 'good' : '');
+    el.setAttribute('data-tip', 'Field quiz: ' + correct + ' of ' + total + ' correct' + (best > 1 ? ' · best streak ' + best : ''));
+    el.setAttribute('aria-label', 'Field quiz: ' + correct + ' of ' + total + ' correct');
+    return el;
+  }
   UI.showEnd = function (summary) {
     summary = summary || {};
     var s = st();
@@ -16511,7 +16733,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
           stat('Flood', money(stats.floodDamageM)),
           stat('Sediment', Math.round(fin(stats.sedimentTons)).toLocaleString(), 't'),
           stat('Outage', Math.round(fin(stats.contaminationOutageDays)), 'd'),
-          stat('People', Math.round(fin(s.population)).toLocaleString())
+          stat('People', Math.round(fin(s.population)).toLocaleString()),
+          knowledgeTile(summary.quiz || s.quiz)
         ]));
         /* highlights: ≤ 3 icon rows of ≤ 10 words; lessons behind Details */
         var hl = safeList(summary.highlights).slice(0, 3), ls = safeList(summary.lessons);
@@ -17622,7 +17845,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     return r;
   }
   // UI adapter: every method returns a Promise. Headless: `decide` callbacks answer cards; everything else is a no-op.
-  var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showEnd', 'showHelp', 'toast', 'ticker',
+  var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showQuiz', 'showEnd', 'showHelp', 'toast', 'ticker',
     'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
     // SPEC2 §D tactical HUD / after-action (guarded: missing fns resolve immediately, so crisis loops never stall)
     'showTactical', 'updateTactical', 'hideTactical', 'alert', 'showAfterAction'];
@@ -17639,6 +17862,13 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
         try { if (typeof u.decide.card === 'function') idx = u.decide.card(card); } catch (e) { idx = 0; }
         idx = clamp(Math.floor(num(idx, 0)), 0, Math.max(0, ((card && card.choices) || []).length - 1));
         return Promise.resolve(idx);
+      };
+      // field quiz: decide.quiz(q) → option index (optional); the default answers correctly so headless runs stay deterministic
+      u.showQuiz = function (q) {
+        var answer = num(q && q.answer, 0), choice = answer;
+        try { if (typeof u.decide.quiz === 'function') choice = u.decide.quiz(q); } catch (e) { choice = answer; }
+        choice = clamp(Math.floor(num(choice, answer)), 0, Math.max(0, ((q && q.options) || []).length - 1));
+        return Promise.resolve({ choice: choice, correct: choice === answer });
       };
     }
     return u;
@@ -17887,7 +18117,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       turnNotes = freshNotes();
       state.year = 1 + Math.floor(state.turn / 4);
       state.season = state.turn % 4;
-      state.trustDelta = 0;
+      state.trustDelta = clamp(num(state.trustDelta, 0), 0, 0.5);   // scoring zeroed it; only last season's field-quiz bonus (+0.5) carries over
       state.fire.seasonAcres = 0;
       state.mitigations = state.mitigations || [];
       var turnRng = rng.fork('turn' + state.turn);
@@ -18789,6 +19019,57 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       return out.slice(0, 4);
     }
 
+    /* ---------------------------------------------------- field quiz (one case-study question after every season report) */
+    function firstWords(text, n) { return String(text == null ? '' : text).replace(/\s+/g, ' ').trim().split(' ').slice(0, n).join(' '); }
+    /* Field XP: +10 per correct answer (+5 on a streak of 2+); every 25 XP is a level. Each level pays a $0.5M knowledge
+       grant and a new title on the player chip. */
+    var XP_PER = 10, XP_STREAK = 5, XP_LEVEL = 25, XP_GRANT = 0.5;
+    var XP_TITLES = ['Trainee', 'Ranger', 'Hydrologist', 'Fire Marshal', 'Watershed Steward', 'River Keeper', 'Basin Legend'];
+    function xpState() { if (!state.xp || typeof state.xp !== 'object') state.xp = { points: 0, level: 1, grants: 0 }; return state.xp; }
+    function xpTitle(level) { return XP_TITLES[clamp(Math.round(num(level, 1)) - 1, 0, XP_TITLES.length - 1)]; }
+    function xpPreview(correct, streakBefore) {
+      var x = xpState(), gain = correct ? XP_PER + (streakBefore >= 1 ? XP_STREAK : 0) : 0;
+      var pts = num(x.points) + gain, level = 1 + Math.floor(pts / XP_LEVEL);
+      return { gain: gain, points: pts, level: level, levelUp: level > num(x.level, 1), title: xpTitle(level), next: XP_LEVEL - (pts % XP_LEVEL) };
+    }
+    function xpApply(correct, streakBefore) {
+      var x = xpState(), pv = xpPreview(correct, streakBefore);
+      x.points = pv.points;
+      if (pv.levelUp) {
+        x.level = pv.level; x.grants = num(x.grants) + XP_GRANT;
+        state.budget = Math.round((num(state.budget) + XP_GRANT) * 100) / 100;
+        if (state.player) state.player.title = pv.title;
+        log('Level ' + pv.level + ' ' + pv.title + ': +' + fmtM(XP_GRANT) + ' knowledge grant.', 'good');
+        if (!headless) { ui.alert('Level up: ' + pv.title, 'good'); if (has('Renderer', 'setPlayer') && state.player) renderer.setPlayer(state.player.face, state.player.name); }
+      }
+      return pv;
+    }
+    game.getXP = function () { var x = xpState(); return { points: num(x.points), level: num(x.level, 1), title: xpTitle(x.level), perLevel: XP_LEVEL, into: num(x.points) % XP_LEVEL, grants: num(x.grants) }; };
+    async function runFieldQuiz(turnRng) {
+      if (!has('CaseStudies', 'pickQuiz') || typeof ui.showQuiz !== 'function') return;
+      var quiz = state.quiz = (state.quiz && typeof state.quiz === 'object') ? state.quiz : { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
+      if (!Array.isArray(quiz.asked)) quiz.asked = [];
+      var q = call('CaseStudies', 'pickQuiz', state, turnRng.fork('quiz'));
+      if (!q || !q.id) return;
+      var res = null;
+      q.xp = { onCorrect: xpPreview(true, num(quiz.streak)), onWrong: xpPreview(false, 0) };   // lets the card show "+10 XP" / level-up
+      try { res = await ui.showQuiz(q); } catch (e) { fail('field quiz', e); res = null; }
+      if (!res || typeof res !== 'object' || !isFinite(num(res.choice, NaN))) return;   // dismissed: nothing recorded
+      var correct = Math.round(num(res.choice)) === num(q.answer);
+      quiz.asked.push(String(q.id));
+      quiz.total = num(quiz.total) + 1;
+      var streakBefore = num(quiz.streak);
+      if (correct) { quiz.correct = num(quiz.correct) + 1; quiz.streak = num(quiz.streak) + 1; quiz.best = Math.max(num(quiz.best), quiz.streak); state.trustDelta = num(state.trustDelta) + 0.5; }
+      else quiz.streak = 0;
+      xpApply(correct, streakBefore);
+      if (!headless) refresh();
+      var title = firstWords(q.caseTitle, 6);
+      log('Quiz ' + (correct ? 'correct' : 'missed') + ': ' + title + ' · ' + quiz.correct + ' of ' + quiz.total + '.', correct ? 'good' : 'info');
+      // the season's timeline gets a 5th line; the report keeps its own ≤ 4 entries
+      var tl = state.timeline[state.timeline.length - 1];
+      if (tl && tl.turn === state.turn) { tl.entries = (tl.entries || []).slice(); tl.entries.push({ text: 'Quiz: ' + (correct ? 'correct' : 'missed') + ' — ' + title, kind: correct ? 'good' : 'info', delta: null, priority: 0 }); }
+    }
+
     /* ---------------------------------------------------- endSeason */
     async function endSeasonCore() {
       var turnRng = rng.fork('turn' + state.turn);
@@ -18845,6 +19126,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       state.unlockedCases = state.unlockedCases || []; state.seenCases = state.seenCases || [];
       newly.forEach(function (id) { if (state.unlockedCases.indexOf(id) < 0) state.unlockedCases.push(id); });
       ctx.unlocked = newly.slice();
+      if (!state.quiz || typeof state.quiz !== 'object') state.quiz = { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
+      state.quiz.lastUnlocked = newly.slice();   // the field quiz prefers a case unlocked this season
 
       // timeline + report
       var entries = buildTimeline(ctx);
@@ -18872,6 +19155,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
         var cs = ((WS.CaseStudies && WS.CaseStudies.LIST) || []).filter(function (c) { return c.id === newly[u]; })[0];
         if (cs) { if (state.seenCases.indexOf(cs.id) < 0) state.seenCases.push(cs.id); try { await ui.showCaseStudy(cs); } catch (e) { fail('case study', e); } }
       }
+      await runFieldQuiz(turnRng);
       renderer.clearMarkers();
       renderer.setFire([], []);
       renderer.setFireIntensity(0);
