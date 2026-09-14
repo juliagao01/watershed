@@ -203,6 +203,79 @@
     return wrap;
   };
 
+  /* ------------------------------------------------------------------ word caps (player feedback: "reads like a report") */
+  /** Hard caps on visible words per element. Explanations live in tooltips (data-tip) and aria-labels, never on screen. */
+  UI.WORD_CAPS = {
+    label: 2,        /* gauge / tile / slider names */
+    tool: 2,         /* tactical + flood-prep tool names */
+    choice: 4,       /* event-card choice labels */
+    eventTitle: 6,   /* event-card title */
+    headline: 6,     /* evidence-board tile headline */
+    tacHeadline: 8,  /* tactical threat headline */
+    coach: 8,        /* tutorial coach marks */
+    toast: 10,       /* toasts */
+    happened: 10,    /* season report "what happened" rows */
+    intro: 12,       /* intro line */
+    eventText: 14,   /* event-card body line */
+    afterAction: 14, /* after-action summary sentence */
+    screen: 140      /* audit target: plan screen, projects tab open, 1440×900 */
+  };
+  /** Hard word cap (no sentence logic): first n words, "…" appended when cut. */
+  UI.cap = function (text, n) {
+    var words = String(text == null ? '' : text).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    n = Math.max(1, fin(n, 2));
+    return words.length <= n ? words.join(' ') : words.slice(0, n).join(' ').replace(/[,;:\-–—]+$/, '') + '…';
+  };
+  /** Two-word names for the project tiles (full name stays in the tooltip / aria-label). Unknown ids → first two words. */
+  UI.PROJECT_SHORT = {
+    streamgages: 'Streamgages', irrigation: 'Irrigation', leak_detection: 'Leak repair', forest_thinning: 'Forest thinning', prescribed_burn: 'Prescribed burn',
+    reservoir_upgrade: 'Reservoir', rain_capture: 'Rain capture', home_hardening: 'Home hardening', fuel_break: 'Fuel break', wetland: 'Wetland',
+    shelters: 'Shelters', warning_system: 'Warning system', outreach: 'Outreach', treatment: 'Treatment plant', stockpile: 'Stockpile', mussel_inspection: 'Boat checks', wildlife_corridor: 'Wildlife corridor'
+  };
+  /** Two-word names for crisis / flood-prep tools. */
+  UI.TOOL_SHORT = {
+    dozer: 'Dozer line', retardant: 'Air tanker', engine: 'Engine crew', evacuate: 'Evacuate', mutual_aid: 'Mutual aid',
+    sandbag: 'Sandbags', pump: 'Pump crew', spillway: 'Spillway',
+    mulch: 'Mulch', barrier: 'Log barrier', debris_basin: 'Debris basin', bank_stab: 'Bank armour', intake_protect: 'Intake boom', sensor: 'Sensor', warning: 'Flood siren'
+  };
+  UI.shortName = function (map, id, name, n) { return map[id] || UI.cap(name || String(id || '').replace(/_/g, ' '), n || UI.WORD_CAPS.label); };
+  /**
+   * Dev helper: count the words a player can currently read inside #ui (tooltips, hidden nodes, unselected <option>s excluded).
+   * A "word" is a token with ≥ 2 letters (or a / I); tokens with digits or a lone unit letter ("$9.4M", "7,384", "D2") count as numbers.
+   * Returns { words, numbers, cap, ok, byRegion:{id:count}, sample:[first 40 words] }.
+   */
+  UI.audit = function (opts) {
+    opts = opts || {};
+    var rootEl = opts.root || document.getElementById('ui'); if (!rootEl) return { words: 0, numbers: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [] };
+    var out = { words: 0, numbers: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [] };
+    function visible(el) {
+      for (; el && el !== rootEl; el = el.parentNode) {
+        if (el.nodeType !== 1) continue;
+        if (el.hidden || el.id === 'tooltip') return false;
+        if (el.tagName === 'OPTION' && !el.selected) return false;
+        var cs = root.getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+        if (cs.fontSize === '0px') return false;
+      }
+      return true;
+    }
+    function regionOf(el) { for (; el && el !== rootEl; el = el.parentNode) if (el.nodeType === 1 && el.id) return el.id; return 'ui'; }
+    var it = document.createNodeIterator(rootEl, 4 /* SHOW_TEXT */), t;
+    while ((t = it.nextNode())) {
+      var s = t.nodeValue.trim(); if (!s || !visible(t.parentNode)) continue;
+      var region = regionOf(t.parentNode);
+      s.split(/\s+/).forEach(function (tok) {
+        if (!/[A-Za-z0-9]/.test(tok)) return;
+        var letters = (tok.match(/[A-Za-z]/g) || []).length;
+        if (letters >= 2 || /^[aAI]$/.test(tok)) { out.words++; out.byRegion[region] = (out.byRegion[region] || 0) + 1; if (out.sample.length < 40) out.sample.push(tok); }
+        else out.numbers++;
+      });
+    }
+    out.ok = out.words <= out.cap;
+    if (opts.log !== false && root.console) console.log('[UI.audit] ' + out.words + ' words / cap ' + out.cap + (out.ok ? ' ✓' : ' ✗') + ' · ' + out.numbers + ' numbers', out.byRegion);
+    return out;
+  };
+
   UI.COLORS = { W: '#4aa3df', E: '#6fbf73', P: '#e07a5f', F: '#d4a24c', T: '#e9c46a', water: '#4aa3df', fire: '#ff7a33', forest: '#6fbf73', trust: '#e9c46a', danger: '#e63946' };
   UI.OUTCOME_CLASS = { W: 'water', E: 'forest', P: 'fire', F: 'trust', T: 'trust' };
   UI.OUTCOME_SHORT = { W: 'Water', E: 'Ecosystem', P: 'Safety', F: 'Economy', T: 'Trust' };
@@ -232,8 +305,8 @@
     var vals = (values || []).filter(function (v) { return isFinite(v); });
     var svg = hs('svg', { viewBox: '0 0 ' + w + ' ' + hh, width: w, height: hh, 'aria-hidden': 'true' });
     if (vals.length < 2) {
+      /* no words in the chart: a dashed baseline (and a dot for a single reading) says "no history yet" */
       svg.appendChild(hs('line', { x1: 0, y1: hh - 6, x2: w, y2: hh - 6, stroke: 'rgba(255,255,255,.15)', 'stroke-dasharray': '3 3' }));
-      svg.appendChild(hs('text', { x: 0, y: hh - 10, class: 'empty' }, vals.length === 1 ? '1 season' : 'no history yet'));
       if (vals.length === 1) svg.appendChild(hs('circle', { cx: w - 3, cy: hh - 6, class: 'dot', fill: color }));
       return svg;
     }
@@ -260,7 +333,7 @@
     if (isFinite(Number(opts.current)) && (vals.length === 0 || vals[vals.length - 1] !== Number(opts.current))) vals = vals.concat([Number(opts.current)]);
     var svg = hs('svg', { viewBox: '0 0 ' + w + ' ' + hh, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
     var thr = isFinite(Number(opts.threshold)) ? Number(opts.threshold) : null;
-    if (vals.length === 0) { svg.appendChild(hs('text', { x: 4, y: hh / 2, class: 'empty' }, 'No measurements yet')); return svg; }
+    if (vals.length === 0) { svg.appendChild(hs('line', { class: 'grid', x1: 4, y1: hh / 2, x2: w - 4, y2: hh / 2, 'stroke-dasharray': '3 3' })); return svg; }
     var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
     if (thr != null) { mn = Math.min(mn, thr); mx = Math.max(mx, thr); }
     if (mx - mn < 1e-9) { mx = mn + 1; mn = mn - 1; }
@@ -364,7 +437,7 @@
     rootEl.classList.add('open');
     document.body.classList.add('modal-open');
     setTimeout(function () {
-      var f = modal.querySelector('[autofocus]') || modal.querySelector('.mfoot button.primary') || modal.querySelector('.mbody button:not(:disabled), .mbody input, .mbody select') || modal.querySelector('.mfoot button');
+      var f = modal.querySelector('[autofocus]') || modal.querySelector('.mfoot button.primary') || modal.querySelector('.mbody button:not(:disabled):not(.info), .mbody input, .mbody select') || modal.querySelector('.mfoot button');
       try { (f || modal).focus(); } catch (e) { /* ignore */ }
     }, 30);
   }
@@ -384,9 +457,9 @@
 
     /* top bar */
     E.topbar = h('div', { id: 'topbar', class: 'bar panel', role: 'banner' });
-    E.brand = h('div', { class: 'brand' }, [h('span', { html: BRAND_SVG }), h('div', {}, [h('span', { class: 'wordmark' }, 'WATERSHED'), h('span', { class: 'sub' }, 'Colorado water resilience')])]);
-    E.date = h('div', { class: 'hud-block', id: 'hud-date' }, [h('span', { class: 'label' }, 'Season'), h('span', { class: 'v' }, '—')]);
-    E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Annual budget replenishes each Winter. The emergency fund is only available during storm preparation.' }, [h('span', { class: 'label' }, 'Budget'), h('span', { class: 'v' }, '—')]);
+    E.brand = h('div', { class: 'brand', 'data-tip': 'Watershed — a Colorado water-resilience simulation' }, [h('span', { html: BRAND_SVG }), h('div', {}, [h('span', { class: 'wordmark' }, 'WATERSHED')])]);
+    E.date = h('div', { class: 'hud-block', id: 'hud-date', 'data-tip': 'Season and year' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '📅'), h('span', { class: 'v' }, '—')]);
+    E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Budget · emergency fund. The budget refills each Winter; the fund is only spent during storm preparation.' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '💵'), h('span', { class: 'v' }, '—')]);
     E.outcomes = h('div', { class: 'outcomes', id: 'hud-outcomes' });
     E.outcome = {};
     OUT_KEYS.forEach(function (k) {
@@ -396,22 +469,28 @@
       ]);
       E.outcome[k] = el; E.outcomes.appendChild(el);
     });
-    E.score = h('div', { class: 'score', id: 'hud-score', 'data-tip': 'Colorado Resilience Score = weighted outcomes: Water 25%, Ecosystem 20%, Safety 20%, Economy 20%, Trust 15%.' }, [
-      h('span', { class: 'big' }, '—'), h('div', { class: 'grade' }, [h('span', { class: 'g' }, ''), h('span', { class: 'title' }, 'Resilience score')])
+    E.score = h('div', { class: 'score', id: 'hud-score', tabindex: '0', 'data-tip': 'Resilience score = Water 25% + Ecosystem 20% + Safety 20% + Economy 20% + Trust 15%' }, [
+      h('span', { class: 'big' }, '—'), h('div', { class: 'grade' }, [h('span', { class: 'g' }, ''), h('span', { class: 'title', hidden: true }, '')])
     ]);
-    E.btnOverlay = h('button', { id: 'btn-overlay', type: 'button', 'data-tip': 'Cycle map overlay (V): none → watershed → fire risk → moisture → burn scar' }, [h('span', { 'aria-hidden': 'true' }, '🗺 '), h('span', { class: 'txt' }, 'Overlay: '), h('span', { class: 'mode' }, 'None')]);
+    /* top-bar buttons are icon-only: the word is the tooltip + aria-label */
+    function iconBtn(id, icon, label, tip, extra) {
+      var b = h('button', Object.assign({ id: id, type: 'button', class: 'iconbtn', 'aria-label': label, 'data-tip': tip || label }, extra || {}), [h('span', { class: 'ic', 'aria-hidden': 'true' }, icon)]);
+      return b;
+    }
+    E.btnOverlay = iconBtn('btn-overlay', '🧭', 'Map overlay', 'Map overlay (V) · none → watershed → fire risk → moisture → burn scar');
+    E.btnOverlay.appendChild(h('span', { class: 'mode', 'aria-hidden': 'true' }, ''));
     E.btnOverlay.addEventListener('click', function () { UI.cycleOverlay(); });
     /* "Advisors" opens the full Evidence Board on demand (topic popover). The in-town 3D advisors are the everyday path. */
-    E.btnEvidence = h('button', { id: 'btn-advisors', type: 'button', 'aria-haspopup': 'menu', 'data-tip': 'Open the Evidence Board: six advisors, one set of numbers, different conclusions' }, [h('span', { 'aria-hidden': 'true' }, '🗣 '), h('span', { class: 'txt' }, 'Advisors')]);
+    E.btnEvidence = iconBtn('btn-advisors', '🗣', 'Advisors', 'Advisors · the Evidence Board', { 'aria-haspopup': 'menu' });
     E.btnEvidence.addEventListener('click', function (e) { e.stopPropagation(); UI.toggleEvidenceMenu(); });
     E.btnAdvisors = E.btnEvidence;
-    E.btnCases = h('button', { id: 'btn-cases', type: 'button', 'data-tip': 'Case studies from Colorado\'s recent fires, floods and water fights' }, [h('span', { class: 'txt' }, 'Cases'), h('span', { 'aria-hidden': 'true' }, ' 📚')]);
+    E.btnCases = iconBtn('btn-cases', '📚', 'Case studies', 'Case studies · real Colorado fires, floods and water fights');
     E.btnCases.addEventListener('click', function () { if (UI.showCases) UI.showCases(); });
-    E.btnSave = h('button', { id: 'btn-save', type: 'button', 'data-tip': 'Save to this browser' }, [h('span', { class: 'txt' }, 'Save'), h('span', { 'aria-hidden': 'true' }, ' 💾')]);
+    E.btnSave = iconBtn('btn-save', '💾', 'Save', 'Save to this browser');
     E.btnSave.addEventListener('click', function () { UI.callGame('save', [], function (r) { UI.toast(r === false ? 'Save failed' : 'Game saved', r === false ? 'bad' : 'good'); UI.refresh(); }); });
-    E.btnLoad = h('button', { id: 'btn-load', type: 'button', 'data-tip': 'Load the saved game' }, [h('span', { class: 'txt' }, 'Load'), h('span', { 'aria-hidden': 'true' }, ' 📂')]);
+    E.btnLoad = iconBtn('btn-load', '📂', 'Load', 'Load the saved game');
     E.btnLoad.addEventListener('click', function () { UI.callGame('load', [], function (r) { UI.toast(r === false ? 'No saved game found' : 'Game loaded', r === false ? 'warn' : 'good'); UI.refresh(); }); });
-    E.btnHelp = h('button', { id: 'btn-help', type: 'button', 'data-tip': 'Controls, phases and how scoring works' }, [h('span', { class: 'txt' }, 'Help'), h('span', { 'aria-hidden': 'true' }, ' ?')]);
+    E.btnHelp = iconBtn('btn-help', '?', 'Help', 'Help · controls, phases, scoring');
     E.btnHelp.addEventListener('click', function () { if (UI.showHelp) UI.showHelp(); });
     E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
     /* crisis chip: shown in the top bar while a fire/storm is fought live */
@@ -481,14 +560,16 @@
     E.primary = h('button', { id: 'primary-btn', class: 'primary', type: 'button', disabled: true }, [h('span', { class: 'spin' }), h('span', { class: 'lbl' }, 'End Season ▶')]);
     E.primary.addEventListener('click', function () { UI.primaryAction(); });
     E.speedBtns = {};
-    E.speed = h('div', { class: 'row speed', id: 'speed' }, [h('span', { class: 'label' }, 'Speed'), h('div', { class: 'seg' }, [1, 2, 4].map(function (n) {
+    E.speed = h('div', { class: 'row speed', id: 'speed', 'data-tip': 'Speed (keys 1–4)' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⏩'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Speed' }, [1, 2, 4].map(function (n) {
       var b = h('button', { type: 'button', 'data-speed': n, 'aria-label': n + 'x speed', onclick: function () { UI.setSpeed(n); } }, n + '×');
       E.speedBtns[n] = b; return b;
     }))]);
-    E.ticker = h('div', { class: 'ticker', id: 'ticker', role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'label' }, 'Now'), h('span', { class: 'txt' }, 'Welcome to the Bitterbrush Creek watershed.')]);
-    E.legend = h('div', { class: 'legend', id: 'legend', 'aria-label': 'Map legend' }, [
+    /* ticker = numbers only (runoff · reservoir · fire danger); the latest message is the tooltip + a visually-hidden live region */
+    E.tickerMsg = h('span', { class: 'sr-only', role: 'status', 'aria-live': 'polite' }, '');
+    E.ticker = h('div', { class: 'ticker', id: 'ticker' }, [h('span', { class: 'txt nums' }, ''), E.tickerMsg]);
+    E.legend = h('div', { class: 'legend', id: 'legend', role: 'img', 'aria-label': 'Map legend: water, forest, farms, town, burn scar, fire' }, [
       ['Water', '#3b7fb0'], ['Forest', '#35643a'], ['Farms', '#8fbf5a'], ['Town', '#b9b0a3'], ['Burn scar', '#3a302a'], ['Fire', '#ff6a1a']
-    ].map(function (l) { return h('span', { class: 'item', style: { '--c': l[1] } }, l[0]); }));
+    ].map(function (l) { return h('span', { class: 'item dot', style: { '--c': l[1] }, 'data-tip': l[0], 'aria-label': l[0] }); }));
     E.bottombar = h('div', { id: 'bottombar', class: 'bar panel', role: 'toolbar' }, [E.phaseChip, E.primary, E.speed, E.ticker, E.legend]);
     ui.appendChild(E.bottombar);
 
@@ -633,7 +714,9 @@
   };
   UI.setOverlayLabel = function (mode) {
     UI._overlay = UI.OVERLAYS.indexOf(mode) >= 0 ? mode : 'none';
-    var m = UI.els.btnOverlay && UI.els.btnOverlay.querySelector('.mode'); if (m) m.textContent = UI.OVERLAY_NAMES[UI._overlay];
+    var b = UI.els.btnOverlay, m = b && b.querySelector('.mode');
+    if (m) { m.textContent = UI._overlay === 'none' ? '' : UI.OVERLAY_NAMES[UI._overlay]; m.hidden = UI._overlay === 'none'; }
+    if (b) { b.classList.toggle('active', UI._overlay !== 'none'); b.setAttribute('aria-label', 'Map overlay: ' + UI.OVERLAY_NAMES[UI._overlay]); }
   };
   UI.primaryAction = function () {
     var p = UI._phase;
@@ -683,17 +766,36 @@
   };
   UI.toast = function (text, kind) {
     var E = UI.els; if (!E.toasts) return;
-    var t = h('div', { class: 'toast ' + (kind || 'info'), role: 'status' }, [h('span', { 'aria-hidden': 'true' }, (UI.KIND_ICONS[kind] || 'ℹ') + ' '), String(text == null ? '' : text)]);
+    var full = String(text == null ? '' : text), brief = UI.cap(full, UI.WORD_CAPS.toast);
+    var t = h('div', { class: 'toast ' + (kind || 'info'), role: 'status', 'data-tip': brief !== full ? full : null, 'aria-label': full }, [h('span', { 'aria-hidden': 'true' }, (UI.KIND_ICONS[kind] || 'ℹ') + ' '), brief]);
     E.toasts.appendChild(t);
     while (E.toasts.children.length > 5) E.toasts.removeChild(E.toasts.firstChild);
     var ttl = kind === 'bad' ? 7000 : 4500;
     setTimeout(function () { t.classList.add('leaving'); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 240); }, ttl);
     return t;
   };
+  /** Ticker shows numbers only ("Runoff 7,384 AF · Reservoir 86% · 🔥 52"); `text` becomes the tooltip + live-region message. */
   UI.ticker = function (text) {
     var E = UI.els; if (!E.ticker) return;
-    var tx = E.ticker.querySelector('.txt'); tx.textContent = String(text == null ? '' : text);
+    var msg = String(text == null ? '' : text);
+    if (msg) { E.ticker.setAttribute('data-tip', msg); if (E.tickerMsg) E.tickerMsg.textContent = msg; }
+    UI.renderTicker();
+    var tx = E.ticker.querySelector('.txt');
     tx.classList.remove('fresh'); void tx.offsetWidth; tx.classList.add('fresh');
+  };
+  UI.renderTicker = function () {
+    var E = UI.els; if (!E.ticker) return;
+    var s = st(), w = s.water || {}, rv = s.reservoir || {}, cl = s.climate || {};
+    var cap = fin(rv.capacityAF, (C.HYDRO || {}).RESERVOIR_CAPACITY_AF || 42000);
+    var pctFull = cap > 0 ? clamp(fin(rv.storageAF) / cap * 100, 0, 100) : 0;
+    var tx = E.ticker.querySelector('.txt'); clear(tx);
+    append(tx, [
+      h('span', { class: 'ti', 'data-tip': 'Runoff this season (inflow)' }, [h('i', { 'aria-hidden': 'true' }, '💧'), ' ', af(w.inflowAF)]),
+      h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+      h('span', { class: 'ti', 'data-tip': 'Reservoir · ' + af(rv.storageAF) + ' of ' + af(cap) }, [h('i', { 'aria-hidden': 'true' }, '🏔'), ' ', Math.round(pctFull) + '%']),
+      h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
+      h('span', { class: 'ti', 'data-tip': 'Fire danger · ' + (cl.fireDangerLabel || '') }, [h('i', { 'aria-hidden': 'true' }, '🔥'), ' ', Math.round(clamp(cl.fireDanger, 0, 1) * 100)])
+    ]);
   };
   /** info: { acres, zones:[names]|zoneNames|zoneIds, crewFocus, name, perimeterCells, threatened:[names] } or null */
   UI.showFireBanner = function (info) {
@@ -703,8 +805,11 @@
     if (!Array.isArray(names)) names = [names];
     names = names.map(function (z) { if (z && typeof z === 'object') return z.name || ('Zone ' + z.id); var zz = UI.zoneName(z); return zz; }).filter(Boolean);
     var focus = info.crewFocus ? ' · Crews focused on ' + info.crewFocus : '';
-    E.fireBanner.querySelector('.t').textContent = (info.name || 'Wildfire') + (isFinite(Number(info.acres)) ? ' — ' + Math.round(info.acres).toLocaleString() + ' acres' : '');
-    E.fireBanner.querySelector('.d').textContent = (names.length ? 'Threatening ' + names.join(', ') : 'Spreading through the watershed') + focus;
+    E.fireBanner.querySelector('.t').textContent = UI.cap(info.name || 'Wildfire', 3) + (isFinite(Number(info.acres)) ? ' · ' + Math.round(info.acres).toLocaleString() + ' ac' : '');
+    var d = clear(E.fireBanner.querySelector('.d'));
+    names.slice(0, 4).forEach(function (n) { d.appendChild(h('span', { class: 'chip danger tiny' }, UI.cap(n, 2))); });
+    E.fireBanner.setAttribute('aria-label', (info.name || 'Wildfire') + (isFinite(Number(info.acres)) ? ', ' + Math.round(info.acres).toLocaleString() + ' acres' : '') + (names.length ? ', threatening ' + names.join(', ') : '') + focus);
+    E.fireBanner.setAttribute('data-tip', (names.length ? 'Threatening ' + names.join(', ') : 'Spreading through the watershed') + focus);
     E.fireBanner.hidden = false;
   };
   UI.zoneName = function (zoneId) {
@@ -727,10 +832,12 @@
     var E = UI.els; if (!E.ui) return;
     var s = st();
     var seasonStr = seasonName(s.season);
-    E.date.querySelector('.v').textContent = 'Year ' + fin(s.year, 1) + (s.years ? ' of ' + s.years : '') + ' · ' + seasonStr;
+    E.date.querySelector('.v').textContent = 'Y' + fin(s.year, 1) + (s.years ? '/' + s.years : '') + ' · ' + seasonStr;
+    E.date.setAttribute('aria-label', 'Year ' + fin(s.year, 1) + (s.years ? ' of ' + s.years : '') + ', ' + seasonStr);
     var bv = E.budget.querySelector('.v');
     clear(bv); bv.classList.toggle('neg', fin(s.budget) < 0);
-    append(bv, [money(s.budget), h('span', { class: 'em' }, '  · fund ' + money(s.emergencyFund))]);
+    append(bv, [money(s.budget), h('span', { class: 'em', 'aria-hidden': 'true' }, ' · 🧯 ' + money(s.emergencyFund))]);
+    E.budget.setAttribute('aria-label', 'Budget ' + money(s.budget) + ', emergency fund ' + money(s.emergencyFund));
     var o = s.outcomes || {};
     OUT_KEYS.forEach(function (k) {
       var v = clamp(o[k], 0, 100), el = E.outcome[k];
@@ -740,9 +847,12 @@
     var R = resilienceOf(s), g = gradeOf(R);
     E.score.querySelector('.big').textContent = Math.round(R);
     E.score.querySelector('.g').textContent = g.letter;
-    E.score.querySelector('.title').textContent = g.title || 'Resilience score';
-    var cs = document.getElementById('cond-season'); if (cs) cs.textContent = seasonStr + ' · Y' + fin(s.year, 1);
+    E.score.querySelector('.title').textContent = g.title || '';
+    E.score.setAttribute('aria-label', 'Resilience score ' + Math.round(R) + ', grade ' + g.letter + (g.title ? ', ' + g.title : ''));
+    E.score.setAttribute('data-tip', (g.title ? g.title + ' · ' : '') + 'Resilience = Water 25% + Ecosystem 20% + Safety 20% + Economy 20% + Trust 15%');
+    var cs = document.getElementById('cond-season'); if (cs) cs.textContent = seasonStr.slice(0, 3) + ' Y' + fin(s.year, 1);
     UI.renderPlayerChip();
+    UI.renderTicker();
     if (s.phase && s.phase !== UI._phase && !UI._primaryOverride) UI._phase = s.phase;
     UI.updatePrimary();
     E.phaseChip.className = 'chip phase-chip ' + UI._phase;
@@ -765,8 +875,9 @@
     E.playerChipKey = key;
     clear(chip);
     chip.appendChild(UI.portrait(p.face, 28, { title: p.name }));
-    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name), h('div', { class: 'pt' }, p.title)]));
+    chip.appendChild(h('div', { class: 'grow' }, [h('div', { class: 'pn' }, p.name)]));
     chip.setAttribute('aria-label', p.name + ', ' + p.title + ' — fly to your character');
+    chip.setAttribute('data-tip', p.title + ' · click to fly to your character');
     chip.hidden = false;
   };
 
@@ -778,19 +889,25 @@
     fd = clamp(fd, 0, 1);
     return fd < 0.2 ? 0 : fd < 0.4 ? 1 : fd < 0.6 ? 2 : fd < 0.8 ? 3 : 4;
   }
+  /**
+   * One gauge = icon + big value + ≤ 2-word label + bar/sparkline. No sentences: everything explanatory is the ⓘ tooltip,
+   * and the label + value + tip are repeated in aria-label. opts: { id, icon, label, value:[nodes], tip, spark, bar, status:{glyph,cls,tip}, a11y }
+   */
   function gauge(opts) {
-    var g = h('div', { class: 'gauge', 'data-cond': opts.id });
-    g.appendChild(h('div', { class: 'k' }, [opts.label, opts.tip ? UI.info(opts.tip) : null]));
-    if (opts.spark) g.appendChild(h('div', { class: 'spark' }, opts.spark));
-    g.appendChild(h('div', { class: 'v' }, opts.value));
+    var label = UI.cap(opts.label, UI.WORD_CAPS.label);
+    var g = h('div', { class: 'gauge' + (opts.cls ? ' ' + opts.cls : ''), 'data-cond': opts.id, role: 'group', 'aria-label': (opts.a11y || label) });
+    g.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, opts.icon || '▪'));
+    g.appendChild(h('div', { class: 'v num' }, opts.value));
+    g.appendChild(h('div', { class: 'k' }, [h('span', { class: 'lbl' }, label), opts.tip ? UI.info(opts.tip) : null, opts.status ? h('span', { class: 'st ' + (opts.status.cls || ''), 'data-tip': opts.status.tip || null, 'aria-label': opts.status.tip || null, role: opts.status.tip ? 'img' : null }, opts.status.glyph) : null]));
+    if (opts.spark) g.appendChild(h('div', { class: 'spark', 'aria-hidden': 'true' }, opts.spark));
     if (opts.bar) g.appendChild(h('div', { class: 'bar' }, opts.bar));
-    if (opts.sub) g.appendChild(h('div', { class: 'sub' }, opts.sub));
     return g;
   }
   function rangeText(v, unc, unitFn) {
     var lo = v * (1 - unc), hi = v * (1 + unc);
     return unitFn(lo) + '–' + unitFn(hi);
   }
+  function unit(t) { return h('span', { class: 'unit' }, t); }
   UI.renderConditions = function () {
     var E = UI.els; if (!E.conditions) return;
     var s = st(), cl = s.climate || {}, rv = s.reservoir || {};
@@ -798,111 +915,125 @@
     var cap = fin(rv.capacityAF, (C.HYDRO || {}).RESERVOIR_CAPACITY_AF || 42000);
     var stor = clamp(rv.storageAF, 0, Math.max(cap, 1));
     var box = clear(E.conditions);
-    var uncTip = uncertain ? ' Measurement uncertainty is ±' + Math.round(unc * 100) + '% — funding streamgages narrows this range.' : '';
-    if (uncertain) box.appendChild(h('div', { class: 'note warn small' }, ['Readings are estimates (±' + Math.round(unc * 100) + '%). ', h('b', {}, 'Streamgages'), ' would narrow these ranges.']));
-    /* six core gauges; the rest live under "More readings" (choice remembered) */
+    var uncTip = uncertain ? ' Readings are estimates (±' + Math.round(unc * 100) + '%); streamgages narrow the range.' : '';
+    /* uncertainty: a single "±25%" chip (tooltip explains), no banner */
+    var head = document.getElementById('cond-season');
+    var uncChip = document.getElementById('cond-unc');
+    if (uncChip) uncChip.parentNode.removeChild(uncChip);
+    if (uncertain && head && head.parentNode) head.parentNode.insertBefore(h('span', { class: 'chip warn tiny', id: 'cond-unc', 'data-tip': 'Readings are estimates ±' + Math.round(unc * 100) + '%. Fund streamgages to narrow the range.', 'aria-label': 'Readings uncertain, plus or minus ' + Math.round(unc * 100) + ' percent' }, '±' + Math.round(unc * 100) + '%'), head);
+    if (cl.description) { var hd = E.panelLeft && E.panelLeft.querySelector('.head .title'); if (hd) hd.setAttribute('data-tip', String(cl.description)); }
+    /* six core gauges; the rest live under the "more" icon row (choice remembered) */
     var moreOpen = UI.pref('condMore') === true;
     var core = h('div', { class: 'gauges core' }), more = h('div', { class: 'gauges more', id: 'cond-more', hidden: !moreOpen });
 
     /* snowpack */
     var sp = fin(cl.snowpackPct, 100), swe = fin(cl.snowSWEin, 0);
     core.appendChild(gauge({
-      id: 'snowpack', label: 'Snowpack',
-      tip: 'Snow water equivalent (SWE) is the water stored in the snowpack, measured on April 1 against the long-term median. Roughly 70–80% of Colorado\'s streamflow starts as snowmelt, so this is the best early forecast of the year\'s supply.' + uncTip,
+      id: 'snowpack', icon: '❄', label: 'Snowpack',
+      tip: 'Snowpack · ' + Math.round(sp) + '% of average · SWE ' + num(swe, 1) + ' in (avg ' + fin((C.HYDRO || {}).AVG_SNOW_SWE_IN, 18) + '). About 70–80% of Colorado\'s streamflow starts as snowmelt, so this is the best early forecast of supply.' + uncTip,
+      a11y: 'Snowpack ' + Math.round(sp) + ' percent of average',
       spark: UI.sparkline(historyValues('snowpackPct'), { color: '#bfe1f7', min: 0 }),
-      value: uncertain ? [h('span', { class: 'range' }, '≈ ' + rangeText(sp, unc, function (v) { return Math.round(v) + '%'; })), h('span', { class: 'unit' }, 'of avg')] : [Math.round(sp) + '%', h('span', { class: 'unit' }, 'of avg')],
-      sub: 'SWE ' + (uncertain ? '≈ ' + rangeText(swe, unc, function (v) { return num(v, 1); }) : num(swe, 1)) + ' in · avg ' + fin((C.HYDRO || {}).AVG_SNOW_SWE_IN, 18) + ' in'
+      value: uncertain ? [h('span', { class: 'range' }, rangeText(sp, unc, function (v) { return Math.round(v) + '%'; }))] : [Math.round(sp) + '%']
     }));
     /* precipitation */
     more.appendChild(gauge({
-      id: 'precip', label: 'Precipitation',
-      tip: 'Rain and snow this season, in inches. Summer monsoon moisture and fall storms matter most after a fire: intense rain on a burn scar produces flash floods and debris flows.',
+      id: 'precip', icon: '🌧', label: 'Precip',
+      tip: 'Precipitation this season, inches. Intense rain on a burn scar produces flash floods and debris flows.',
       spark: UI.sparkline(historyValues('precipIn'), { color: '#7dd3c0', min: 0 }),
-      value: [num(cl.precipIn, 1), h('span', { class: 'unit' }, 'in')]
+      value: [num(cl.precipIn, 1), unit('in')]
     }));
     /* temperature anomaly */
     var ta = fin(cl.tempAnomF);
     more.appendChild(gauge({
-      id: 'temp', label: 'Temperature anomaly',
-      tip: 'Departure from the seasonal average in °F. Warm seasons melt snow early, dry out fuels and soils, raise crop water demand and evaporate reservoir water.',
+      id: 'temp', icon: '🌡', label: 'Temp',
+      tip: 'Temperature vs the seasonal average, °F' + (ta > 3 ? ' (hot)' : ta < -2 ? ' (cool)' : ' (near normal)') + '. Warm seasons melt snow early, dry fuels and soils, raise crop demand and evaporate storage.',
       spark: UI.sparkline(historyValues('tempAnomF'), { color: ta > 2 ? '#ff7a33' : '#e9c46a' }),
-      value: [signed(ta, 1) + ' °F', h('span', { class: 'unit' }, ta > 3 ? 'hot' : ta < -2 ? 'cool' : 'near normal')]
+      value: [signed(ta, 1) + '°']
     }));
     /* reservoir */
-    var spct = cap > 0 ? stor / cap * 100 : 0;
+    var spct = cap > 0 ? stor / cap * 100 : 0, dead = fin((C.HYDRO || {}).RESERVOIR_DEAD_POOL_AF, 4000);
     core.appendChild(gauge({
-      id: 'reservoir', label: 'Reservoir storage',
-      tip: 'Water in storage in acre-feet (1 AF ≈ 326,000 gallons, about what two Colorado households use in a year). Storage buffers dry years — but the bottom ' + fin((C.HYDRO || {}).RESERVOIR_DEAD_POOL_AF, 4000).toLocaleString() + ' AF is dead pool that cannot be delivered.',
+      id: 'reservoir', icon: '🏔', label: 'Reservoir',
+      tip: 'Reservoir · ' + af(stor) + ' of ' + af(cap) + ' (' + Math.round(spct) + '% full). 1 AF ≈ 326,000 gallons. The bottom ' + dead.toLocaleString() + ' AF is dead pool and cannot be delivered.',
+      a11y: 'Reservoir ' + Math.round(spct) + ' percent full, ' + af(stor),
       spark: UI.sparkline(historyValues('storageAF'), { color: UI.COLORS.water, min: 0, max: cap }),
-      value: [af(stor), h('span', { class: 'unit' }, Math.round(spct) + '% full')],
-      bar: h('div', { class: 'meter' }, [h('i', { class: 'water', style: { width: clamp(spct, 0, 100) + '%' } }), h('span', { class: 'mark', style: { left: clamp(fin((C.HYDRO || {}).RESERVOIR_DEAD_POOL_AF, 4000) / Math.max(cap, 1) * 100, 0, 100) + '%' }, 'data-tip': 'Dead pool' })])
+      value: [Math.round(spct) + '%', unit(af(stor))],
+      bar: h('div', { class: 'meter' }, [h('i', { class: 'water', style: { width: clamp(spct, 0, 100) + '%' } }), h('span', { class: 'mark', style: { left: clamp(dead / Math.max(cap, 1) * 100, 0, 100) + '%' }, 'data-tip': 'Dead pool ' + af(dead) })])
     }));
     /* soil moisture */
     var sm = clamp(cl.soilMoisturePct, 0, 100);
     more.appendChild(gauge({
-      id: 'soil', label: 'Soil moisture',
-      tip: 'Percent of field capacity. Dry soils absorb the first snowmelt before it reaches the stream (lower runoff efficiency), stress crops and forests, and let fires spread faster.',
+      id: 'soil', icon: '🌱', label: 'Soil',
+      tip: 'Soil moisture, % of field capacity. Dry soils soak up the first snowmelt, stress crops and forests, and let fire spread faster.',
       spark: UI.sparkline(historyValues('soilMoisturePct'), { color: '#a5843c', min: 0, max: 100 }),
       value: [Math.round(sm) + '%'],
       bar: h('div', { class: 'meter thin' }, h('i', { class: 'turbid', style: { width: sm + '%' } }))
     }));
-    /* streamflow */
-    var cfs = fin(cl.streamflowCfs), minf = fin((C.HYDRO || {}).MIN_FLOW_CFS, 14);
+    /* streamflow: ✓ / ✗ against the minimum-flow right */
+    var cfs = fin(cl.streamflowCfs), minf = fin((C.HYDRO || {}).MIN_FLOW_CFS, 14), flowOk = cfs >= minf;
     core.appendChild(gauge({
-      id: 'flow', label: 'Streamflow below dam',
-      tip: 'Cubic feet per second in Bitterbrush Creek below the dam. The instream-flow right needs ' + minf + ' cfs to keep fish and the riparian corridor alive; hydropower and rafting also depend on releases.' + uncTip,
+      id: 'flow', icon: '🌊', label: 'Streamflow', cls: flowOk ? '' : 'bad',
+      tip: 'Streamflow below the dam, cfs. The instream-flow right needs ' + minf + ' cfs for fish and the riparian corridor; hydropower and rafting also depend on releases.' + uncTip,
+      a11y: 'Streamflow ' + Math.round(cfs) + ' cfs, minimum flow ' + minf + ' cfs ' + (flowOk ? 'met' : 'not met'),
       spark: UI.sparkline(historyValues('streamflowCfs'), { color: '#38bdf8', min: 0 }),
-      value: uncertain ? [h('span', { class: 'range' }, '≈ ' + rangeText(cfs, unc, function (v) { return Math.round(v).toString(); })), h('span', { class: 'unit' }, 'cfs')] : [Math.round(cfs).toLocaleString(), h('span', { class: 'unit' }, 'cfs')],
-      sub: cfs < minf ? h('span', { style: { color: '#ffb3ba' } }, '⚠ below the ' + minf + ' cfs minimum flow') : 'Minimum flow ' + minf + ' cfs met'
+      value: [uncertain ? h('span', { class: 'range' }, rangeText(cfs, unc, function (v) { return Math.round(v).toString(); })) : Math.round(cfs).toLocaleString(), unit('cfs')],
+      status: { glyph: flowOk ? '✓' : '✗', cls: flowOk ? 'ok' : 'bad', tip: (flowOk ? 'Minimum flow met · ' : 'Below minimum flow · ') + minf + ' cfs' }
     }));
-    /* fire danger */
-    var lvl = dangerLevel(cl.fireDanger, cl.fireDangerLabel);
+    /* fire danger + wind */
+    var lvl = dangerLevel(cl.fireDanger, cl.fireDangerLabel), wind = Math.round(fin(cl.windMph)), wdir = cl.windDirRad != null ? compass(cl.windDirRad) : '';
     core.appendChild(gauge({
-      id: 'danger', label: 'Fire danger',
-      tip: 'Combines heat, dryness, soil moisture, wind and how much fuel has built up in the forest. Colorado\'s biggest fires (2020) came after a hot, dry summer with a century of accumulated fuel.',
+      id: 'danger', icon: '🔥', label: 'Fire danger',
+      tip: 'Fire danger ' + num(clamp(cl.fireDanger, 0, 1) * 100, 0) + '/100 · wind ' + wind + ' mph' + (wdir ? ' from the ' + wdir : '') + '. Heat, dryness, soil moisture, wind and fuel build-up combined.',
+      a11y: 'Fire danger ' + (cl.fireDangerLabel || DANGER_LABELS[lvl]) + ', wind ' + wind + ' miles per hour' + (wdir ? ' from the ' + wdir : ''),
       spark: UI.sparkline(historyValues('fireDanger'), { color: UI.COLORS.fire, min: 0, max: 1 }),
-      value: [cl.fireDangerLabel || DANGER_LABELS[lvl], h('span', { class: 'unit' }, num(clamp(cl.fireDanger, 0, 1) * 100, 0) + '/100')],
-      bar: h('div', { class: 'dial', 'aria-label': 'Fire danger level ' + (lvl + 1) + ' of 5' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= lvl ? 'on l' + (lvl + 1) : '' }); })),
-      sub: 'Wind ' + Math.round(fin(cl.windMph)) + ' mph' + (cl.windDirRad != null ? ' from the ' + compass(cl.windDirRad) : '')
+      value: [UI.cap(cl.fireDangerLabel || DANGER_LABELS[lvl], 2), unit(num(clamp(cl.fireDanger, 0, 1) * 100, 0))],
+      status: { glyph: '🌬 ' + wind, cls: 'wind' + (wind > 20 ? ' bad' : ''), tip: 'Wind ' + wind + ' mph' + (wdir ? ' from the ' + wdir : '') },
+      bar: h('div', { class: 'dial', role: 'img', 'aria-label': 'Fire danger level ' + (lvl + 1) + ' of 5' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= lvl ? 'on l' + (lvl + 1) : '' }); }))
     }));
     /* drought */
     var dc = String(cl.drought || 'None'), di = ['D0', 'D1', 'D2', 'D3', 'D4'].indexOf(dc);
+    var dname = ['', 'abnormally dry', 'moderate', 'severe', 'extreme', 'exceptional'][di + 1] || 'none';
     core.appendChild(gauge({
-      id: 'drought', label: 'Drought status',
-      tip: 'U.S. Drought Monitor categories: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme, D4 exceptional. Built from cumulative precipitation deficit; Colorado has spent much of the 21st century in some level of drought.',
-      value: [dc === 'None' ? 'None' : dc, h('span', { class: 'unit' }, ['', 'abnormally dry', 'moderate', 'severe', 'extreme', 'exceptional'][di + 1] || '')],
-      bar: h('div', { class: 'drought' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= di ? 'on d' + i : '' }); }))
+      id: 'drought', icon: '☀', label: 'Drought',
+      tip: 'Drought ' + dc + (dname && dname !== 'none' ? ' · ' + dname : '') + '. U.S. Drought Monitor: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme, D4 exceptional.',
+      a11y: 'Drought ' + (dc === 'None' ? 'none' : dc + ', ' + dname),
+      value: [dc === 'None' ? '—' : dc],
+      bar: h('div', { class: 'drought', role: 'img', 'aria-label': 'Drought level ' + (di + 1) + ' of 5' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= di ? 'on d' + i : '' }); }))
     }));
     /* population */
     more.appendChild(gauge({
-      id: 'pop', label: 'Population',
-      tip: 'Residents served. Every new home adds demand at ~' + fin((C.HYDRO || {}).GPCD, 118) + ' gallons per person per day — and homes in the wildland-urban interface add fire exposure.',
+      id: 'pop', icon: '👥', label: 'People',
+      tip: 'Population ' + Math.round(fin(s.population)).toLocaleString() + (s.growthRate != null ? ', growing ' + num(fin(s.growthRate) * 100, 1) + '%/yr' : '') + '. Each home adds ~' + fin((C.HYDRO || {}).GPCD, 118) + ' gallons per person per day.',
       spark: UI.sparkline(historyValues('population'), { color: '#c9c4b8' }),
-      value: [Math.round(fin(s.population)).toLocaleString(), h('span', { class: 'unit' }, s.growthRate != null ? '+' + num(fin(s.growthRate) * 100, 1) + '%/yr' : '')]
+      value: [Math.round(fin(s.population)).toLocaleString()]
     }));
     /* water quality */
     var turb = clamp(rv.turbidity, 0, 1), ash = clamp(rv.ashContam, 0, 1), alg = clamp(rv.algae, 0, 1);
+    var qLabel = turb < 0.15 && ash < 0.1 ? 'Clear' : (ash > 0.4 || turb > 0.6 ? 'Polluted' : 'Turbid');
     core.appendChild(gauge({
-      id: 'quality', label: 'Water quality',
-      tip: 'Turbidity is suspended sediment; ash carries nutrients, metals and organic carbon that treatment plants struggle with. After the 2020 fires, Front Range utilities faced years of sediment and taste-and-odour problems.',
+      id: 'quality', icon: '🧪', label: 'Water quality', cls: qLabel === 'Polluted' ? 'bad' : '',
+      tip: 'Water quality · turbidity ' + Math.round(turb * 100) + ' · ash ' + Math.round(ash * 100) + (alg > 0.2 ? ' · algae ' + Math.round(alg * 100) : '') + '. Ash carries nutrients, metals and carbon that treatment plants struggle with.',
+      a11y: 'Water quality ' + qLabel + ', turbidity ' + Math.round(turb * 100) + ', ash ' + Math.round(ash * 100),
       spark: UI.sparkline(historyValues('turbidity'), { color: '#a5843c', min: 0, max: 1 }),
-      value: [turb < 0.15 && ash < 0.1 ? 'Clear' : (ash > 0.4 || turb > 0.6 ? 'Contaminated' : 'Turbid'), h('span', { class: 'unit' }, 'turbidity ' + Math.round(turb * 100) + ' · ash ' + Math.round(ash * 100) + (alg > 0.2 ? ' · algae ' + Math.round(alg * 100) : ''))],
+      value: [qLabel],
       bar: h('div', { class: 'stack' }, [
         h('div', { class: 'meter thin', 'data-tip': 'Turbidity ' + Math.round(turb * 100) + '/100' }, h('i', { class: 'turbid', style: { width: turb * 100 + '%' } })),
-        h('div', { class: 'meter thin', 'data-tip': 'Ash contamination ' + Math.round(ash * 100) + '/100' }, h('i', { class: 'ash', style: { width: ash * 100 + '%' } }))
+        h('div', { class: 'meter thin', 'data-tip': 'Ash ' + Math.round(ash * 100) + '/100' }, h('i', { class: 'ash', style: { width: ash * 100 + '%' } }))
       ])
     }));
     box.appendChild(core);
-    var moreBtn = h('button', { class: 'ghost tiny cond-more-btn', type: 'button', id: 'cond-more-btn', 'aria-expanded': moreOpen ? 'true' : 'false', 'aria-controls': 'cond-more' }, moreOpen ? 'Fewer readings ▴' : 'More readings ▾ (precipitation, temperature, soil, population)');
+    /* "more readings" = an icon row (🌧 🌡 🌱 👥); the words are the tooltip */
+    var moreBtn = h('button', { class: 'ghost tiny cond-more-btn', type: 'button', id: 'cond-more-btn', 'aria-expanded': moreOpen ? 'true' : 'false', 'aria-controls': 'cond-more', 'aria-label': 'More readings: precipitation, temperature, soil moisture, population', 'data-tip': 'More readings · precipitation, temperature, soil, population' }, [
+      h('span', { class: 'ics', 'aria-hidden': 'true' }, '🌧 🌡 🌱 👥'), h('span', { class: 'caret', 'aria-hidden': 'true' }, moreOpen ? '▴' : '▾')
+    ]);
     moreBtn.addEventListener('click', function () {
       var open = more.hidden; more.hidden = !open;
       moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      moreBtn.textContent = open ? 'Fewer readings ▴' : 'More readings ▾ (precipitation, temperature, soil, population)';
+      moreBtn.querySelector('.caret').textContent = open ? '▴' : '▾';
       UI.pref('condMore', open);
     });
     box.appendChild(moreBtn);
     box.appendChild(more);
-    if (cl.description) box.appendChild(h('p', { class: 'small muted', style: { marginTop: '8px' } }, String(cl.description)));
   };
   function compass(rad) {
     var d = ((fin(rad) * 180 / Math.PI) % 360 + 360) % 360;
@@ -959,7 +1090,7 @@
     E.tacIcon = h('span', { class: 'mode-ic', 'aria-hidden': 'true' }, '🔥');
     E.tacTitle = h('div', { class: 't' }, ''); E.tacSub = h('div', { class: 'sub' }, '');
     E.tacStepN = h('span', { class: 'n num' }, ''); E.tacStepBar = h('i', { style: { width: '0%' } });
-    E.tacPause = h('button', { id: 'tac-pause', type: 'button', 'aria-pressed': 'false', 'data-tip': 'Space: pause / resume' }, '⏸ Pause');
+    E.tacPause = h('button', { id: 'tac-pause', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Pause', 'data-tip': 'Pause / resume (Space)' }, '⏸');
     E.tacPause.addEventListener('click', function () { UI.tacticalTogglePause(); });
     E.tacSpeedBtns = {};
     E.tacSpeed = h('div', { class: 'seg', id: 'tac-speed', role: 'group', 'aria-label': 'Speed' }, [1, 2].map(function (n) {
@@ -968,24 +1099,24 @@
     }));
     box.appendChild(h('div', { class: 'thead' }, [
       E.tacIcon, h('div', { class: 'tt' }, [E.tacTitle, E.tacSub]),
-      h('div', { class: 'stepc', 'data-tip': 'Steps so far / longest this crisis can run' }, [h('span', { class: 'label' }, 'Step'), E.tacStepN, h('div', { class: 'meter thin' }, E.tacStepBar)]),
+      h('div', { class: 'stepc', 'data-tip': 'Step · so far / longest this crisis can run', 'aria-label': 'Step' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⏱'), E.tacStepN, h('div', { class: 'meter thin' }, E.tacStepBar)]),
       h('div', { class: 'ctrl' }, [E.tacPause, E.tacSpeed])
     ]));
-    E.tacPointsLabel = h('span', { class: 'label' }, 'Points'); E.tacPointsN = h('span', { class: 'n num' }, ''); E.tacPointsBar = h('i', { style: { width: '0%' } });
-    E.tacPoints = h('div', { class: 'points', id: 'tac-points' }, [h('div', { class: 'row between' }, [E.tacPointsLabel, E.tacPointsN]), h('div', { class: 'meter' }, E.tacPointsBar)]);
+    E.tacPointsLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }, '👷'); E.tacPointsN = h('span', { class: 'n num' }, ''); E.tacPointsBar = h('i', { style: { width: '0%' } });
+    E.tacPoints = h('div', { class: 'points', id: 'tac-points', role: 'group', 'aria-label': 'Points' }, [h('div', { class: 'row between' }, [E.tacPointsLabel, E.tacPointsN]), h('div', { class: 'meter' }, E.tacPointsBar)]);
     E.tacTools = h('div', { class: 'tools', id: 'tac-tools', role: 'group', 'aria-label': 'Tools (keys 1–5)' });
     E.tacZoneSel = h('select', { id: 'tac-zone-select', 'aria-label': 'Neighborhood' });
     E.tacZoneSel.addEventListener('change', function () { var v = Number(E.tacZoneSel.value); if (isFinite(v)) UI.callGame('highlightZone', [v]); });
     E.tacZoneApply = h('button', { class: 'primary tiny', id: 'tac-zone-apply', type: 'button' }, 'Apply');
     E.tacZoneApply.addEventListener('click', function () { UI.tacticalApplyZone(); });
-    E.tacZoneLabel = h('span', { class: 'label' }, 'Neighborhood');
+    E.tacZoneLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }, '🏘');
     E.tacZone = h('div', { class: 'zone-row', id: 'tac-zone', hidden: true }, [E.tacZoneLabel, E.tacZoneSel, E.tacZoneApply]);
     E.tacHint = h('div', { class: 'hint', id: 'tac-hint' }, '');
     E.tacHeadline = h('div', { class: 'headline' }, '');
     E.tacRows = h('div', { class: 'rows' });
-    E.tacThreatened = h('div', { class: 'threatened' });
-    E.tacThreatLabel = h('div', { class: 'label', style: { marginTop: '6px' } }, 'Threatened');
-    E.tacThreat = h('div', { class: 'threat', id: 'tac-threat', role: 'status', 'aria-live': 'polite' }, [E.tacHeadline, E.tacRows, E.tacThreatLabel, E.tacThreatened]);
+    E.tacThreatened = h('div', { class: 'threatened', role: 'list', 'aria-label': 'Threatened zones' });
+    E.tacThreatLabel = h('span', { hidden: true });   /* kept for API stability; the chip row needs no caption */
+    E.tacThreat = h('div', { class: 'threat', id: 'tac-threat', role: 'status', 'aria-live': 'polite' }, [E.tacHeadline, E.tacRows, E.tacThreatened]);
     box.appendChild(h('div', { class: 'tgrid' }, [h('div', { class: 'tleft' }, [E.tacPoints, E.tacTools, E.tacZone, E.tacHint]), E.tacThreat]));
     TAC.built = true;
   }
@@ -1007,9 +1138,10 @@
     }
     tools.forEach(function (t) {
       t = t || {}; var r = TAC.tools[t.type]; if (!r) return;
-      setText(r.ic, t.icon || '▪'); setText(r.n, t.name || t.type); setText(r.cost, t.cost || '');
+      var shortName = UI.shortName(UI.TOOL_SHORT, t.type, t.name, UI.WORD_CAPS.tool);
+      setText(r.ic, t.icon || '▪'); setText(r.n, shortName); setText(r.cost, t.cost || '');
       var cd = fin(t.cooldown, 0), remaining = t.remaining;
-      var remText = cd > 0 ? ' · ⏱ ' + Math.ceil(cd) : (remaining != null && isFinite(Number(remaining)) ? ' · ' + Math.max(0, Math.round(remaining)) + ' left' : '');
+      var remText = cd > 0 ? ' · ⏱ ' + Math.ceil(cd) : (remaining != null && isFinite(Number(remaining)) ? ' · ×' + Math.max(0, Math.round(remaining)) : '');
       setText(r.rem, remText);
       var disabled = !!t.disabled || cd > 0 || (remaining != null && fin(remaining) <= 0);
       r.btn.classList.toggle('selected', !!t.selected);
@@ -1017,7 +1149,8 @@
       r.btn.classList.toggle('cooling', cd > 0);
       setAttr(r.btn, 'aria-pressed', t.selected ? 'true' : 'false');
       setAttr(r.btn, 'aria-disabled', disabled ? 'true' : null);
-      var tip = disabled && t.reason ? String(t.reason) : (t.desc || t.name || '');
+      setAttr(r.btn, 'aria-label', (t.name || t.type) + (t.cost ? ', ' + t.cost : '') + (remaining != null && isFinite(Number(remaining)) ? ', ' + Math.max(0, Math.round(remaining)) + ' left' : ''));
+      var tip = (t.name && t.name !== shortName ? t.name + ' · ' : '') + (disabled && t.reason ? String(t.reason) : (t.desc || ''));
       setAttr(r.btn, 'data-tip', tip || null);
     });
   }
@@ -1040,59 +1173,63 @@
       zones.forEach(function (z) { if (z) E.tacZoneSel.appendChild(h('option', { value: String(z.id) }, z.name || ('Zone ' + z.id))); });
       if (!zones.length) E.tacZoneSel.appendChild(h('option', { value: '' }, 'No ' + ztype + 's'));
     }
-    setText(E.tacZoneLabel, ztype === 'neighborhood' ? 'Neighborhood' : ztype);
+    setAttr(E.tacZoneSel, 'aria-label', ztype === 'neighborhood' ? 'Neighborhood' : ztype);
     setText(E.tacZoneApply, (sel.icon ? sel.icon + ' ' : '') + (sel.type === 'evacuate' ? 'Evacuate' : sel.type === 'engine' ? 'Station' : 'Apply'));
     E.tacZoneApply.disabled = !zones.length;
   }
+  /** Threat panel = ≤ 8-word headline (full text in the tooltip), number rows, and one chip per threatened zone. */
   function renderTacThreat() {
     var E = UI.els, th = (TAC.spec && TAC.spec.threat) || {};
-    setText(E.tacHeadline, th.headline || (TAC.spec && TAC.spec.subtitle) || '');
+    var full = String(th.headline || (TAC.spec && TAC.spec.subtitle) || ''), brief = UI.cap(full, UI.WORD_CAPS.tacHeadline);
+    setText(E.tacHeadline, brief); setAttr(E.tacHeadline, 'data-tip', brief !== full ? full : null); setAttr(E.tacHeadline, 'aria-label', full || null);
     syncChildren(E.tacRows, Array.isArray(th.rows) ? th.rows : [],
       function () { return h('div', { class: 'r' }, [h('span', { class: 'k' }, ''), h('span', { class: 'v num' }, '')]); },
-      function (el, r) { r = r || {}; setText(el.firstChild, r.label); setText(el.lastChild, r.value); el.classList.toggle('bad', !!r.bad); });
+      function (el, r) { r = r || {}; var lbl = UI.cap(r.label, 2); setText(el.firstChild, lbl); setAttr(el, 'data-tip', lbl !== String(r.label || '') ? String(r.label) : null); setText(el.lastChild, r.value); el.classList.toggle('bad', !!r.bad); });
     var list = Array.isArray(th.threatened) ? th.threatened : [];
-    E.tacThreatLabel.hidden = !list.length;
     syncChildren(E.tacThreatened, list,
-      function () { return h('div', { class: 'tz' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), h('span', { class: 'n' }, ''), h('span', { class: 'd num' }, ''), h('span', { class: 'burning' }, 'burning')]); },
+      function () { return h('div', { class: 'tz chip', role: 'listitem' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), h('span', { class: 'n' }, ''), h('span', { class: 'd num' }, '')]); },
       function (el, z) {
-        z = z || {}; var kids = el.children;
-        setText(kids[0], ZONE_TYPE_ICONS[z.type] || '📍'); setText(kids[1], z.name || UI.zoneName(z.zoneId) || 'Zone');
+        z = z || {}; var kids = el.children, storm = !!(TAC.spec && TAC.spec.mode === 'storm');
+        var name = z.name || UI.zoneName(z.zoneId) || 'Zone';
         var d = Number(z.distance != null ? z.distance : z.distanceCells);
-        setText(kids[2], z.burning ? '' : (isFinite(d) ? (d <= 0 ? 'here' : Math.round(d) + ' cells') : ''));
-        var storm = !!(TAC.spec && TAC.spec.mode === 'storm');
-        setText(kids[3], storm ? 'flooding' : 'burning');
-        kids[3].hidden = !z.burning; el.classList.toggle('is-burning', !!z.burning);
-        setAttr(el, 'data-tip', (z.name || 'Zone') + (z.type ? ' · ' + z.type : '') + (z.burning ? (storm ? ' · water is in the streets' : ' · fire is inside') : (isFinite(d) ? ' · ' + Math.round(d) + ' cells (' + Math.round(d * fin(C.CELL_M, 100)) + ' m) from the ' + (storm ? 'water' : 'fire line') : '')));
+        setText(kids[0], z.burning ? (storm ? '🌊' : '🔥') : (ZONE_TYPE_ICONS[z.type] || '📍')); setText(kids[1], UI.cap(name, 2));
+        setText(kids[2], z.burning ? '' : (isFinite(d) ? (d <= 0 ? '0' : String(Math.round(d))) : ''));
+        el.classList.toggle('is-burning', !!z.burning); el.classList.toggle('danger', !!z.burning);
+        var tip = name + (z.type ? ' · ' + z.type : '') + (z.burning ? (storm ? ' · water is in the streets' : ' · fire is inside') : (isFinite(d) ? ' · ' + Math.round(d) + ' cells (' + Math.round(d * fin(C.CELL_M, 100)) + ' m) from the ' + (storm ? 'water' : 'fire line') : ''));
+        setAttr(el, 'data-tip', tip); setAttr(el, 'aria-label', tip);
       });
   }
   function renderTacHead() {
     var E = UI.els, s = TAC.spec || {}, mode = s.mode === 'storm' ? 'storm' : 'fire';
     E.tactical.classList.toggle('fire', mode === 'fire'); E.tactical.classList.toggle('storm', mode === 'storm');
     setText(E.tacIcon, mode === 'storm' ? '⛈' : '🔥');
-    setText(E.tacTitle, s.title || (mode === 'storm' ? 'Storm defense' : 'Wildfire response'));
-    setText(E.tacSub, s.subtitle || '');
+    var title = String(s.title || (mode === 'storm' ? 'Storm defense' : 'Wildfire response'));
+    setText(E.tacTitle, UI.cap(title, 4)); setAttr(E.tacTitle, 'data-tip', UI.cap(title, 4) !== title ? title : null);
+    var sub = String(s.subtitle || ''); setText(E.tacSub, UI.cap(sub, 4)); setAttr(E.tacSub, 'data-tip', UI.cap(sub, 4) !== sub ? sub : null);
     var step = fin(s.step), max = fin(s.maxSteps);
     setText(E.tacStepN, max > 0 ? Math.round(step) + ' / ' + Math.round(max) : String(Math.round(step)));
     var w = (max > 0 ? clamp(step / max * 100, 0, 100) : 0) + '%'; if (E.tacStepBar.style.width !== w) E.tacStepBar.style.width = w;
     var paused = !!s.paused;
-    setText(E.tacPause, paused ? '▶ Resume' : '⏸ Pause'); E.tacPause.classList.toggle('paused', paused); setAttr(E.tacPause, 'aria-pressed', paused ? 'true' : 'false');
+    setText(E.tacPause, paused ? '▶' : '⏸'); E.tacPause.classList.toggle('paused', paused); setAttr(E.tacPause, 'aria-pressed', paused ? 'true' : 'false'); setAttr(E.tacPause, 'aria-label', paused ? 'Resume' : 'Pause');
     var sp = Number(s.speed) === 2 ? 2 : 1;
     for (var k in E.tacSpeedBtns) E.tacSpeedBtns[k].classList.toggle('active', Number(k) === sp);
     if (E.speedBtns) for (var k2 in E.speedBtns) E.speedBtns[k2].classList.toggle('active', Number(k2) === sp);
-    var p = s.points || {};
-    setText(E.tacPointsLabel, p.label || (mode === 'storm' ? 'Emergency fund' : 'Crew points'));
+    var p = s.points || {}, pLabel = p.label || (mode === 'storm' ? 'Emergency fund' : 'Crew points');
+    setText(E.tacPointsLabel, p.unit === '$M' || mode === 'storm' ? '💵' : '👷');
+    setAttr(E.tacPoints, 'aria-label', pLabel); setAttr(E.tacPoints, 'data-tip', pLabel);
     var pv = fin(p.value), pm = fin(p.max);
-    setText(E.tacPointsN, fmtPoints(pv, p.unit) + (pm > 0 ? ' / ' + fmtPoints(pm, p.unit) : '') + (p.unit === 'pts' ? ' pts' : ''));
+    setText(E.tacPointsN, fmtPoints(pv, p.unit) + (pm > 0 ? ' / ' + fmtPoints(pm, p.unit) : ''));
     var pw = (pm > 0 ? clamp(pv / pm * 100, 0, 100) : 0) + '%'; if (E.tacPointsBar.style.width !== pw) E.tacPointsBar.style.width = pw;
     E.tacPoints.classList.toggle('low', pm > 0 && pv / pm < 0.15);
     var sel = tacSelected(), hint = s.hint;
     if (!hint) {
-      if (!sel) hint = 'Pick a tool (keys 1–5). Space pauses; Esc deselects.';
-      else if (toolKind(sel) === 'zone') hint = 'Choose a neighborhood and apply.';
-      else if (toolKind(sel) === 'instant') hint = 'Applies immediately.';
-      else hint = 'Click or drag on the map to place ' + (sel.name || sel.type) + '.';
+      if (!sel) hint = 'Pick a tool (1–5) · Space pauses';
+      else if (toolKind(sel) === 'zone') hint = 'Choose a neighborhood, then apply';
+      else if (toolKind(sel) === 'instant') hint = 'Applies immediately';
+      else hint = 'Click or drag on the map';
     }
-    setText(E.tacHint, hint);
+    var hintBrief = UI.cap(hint, UI.WORD_CAPS.tacHeadline);
+    setText(E.tacHint, hintBrief); setAttr(E.tacHint, 'data-tip', hintBrief !== String(hint) ? String(hint) : null);
     var chip = s.chip || s.alarm || s.title || (mode === 'storm' ? 'FLASH FLOOD' : 'WILDFIRE');
     setText(E.crisisChip.querySelector('.txt'), chip); E.crisisChip.hidden = false;
     E.topbar.classList.toggle('crisis-fire', mode === 'fire'); E.topbar.classList.toggle('crisis-storm', mode === 'storm');

@@ -12,12 +12,16 @@
   #devbar button { font: 12px/1.2 system-ui, sans-serif; padding: 4px 8px; background: #fbf6ea; color: #1b1f22; border: 1px solid #8a7a4a; border-radius: 6px; cursor: pointer; }
   body.modal-open #devbar, body.modal-open #devout { display: none; } /* keep the dev strip off the modals */
   #devout { position: fixed; top: 178px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
+  #devaudit { position: fixed; top: 204px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 700px; }
+  #devaudit.ok { color: #c9f2cc; } #devaudit.bad { color: #ffb3ba; }
+  body.modal-open #devaudit { display: none; }
 </style>
 </head>
 <body>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
 <div id="devbar"></div>
 <div id="devout">mock game loaded</div>
+<div id="devaudit">audit…</div>
 <script src="../src/core/constants.js"></script>
 <script src="../src/core/rng.js"></script>
 <script src="../src/ui/faces.js"></script>
@@ -167,10 +171,26 @@
   window.game = game;
   WS.UI.init(game);
   WS.UI.setPhase('plan');
+  /* word audit (UI.audit): visible words in #ui, target ≤ UI.WORD_CAPS.screen on the plan screen with Projects open at 1440×900 */
+  var auditEl = document.getElementById('devaudit');
+  function runAudit(label) {
+    var a = WS.UI.audit({ log: false });
+    var regions = Object.keys(a.byRegion).sort(function (x, y) { return a.byRegion[y] - a.byRegion[x]; }).slice(0, 6).map(function (k) { return k + ' ' + a.byRegion[k]; }).join(' · ');
+    auditEl.textContent = (label || 'audit') + ': ' + a.words + ' words / cap ' + a.cap + (a.ok ? ' ✓' : ' ✗') + ' · ' + a.numbers + ' numbers · ' + window.innerWidth + '×' + window.innerHeight + ' · ' + regions;
+    auditEl.className = a.ok ? 'ok' : 'bad';
+    console.log('[dev] ' + auditEl.textContent);
+    return a;
+  }
+  window.runAudit = runAudit;
+  setTimeout(function () { runAudit('plan/projects'); }, 80);
 
   /* ---- dev buttons ---- */
   var bar = document.getElementById('devbar');
   function btn(label, fn) { var b = document.createElement('button'); b.textContent = label; b.onclick = fn; bar.appendChild(b); }
+  btn('Audit', function () { runAudit(WS.UI._tab); });
+  btn('Tab: water', function () { WS.UI.setTab('water'); runAudit('water'); });
+  btn('Tab: fire', function () { WS.UI.setTab('fire'); runAudit('fire'); });
+  btn('Tab: projects', function () { WS.UI.setTab('projects'); runAudit('projects'); });
   btn('Intro', function () { WS.UI.showIntro().then(function (r) { say('intro → ' + JSON.stringify(r)); if (r && r.player) { state.player = { name: r.player.name, face: r.player.face, title: 'Water-Resilience Director' }; WS.UI.refresh(); } }); });
   /* ---- v3: faces ---- */
   btn('Faces gallery', function () {

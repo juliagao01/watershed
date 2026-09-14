@@ -122,44 +122,46 @@
     };
   }
 
-  function dirWord(d) { return d > 0.05 ? 'rose' : d < -0.05 ? 'fell' : 'held steady'; }
+  function signed(d) { d = r1(d); return (d > 0 ? '+' : (d < 0 ? '−' : '±')) + Math.abs(d).toFixed(1); }
+  /* reason text ≤ 12 words: "<Outcome> <±delta>: part, part, part." — parts are ≤ 3 words each, 3 at most, most relevant first. */
   function reasonText(key, before, after, tg, c) {
-    var d = after - before, head = C.OUTCOME_NAMES[key] + ' ' + dirWord(d) + (Math.abs(d) >= 0.05 ? ' ' + Math.abs(r1(d)).toFixed(1) : '') + ' (target ' + Math.round(tg) + '): ';
     var parts = [];
     if (key === 'W') {
-      parts.push('reservoir at ' + pct(c.storageFrac) + '% of capacity');
-      parts.push(c.hhShort > 0.005 ? 'households short ' + pct(c.hhShort) + '%' : 'households fully supplied');
-      if (c.ash > 0.02) parts.push('ash contamination ' + pct(c.ash) + '%');
+      parts.push('reservoir ' + pct(c.storageFrac) + '%');
+      if (c.outageDays > 0) parts.push('outage ' + c.outageDays + ' days');
+      if (c.hhShort > 0.005) parts.push('households short ' + pct(c.hhShort) + '%');
+      if (c.ash > 0.02) parts.push('ash ' + pct(c.ash) + '%');
       if (c.turb > 0.15) parts.push('turbidity ' + pct(c.turb) + '%');
-      if (c.outageDays > 0) parts.push(c.outageDays + ' days of treatment outage');
-      if (c.restriction && c.restriction !== 'none') parts.push(c.restriction + ' restrictions in force');
+      if (c.restriction && c.restriction !== 'none') parts.push(c.restriction + ' restrictions');
       if (c.drought && c.drought !== 'None') parts.push('drought ' + c.drought);
+      if (parts.length < 3 && c.hhShort <= 0.005) parts.push('households supplied');
     } else if (key === 'E') {
-      parts.push(c.minFlowMet === false ? 'instream flow right not met' : 'minimum flow met ' + c.streak + ' season' + (c.streak === 1 ? '' : 's') + ' running');
-      parts.push('habitat at ' + pct(c.habitatScore) + '% of its starting level');
-      parts.push('forest canopy at ' + pct(c.treeScore) + '% of its starting density');
-      if (c.burnForestFrac > 0.01) parts.push(pct(c.burnForestFrac) + '% of forest burned');
-      if (c.turb > 0.15) parts.push('turbidity ' + pct(c.turb) + '%');
+      parts.push(c.minFlowMet === false ? 'instream flow missed' : 'min-flow streak ' + c.streak);
+      if (c.burnForestFrac > 0.01) parts.push('forest burned ' + pct(c.burnForestFrac) + '%');
       if (c.algae > 0.3) parts.push('algae ' + pct(c.algae) + '%');
-      parts.push(c.wetland ? 'wetland restored' : 'wetland not yet restored');
+      if (c.turb > 0.15) parts.push('turbidity ' + pct(c.turb) + '%');
+      parts.push('habitat ' + pct(c.habitatScore) + '%');
+      parts.push('canopy ' + pct(c.treeScore) + '%');
+      parts.push(c.wetland ? 'wetland restored' : 'no wetland');
     } else if (key === 'P') {
-      parts.push(c.structures > 0 ? c.structures + ' structures lost to fire so far' : 'no structures lost to fire');
-      if (c.floodDamage > 0) parts.push('$' + r1(c.floodDamage).toFixed(1) + 'M of flood damage so far');
-      if (c.smoke > 0) parts.push(c.smoke + ' smoke days' + (c.shelters ? ' (shelters open)' : ' without clean-air shelters'));
-      parts.push('fire danger near town ' + pct(c.dangerNearTown) + '%');
-      if (c.hardShare > 0) parts.push(pct(c.hardShare) + '% of WUI homes hardened');
-      if (c.warning) parts.push('warning system in place');
-      if (c.flood) parts.push('this storm flooded ' + fin(c.flood.floodedHouses, 0) + ' homes');
-      if (c.fireRep) parts.push('this fire burned ' + Math.round(fin(c.fireRep.acres, 0)).toLocaleString() + ' acres');
+      if (c.fireRep) parts.push('fire ' + Math.round(fin(c.fireRep.acres, 0)).toLocaleString() + ' acres');
+      if (c.flood) parts.push(fin(c.flood.floodedHouses, 0) + ' homes flooded');
+      if (c.structures > 0) parts.push(c.structures + ' structures lost');
+      if (c.floodDamage > 0) parts.push('flood damage $' + r1(c.floodDamage).toFixed(1) + 'M');
+      if (c.smoke > 0) parts.push('smoke ' + c.smoke + ' days');
+      parts.push('town danger ' + pct(c.dangerNearTown) + '%');
+      if (c.hardShare > 0) parts.push('WUI hardened ' + pct(c.hardShare) + '%');
+      if (c.warning) parts.push('warning system');
+      if (c.structures <= 0 && parts.length < 3) parts.push('no structures lost');
     } else if (key === 'F') {
-      parts.push('crop health ' + pct(c.crop) + '%');
-      parts.push(c.farmShort > 0.005 ? 'farms short ' + pct(c.farmShort) + '%' : 'farms fully supplied');
-      parts.push('recreation index ' + pct(c.rec) + '%');
-      parts.push(Math.round(c.hydroMWh) + ' MWh of hydropower');
-      if (c.flood) parts.push('$' + r1(fin(c.flood.damageM, 0)).toFixed(1) + 'M storm damage this season');
-      if (c.outageDays > 0) parts.push('businesses lost ' + c.outageDays + ' days to the boil-water notice');
+      if (c.flood) parts.push('storm damage $' + r1(fin(c.flood.damageM, 0)).toFixed(1) + 'M');
+      if (c.outageDays > 0) parts.push('outage ' + c.outageDays + ' days');
+      parts.push('crops ' + pct(c.crop) + '%');
+      parts.push(c.farmShort > 0.005 ? 'farms short ' + pct(c.farmShort) + '%' : 'farms supplied');
+      parts.push('recreation ' + pct(c.rec) + '%');
+      parts.push(Math.round(c.hydroMWh) + ' MWh hydro');
     }
-    return head + parts.join(', ') + '.';
+    return C.OUTCOME_NAMES[key] + ' ' + signed(after - before) + ': ' + parts.slice(0, 3).join(', ') + '.';
   }
 
   var Scoring = WS.Scoring = {
@@ -184,12 +186,12 @@
       after.T = clamp(before.T + td + reg, 0, 100);
       delta.T = r1(after.T - before.T);
       var tParts = [];
-      if (Math.abs(td) >= 0.05) tParts.push((td > 0 ? '+' : '') + r1(td).toFixed(1) + ' from this season\'s decisions and service');
-      if (reg !== 0) tParts.push((reg > 0 ? '+1 as memories of past trouble fade' : '-1 as goodwill drifts back toward normal'));
-      if (seasonReport && seasonReport.legalOverride) tParts.push('senior water rights were overridden');
+      if (Math.abs(td) >= 0.05) tParts.push('choices ' + signed(td));
+      if (reg !== 0) tParts.push('drift ' + signed(reg));
+      if (seasonReport && seasonReport.legalOverride) tParts.push('senior rights overridden');
       if (seasonReport && seasonReport.shortagePct && fin(seasonReport.shortagePct.households, 0) > 0.05) tParts.push('household shortages');
-      if (fin(tg.ctx.outageDays, 0) > 0) tParts.push('a boil-water notice');
-      reasons.push({ key: 'T', text: C.OUTCOME_NAMES.T + ' ' + dirWord(delta.T) + (Math.abs(delta.T) >= 0.05 ? ' ' + Math.abs(delta.T).toFixed(1) : '') + ': ' + (tParts.length ? tParts.join('; ') : 'no notable events') + '; trust now ' + Math.round(after.T) + '.', delta: delta.T });
+      if (fin(tg.ctx.outageDays, 0) > 0) tParts.push('boil-water notice');
+      reasons.push({ key: 'T', text: C.OUTCOME_NAMES.T + ' ' + signed(delta.T) + ': ' + (tParts.length ? tParts.slice(0, 3).join(', ') : 'no notable events') + '; now ' + Math.round(after.T) + '.', delta: delta.T });
       state.trustDelta = 0;
       if (state.flags) state.flags.outageDaysThisTurn = 0;
       for (i = 0; i < keys.length; i++) { k = keys[i]; o[k] = Math.round(after[k] * 10) / 10; after[k] = o[k]; }
@@ -224,26 +226,27 @@
       var cap = Math.max(1, fin(state.reservoir && state.reservoir.capacityAF, H.RESERVOIR_CAPACITY_AF));
       var yearsPlayed = Math.max(1, Math.floor(fin(state.turn, 0) / 4));
 
-      highlights.push('Colorado Resilience Score ' + g.R + ' — grade ' + g.letter + ', "' + g.title + '" after ' + yearsPlayed + ' year' + (yearsPlayed === 1 ? '' : 's') + '.');
-      if (biggest) highlights.push('Largest wildfire: ' + Math.round(fin(biggest.acres, 0)).toLocaleString() + ' acres in year ' + fin(biggest.year, 1) + (fin(biggest.structures, 0) > 0 ? ', ' + biggest.structures + ' structures lost' : '') + '. Total burned: ' + Math.round(fin(fire.totalAcres, 0)).toLocaleString() + ' acres.');
-      else highlights.push('No wildfire reached the map in ' + yearsPlayed + ' years — fuels kept accumulating quietly.');
-      if (minStore) highlights.push('Reservoir low point: ' + Math.round(fin(minStore.storageAF, 0)).toLocaleString() + ' AF (' + Math.round(100 * fin(minStore.storageAF, 0) / cap) + '% of capacity) in year ' + fin(minStore.year, 1) + '.');
-      if (fin(stats.floodDamageM, 0) > 0) highlights.push('Post-fire floods caused $' + r1(stats.floodDamageM).toFixed(1) + 'M in damage and moved ' + Math.round(fin(stats.sedimentTons, 0)).toLocaleString() + ' tons of sediment.');
-      if (fin(stats.contaminationOutageDays, 0) > 0) highlights.push('The treatment plant was offline ' + Math.round(stats.contaminationOutageDays) + ' days because of ash and sediment.');
-      highlights.push('Hydropower generated ' + Math.round(fin(stats.hydroMWh, 0)).toLocaleString() + ' MWh; ' + Math.round(fin(stats.recreationVisits, 0)).toLocaleString() + ' recreation visits.');
-      var funded = state.projects && state.projects.funded ? Object.keys(state.projects.funded) : [];
-      if (funded.length) highlights.push('Projects funded: ' + funded.join(', ') + '.');
+      // highlights ≤ 10 words each, ≤ 4 items; lessons ≤ 12 words each, ≤ 3 items (most relevant first)
+      highlights.push('Score ' + g.R + ' · grade ' + g.letter + ' (' + g.title + ') · ' + yearsPlayed + ' year' + (yearsPlayed === 1 ? '' : 's') + '.');
+      if (biggest) highlights.push('Largest fire ' + Math.round(fin(biggest.acres, 0)).toLocaleString() + ' acres, year ' + fin(biggest.year, 1) + (fin(biggest.structures, 0) > 0 ? '; ' + biggest.structures + ' structures lost' : '') + '.');
+      else highlights.push('No wildfire in ' + yearsPlayed + ' year' + (yearsPlayed === 1 ? '' : 's') + '; fuel kept building.');
+      if (minStore) highlights.push('Reservoir low ' + Math.round(fin(minStore.storageAF, 0)).toLocaleString() + ' AF (' + Math.round(100 * fin(minStore.storageAF, 0) / cap) + '%), year ' + fin(minStore.year, 1) + '.');
+      if (fin(stats.floodDamageM, 0) > 0) highlights.push('Floods: $' + r1(stats.floodDamageM).toFixed(1) + 'M damage, ' + Math.round(fin(stats.sedimentTons, 0)).toLocaleString() + ' t sediment' + (fin(stats.contaminationOutageDays, 0) > 0 ? ', ' + Math.round(stats.contaminationOutageDays) + ' outage days' : '') + '.');
+      else if (fin(stats.contaminationOutageDays, 0) > 0) highlights.push('Treatment plant offline ' + Math.round(stats.contaminationOutageDays) + ' days from ash.');
+      else highlights.push('Hydro ' + Math.round(fin(stats.hydroMWh, 0)).toLocaleString() + ' MWh · ' + Math.round(fin(stats.recreationVisits, 0)).toLocaleString() + ' recreation visits.');
+      highlights = highlights.slice(0, 4);
 
-      if (fin(o.W, 0) < 60) lessons.push('Water security slipped: storage and clean supply need more margin. Leak detection, efficient irrigation and a protected intake buy resilience before a dry year, not during one.');
-      else lessons.push('Storage carried you through dry seasons. In Colorado, a reservoir is a buffer against variable snowpack — keep it full going into summer.');
-      if (fin(stats.contaminationOutageDays, 0) > 0) lessons.push('Ash and sediment after a fire are a drinking-water problem, not just a flood problem. Mulching the scar, debris basins and intake protection keep the plant running.');
-      if (fin(fire.totalAcres, 0) > 5000) lessons.push('Fuel treatments and prescribed fire in the sectors above the reservoir reduce severity, and severity is what turns rain into mudflows.');
-      else if (!biggest) lessons.push('A quiet fire history is not safety: fuels build each year, especially under suppress-everything policies.');
-      if (flags.legalOverrides || (state.timeline || []).length === 0) lessons.push('Senior rights — the tribal right and the Colorado River delivery — are met first under prior appropriation; planning around them protects trust.');
-      if (fin(o.E, 0) < 55) lessons.push('Ecosystems recover slowly: keeping the 14 cfs instream flow and restoring the wetland improves habitat and traps sediment for free during storms.');
-      if (fin(o.T, 0) < 50) lessons.push('Trust drops fast under shortages and boil-water notices and returns slowly; outreach and reliable service matter as much as engineering.');
-      if (fin(o.F, 0) < 55) lessons.push('Farms and tourism feel drought first. Efficient irrigation and a full recreation pool keep the local economy working.');
-      lessons.push('Resilience = 0.25 W + 0.20 E + 0.20 P + 0.20 F + 0.15 T — no single outcome can carry the score.');
+      if (fin(o.W, 0) < 60) lessons.push('Water security slipped: leak detection, irrigation and intake protection buy margin early.');
+      if (fin(stats.contaminationOutageDays, 0) > 0) lessons.push('Post-fire ash is a drinking-water problem: mulch, basins, intake protection.');
+      if (fin(fire.totalAcres, 0) > 5000) lessons.push('Fuel treatment above the reservoir cuts severity; severity makes mudflows.');
+      else if (!biggest) lessons.push('A quiet fire history is not safety; fuel builds every year.');
+      if (fin(o.T, 0) < 50) lessons.push('Trust drops fast, returns slowly; outreach matters as much as engineering.');
+      if (fin(o.E, 0) < 55) lessons.push('Hold the 14 cfs instream flow and restore the wetland.');
+      if (fin(o.F, 0) < 55) lessons.push('Farms and tourism feel drought first; efficient irrigation keeps them working.');
+      if (flags.legalOverrides || (state.timeline || []).length === 0) lessons.push('Senior rights are met first under prior appropriation; plan around them.');
+      if (fin(o.W, 0) >= 60) lessons.push('Storage carried you; keep the reservoir full into summer.');
+      lessons.push('Resilience = 0.25 W + 0.20 E + 0.20 P + 0.20 F + 0.15 T.');
+      lessons = lessons.slice(0, 3);
 
       return { R: R, grade: g, outcomes: { W: fin(o.W, 0), E: fin(o.E, 0), P: fin(o.P, 0), F: fin(o.F, 0), T: fin(o.T, 0) }, highlights: highlights, lessons: lessons,
         stats: { floodDamageM: fin(stats.floodDamageM, 0), sedimentTons: fin(stats.sedimentTons, 0), contaminationOutageDays: fin(stats.contaminationOutageDays, 0),

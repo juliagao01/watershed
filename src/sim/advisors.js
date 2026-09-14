@@ -170,6 +170,7 @@
   }
 
   // ---------------------------------------------------------------- topics
+  // Caps (tests/wordcaps.test.js): headline ≤ 6 words; text = ONE sentence ≤ 16 words carrying a number; evidence label ≤ 3 words.
   var TOPIC_FNS = {};
 
   TOPIC_FNS.budget = function (x) {
@@ -177,52 +178,30 @@
     var worst = x.fuel.worst || { name: 'the upper forest', avg: x.fuel.avg };
     var thinned = obj(x.effects.thinnedZones);
     var worstTreated = worst.id != null && thinned[worst.id] > 0.2;
-    // Headlines ≤ 7 words; the first sentence of each text stands alone (≤ 20 words, carries the key number) — it is what the
-    // 3D advisor's speech bubble shows. The rest sits behind "more…" on the Evidence Board.
     out.push(rec('dolores', worst.avg > 0.6 && !worstTreated ? 'urge' : 'support',
-      worst.avg > 0.6 ? 'Put money in the fuel' : 'Keep a line item for the WUI',
-      'Fuel in ' + worst.name + ' averages ' + num(worst.avg * 100) + '% and fire danger is ' + x.dangerLabel + '. ' +
-      (worst.avg > 0.6 && !worstTreated ? 'Thinning that sector now costs a fraction of one suppression season; every year we wait the load climbs another 4 points. ' : 'Thinning is in place there, so the next dollar goes to hardening homes in ' + x.wuiName + '. ') +
-      'With ' + money(x.budget) + ' in hand I would commit at least a third of it to the fire line.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
-
+      worst.avg > 0.6 ? 'Put money in the fuel' : 'Keep a WUI line item',
+      (worst.avg > 0.6 && !worstTreated ? 'Fuel in ' + worst.name + ' is ' + num(worst.avg * 100) + '%; thinning it costs less than one suppression season.' : 'Fuel in ' + worst.name + ' is ' + num(worst.avg * 100) + '%, so next dollar hardens homes in ' + x.wuiName + '.'),
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     out.push(rec('walt', x.cropHealth < 0.7 || x.farmShort > 0.1 ? 'urge' : 'caution',
-      x.cropHealth < 0.7 ? 'Ditches before dashboards' : 'Do not spend it on studies',
-      'Crop health is ' + num(x.cropHealth * 100) + '% and farm shortfall last season was ' + pct(x.farmShort * 100) + '. ' +
-      'Irrigation efficiency upgrades return water to the system every year and keep hay on the market; I have watched ' + money(x.annualBudget) + ' budgets vanish into reports that never moved a drop. ' +
-      'Fund the ditch improvements first, then argue about the rest.',
-      evidence(s, 'cropHealth', 'Farm crop health', 'index 0-1', x.cropHealth, 0.7)));
-
+      x.cropHealth < 0.7 ? 'Ditches before dashboards' : 'No money for studies',
+      'Crop health is ' + num(x.cropHealth * 100) + '% and farms went short ' + pct(x.farmShort * 100) + '; fund the ditch upgrades first.',
+      evidence(s, 'cropHealth', 'Crop health', 'index 0-1', x.cropHealth, 0.7)));
     out.push(rec('naomi', x.effects.wetlandRestored ? 'support' : 'urge',
-      x.effects.wetlandRestored ? 'Keep caring for the restored ground' : 'Spend on the river',
-      'The reservoir holds ' + af(x.storage) + ' of ' + af(x.capacity) + ' (' + pct(x.storagePct) + '). ' +
-      'The river below the dam runs ' + num(x.streamflow) + ' cfs. ' +
-      'Our people have said for generations that the water is a relative, not a resource; the wetland and riparian work is the budget line that treats it that way, storing water in the ground and cleaning what comes down. ' +
-      (x.effects.wetlandRestored ? 'It is funded; protect it from cuts.' : 'It costs less than a single flood repair.'),
+      x.effects.wetlandRestored ? 'Protect the restored ground' : 'Spend on the river',
+      'The reservoir holds ' + pct(x.storagePct) + '; ' + (x.effects.wetlandRestored ? 'keep the wetland funded, it stores water in the ground.' : 'wetland restoration costs less than one flood repair.'),
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.capacity * 0.5)));
-
     out.push(rec('priya', x.uncertainty > 0.1 ? 'urge' : 'support',
-      x.uncertainty > 0.1 ? 'Buy the measurement first' : 'Now invest in storage and treatment',
-      'Snowpack reads ' + pct(x.snowpackPct) + ' of average with ±' + pct(x.uncertainty * 100) + ' forecast uncertainty. ' +
-      'On ' + af(x.available) + ' of available supply that is an error bar of about ' + af(x.available * x.uncertainty) + '. ' +
-      (x.uncertainty > 0.1 ? 'Streamgages and SNOTEL telemetry shrink that band to ±5% for the price of one small culvert. ' : 'With gauges in place, the next most valuable dollar is treatment capacity or the reservoir upgrade. ') +
-      'I would not commit the rest of the ' + money(x.budget) + ' until we know which number we are planning for.',
-      evidence(s, 'snowpackPct', 'Snowpack, % of average', '%', x.snowpackPct, 100)));
-
+      x.uncertainty > 0.1 ? 'Buy the measurement first' : 'Now fund storage and treatment',
+      (x.uncertainty > 0.1 ? 'Forecast uncertainty is ±' + pct(x.uncertainty * 100) + ', an error bar of ' + af(x.available * x.uncertainty) + '; gauges shrink it to ±5%.' : 'With uncertainty at ±' + pct(x.uncertainty * 100) + ', the next dollar belongs in treatment or storage.'),
+      evidence(s, 'snowpackPct', 'Snowpack', '%', x.snowpackPct, 100)));
     out.push(rec('marcus', x.effects.upkeepM > x.annualBudget * 0.25 ? 'caution' : 'support',
-      x.effects.upkeepM > x.annualBudget * 0.25 ? 'Upkeep is a bill with my name' : 'Fix the leaks, warn the families',
-      'Upkeep is already ' + money(x.effects.upkeepM) + ' a year against a ' + money(x.annualBudget) + ' budget. ' +
-      'Every recurring cost ends up on ' + Math.round(x.population).toLocaleString() + ' residents\' water bills. ' +
-      'Leak detection pays for itself and a warning system is the one thing I would want at 2 a.m. with a storm over the burn scar. ' +
-      'Public trust is at ' + num(x.outcomes.T) + '; show people where the money goes.',
-      evidence(s, 'budget', 'Budget on hand', '$M', x.budget, x.annualBudget)));
-
+      x.effects.upkeepM > x.annualBudget * 0.25 ? 'Upkeep lands on my bill' : 'Fix leaks, warn families',
+      'Upkeep is ' + money(x.effects.upkeepM) + ' a year on ' + Math.round(x.population).toLocaleString() + ' residents\' bills; leak detection pays for itself.',
+      evidence(s, 'budget', 'Budget', '$M', x.budget, x.annualBudget)));
     out.push(rec('ana', x.habitat < 0.5 || x.turbidity > 0.3 ? 'urge' : 'support',
       'Habitat has no line item',
-      'Mean habitat quality is ' + num(x.habitat * 100) + '% and reservoir turbidity is ' + num(x.turbidity * 100) + '%. ' +
-      'Wetland restoration and a wildlife corridor are cheap relative to fire and flood projects and they buffer both: wet meadows trap sediment, hold water in drought and give elk winter range that is not a subdivision. ' +
-      'Ecosystem health scores ' + num(x.outcomes.E) + ' right now; it will not improve on its own.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
+      'Habitat quality is ' + num(x.habitat * 100) + '% and ecosystem score ' + num(x.outcomes.E) + '; wetlands and corridors are cheap and buffer floods.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     return out;
   };
 
@@ -230,52 +209,30 @@
     var s = x.state, out = [];
     var farmAlloc = fin(x.alloc.farms, 1), tribalAlloc = fin(x.alloc.tribal, 1), wildAlloc = fin(x.alloc.wildlife, 1), fireAlloc = fin(x.alloc.fire, 1);
     var ratio = x.totalDemand > 0 ? x.available / x.totalDemand : 1;
-    var farmAF = fin(x.demands.farms), tribalAF = fin(x.demands.tribal, H.TRIBAL_RIGHT_AF_YR / 4), wildAF = fin(x.demands.wildlife, x.minFlowAF), fireAF = fin(x.demands.fire, 600);
-    var wildCfs = wildAF / (H.AF_PER_CFS_DAY * 91);
-
+    var farmAF = fin(x.demands.farms), tribalAF = fin(x.demands.tribal, H.TRIBAL_RIGHT_AF_YR / 4), fireAF = fin(x.demands.fire, 600);
     out.push(rec('walt', farmAlloc < 1 ? 'oppose' : 'urge',
-      farmAlloc < 1 ? 'You are cutting the oldest decree' : 'Deliver the farm water in full',
-      'Farms are asking ' + af(farmAF) + ' and the slider sits at ' + pct(farmAlloc * 100) + '. ' +
-      'Hay that does not get water in ' + C.SEASONS[x.season] + ' does not come back in ' + C.SEASONS[(x.season + 1) % 4] + '; crop health is ' + num(x.cropHealth * 100) + '% and every 10% shortfall is a cut herd or bought feed at whatever the market says. ' +
-      'If someone has to go short, fallow us for a fee and pay it, do not just turn the wheel.',
-      evidence(s, 'cropHealth', 'Farm crop health', 'index 0-1', x.cropHealth, 0.7)));
-
+      farmAlloc < 1 ? 'You cut the oldest decree' : 'Deliver farm water in full',
+      'Farms asked ' + af(farmAF) + ', slider at ' + pct(farmAlloc * 100) + '; pay us to fallow instead.',
+      evidence(s, 'cropHealth', 'Crop health', 'index 0-1', x.cropHealth, 0.7)));
     out.push(rec('ana', wildAlloc < 1 || x.streamflow < H.MIN_FLOW_CFS ? 'urge' : 'support',
-      'Hold the ' + H.MIN_FLOW_CFS + ' cfs minimum flow',
-      'The instream right is ' + H.MIN_FLOW_CFS + ' cfs; flow below the dam is ' + num(x.streamflow) + ' cfs now. ' +
-      'That right is only ' + af(wildAF) + ' for the season (about ' + num(wildCfs) + ' cfs). ' +
-      'Releases for wildlife are non-consumptive, the water still reaches the farms and the state line, and below ' + H.MIN_FLOW_CFS + ' cfs the cutthroat pools warm and disconnect. ' +
-      (x.streamflow < H.MIN_FLOW_CFS ? 'We are already under it; a fish kill is a season away.' : 'Do not trade that for a lawn.'),
-      evidence(s, 'streamflowCfs', 'Streamflow below dam', 'cfs', x.streamflow, H.MIN_FLOW_CFS)));
-
+      'Hold the ' + H.MIN_FLOW_CFS + ' cfs minimum',
+      'Flow is ' + num(x.streamflow) + ' cfs against the ' + H.MIN_FLOW_CFS + ' cfs right; ' + (x.streamflow < H.MIN_FLOW_CFS ? 'a fish kill is a season away.' : 'do not trade it for lawns.'),
+      evidence(s, 'streamflowCfs', 'Streamflow', 'cfs', x.streamflow, H.MIN_FLOW_CFS)));
     out.push(rec('naomi', tribalAlloc < 1 ? 'oppose' : 'support',
-      tribalAlloc < 1 ? 'The senior right is not a slider' : 'Senior right first, then we talk',
-      'The tribal right is ' + af(tribalAF) + ' this season, senior to every other use here. ' +
-      'That is ' + af(H.TRIBAL_RIGHT_AF_YR) + ' a year, settled long before this town had a name. ' +
-      (tribalAlloc < 1 ? 'Setting it to ' + pct(tribalAlloc * 100) + ' does not save water; the law delivers it anyway and the community learns the town tried. ' : 'It is set to be delivered in full, which is the only lawful place to start. ') +
-      'Meet it, then bring the shortage to the table and we will share the rest as relatives share.',
+      tribalAlloc < 1 ? 'Senior right is not a slider' : 'Senior right first',
+      'Tribal right ' + af(tribalAF) + ' this season' + (tribalAlloc < 1 ? '; setting ' + pct(tribalAlloc * 100) + ' saves nothing, law delivers it anyway.' : ', senior to every use, is met in full.'),
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.deadPool)));
-
     out.push(rec('priya', x.storagePct < 50 || ratio < 1 ? 'caution' : 'support',
-      x.storagePct < 50 ? 'Protect carryover storage' : 'Supply covers requests; keep a cushion',
-      'Available supply is ' + af(x.available) + ' against ' + af(x.totalDemand) + ' requested (' + num(ratio * 100) + '% coverage). ' +
-      'Storage is ' + pct(x.storagePct) + ' of capacity. ' +
-      'Every acre-foot delivered above inflow comes out of next year; with snowpack at ' + pct(x.snowpackPct) + ' and ±' + pct(x.uncertainty * 100) + ' uncertainty I would keep end-of-season storage above ' + af(x.capacity * 0.5) + '. ' +
-      'Dead pool is ' + af(x.deadPool) + ' and nothing comes out below it.',
+      x.storagePct < 50 ? 'Protect carryover storage' : 'Supply covers requests',
+      'Supply is ' + af(x.available) + ' against ' + af(x.totalDemand) + ' requested; keep end-of-season storage above ' + af(x.capacity * 0.5) + '.',
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.capacity * 0.5)));
-
     out.push(rec('marcus', x.householdShort > 0.05 ? 'support' : 'oppose',
-      x.householdShort > 0.05 ? 'Fine, restrict, but explain it' : 'No lawn ban without a reason',
-      'Household shortfall last season was ' + pct(x.householdShort * 100) + ' and restrictions are "' + x.restriction + '". ' +
-      (x.householdShort > 0.05 ? 'If the taps are short, stage restrictions are fair, but publish the numbers so people know it is real. ' : 'Nobody in ' + x.wuiName + ' will accept a watering ban while the reservoir sits at ' + pct(x.storagePct) + '. ') +
-      'Trust is ' + num(x.outcomes.T) + ' out of 100; it drops fastest when rules feel arbitrary.',
+      x.householdShort > 0.05 ? 'Restrict, but explain it' : 'No lawn ban without reason',
+      (x.householdShort > 0.05 ? 'Households went short ' + pct(x.householdShort * 100) + ' last season; publish the numbers so restrictions feel real.' : 'Nobody accepts a watering ban with the reservoir at ' + pct(x.storagePct) + ' and trust at ' + num(x.outcomes.T) + '.'),
       evidence(s, 'shortagePct', 'Household shortage', '%', x.householdShort * 100, 5)));
-
     out.push(rec('dolores', x.fireDanger > 0.5 && fireAlloc < 1 ? 'urge' : (x.fireDanger > 0.5 ? 'support' : 'caution'),
-      x.fireDanger > 0.5 ? 'Do not touch the fire reserve' : 'The reserve can flex when wet',
-      'Fire danger is ' + x.dangerLabel + ' (' + num(x.fireDanger * 100) + '/100) and the reserve request is ' + af(fireAF) + '. ' +
-      (x.fireDanger > 0.5 ? 'That is engine refills and helicopter dips for one bad week; when the call comes there is no time to renegotiate with the ditch company. ' : 'With danger this low I can live with a partial reserve, but it must be back to full before summer. ') +
-      'Fuel is at ' + num(x.fuel.avg * 100) + '% and the wind forecast is ' + num(x.wind) + ' mph.',
+      x.fireDanger > 0.5 ? 'Do not touch the fire reserve' : 'The reserve can flex',
+      'Fire danger ' + num(x.fireDanger * 100) + '/100, reserve request ' + af(fireAF) + (x.fireDanger > 0.5 ? '; that is one bad week of refills.' : '; a partial reserve is fine until summer.'),
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
     return out;
   };
@@ -289,50 +246,30 @@
     var escape = 4 * (x.fireDanger > 0.5 ? 3 : 1);
     var goodWindow = x.fireDanger <= 0.5 && x.wind < 15 && (x.season === C.SEASON.SPRING || x.season === C.SEASON.FALL);
     var smokeDays = Math.max(2, Math.round(2 + target.avg * 4));
-
     out.push(rec('dolores', goodWindow ? 'urge' : 'caution',
-      goodWindow ? 'Burn it while the window is open' : 'Not in this wind or danger',
-      target.name + ' carries ' + num(target.avg * 100) + '% fuel across ' + acres(C.cellsToAcres(target.cells)) + '; a burn drops that to about ' + num(target.avg * 40) + '%. ' +
-      'Escape chance is roughly ' + escape + '% at ' + x.dangerLabel + ' danger with ' + num(x.wind) + ' mph wind. ' +
-      (goodWindow ? 'That is a risk I will take with crews staged; the wildfire that finds this fuel later will not ask permission.' : 'Above 50 danger the escape odds triple and I will not put a crew on a line I cannot hold.'),
+      goodWindow ? 'Burn while the window is open' : 'Not in this wind',
+      target.name + ' carries ' + num(target.avg * 100) + '% fuel; escape chance is ' + escape + '% in ' + num(x.wind) + ' mph wind.',
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
-
     out.push(rec('priya', x.soil >= 40 && x.fireDanger <= 0.5 ? 'support' : 'caution',
       x.soil >= 40 ? 'Soil moisture says yes' : 'Wait for wetter ground',
-      'Forest soil moisture is ' + pct(x.soil) + ' and the temperature anomaly is ' + (x.tempAnom >= 0 ? '+' : '') + num(x.tempAnom, 1) + ' °F. ' +
-      'A low-intensity burn on moist duff consumes surface fuel without cooking the soil, so runoff and sediment after the next storm barely change; a hot burn on dry ground behaves like a wildfire hydrologically. ' +
-      'Snowpack at ' + pct(x.snowpackPct) + ' also tells us how green the understory will be.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
-
+      'Soil moisture is ' + pct(x.soil) + '; moist duff barely changes runoff, dry ground burns like wildfire.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     out.push(rec('marcus', x.effects.outreach || x.effects.shelters ? 'support' : 'caution',
-      x.effects.outreach || x.effects.shelters ? 'We were warned, so go ahead' : 'Tell the school before you light it',
-      'A burn in ' + target.name + ' means roughly ' + smokeDays + ' smoke days for town. ' +
-      'That is on top of the ' + num(x.smokeDays) + ' we have already logged. ' +
-      (x.effects.outreach ? 'Outreach has been done, people know the difference between a planned burn and a wildfire, and the school has a plan. ' : 'Without notice, parents see smoke over the ridge and assume the worst; the elementary school has no filtration and no plan for recess. ') +
-      'I would rather breathe a few planned days than a summer of the other kind, but say so in advance.',
+      x.effects.outreach || x.effects.shelters ? 'We were warned, go ahead' : 'Tell the school first',
+      'A burn means about ' + smokeDays + ' smoke days on top of ' + num(x.smokeDays) + ' already; ' + (x.effects.outreach ? 'people know the plan.' : 'warn the school first.'),
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
-
     out.push(rec('ana', x.season === C.SEASON.FALL ? 'support' : 'caution',
       'Fire belongs here; timing matters',
-      'A ' + num(target.avg * 100) + '% fuel load is what a century of suppression looks like. ' +
-      'Ponderosa and the drier mixed conifer here evolved with frequent low-severity fire. ' +
-      'I support the burn, but keep it out of the riparian strip and off elk winter range while animals are concentrated; habitat quality is ' + num(x.habitat * 100) + '% and a fall burn after the first snow moves elk is the cleanest window. ' +
-      'Leave the big snags standing.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
-
+      'A ' + num(target.avg * 100) + '% fuel load is a century of suppression; burn in fall, off elk range.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     out.push(rec('walt', target.upstream ? 'support' : 'caution',
-      target.upstream ? 'Burn the high country, not my fence' : 'Keep it well away from the hay',
-      (target.upstream ? target.name + ' is above the reservoir, so an escape in ' + num(x.wind) + ' mph wind misses my hay meadows. ' : target.name + ' sits above the valley; an escape in ' + num(x.wind) + ' mph wind runs into cured grass and stacked bales. ') +
-      'Grazing after a burn comes back better within two seasons, and a black hillside in fall beats a black valley in July. ' +
-      'Just make sure the ' + af(fin(x.demands.fire, 600)) + ' fire reserve is actually in the reservoir before anyone strikes a match.',
+      target.upstream ? 'Burn high, not my fence' : 'Keep it off the hay',
+      target.name + (target.upstream ? ' is above the reservoir; an escape in ' : ' is above the valley; an escape in ') + num(x.wind) + ' mph wind ' + (target.upstream ? 'misses my hay.' : 'hits cured hay.'),
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
-
     out.push(rec('naomi', 'support',
       'Good fire is old knowledge',
-      'The ' + num(target.avg * 100) + '% load in ' + target.name + ' is the debt from a century of putting every fire out. ' +
-      'Cultural burning kept these slopes open long before the first decree; low fires in the right season renewed forage, berries and the springs that feed the creek. ' +
-      'Burn with humility, in ' + (x.season === C.SEASON.SPRING || x.season === C.SEASON.FALL ? 'this' : 'the shoulder') + ' season, and the river will carry less ash for it.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
+      'The ' + num(target.avg * 100) + '% load in ' + target.name + ' is the debt from a century without cultural burning.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     return out;
   };
 
@@ -341,51 +278,30 @@
     var suppress = x.policy === 'suppress_all';
     var worst = x.fuel.worst || { name: 'the upper forest', avg: x.fuel.avg };
     var hardened = Object.keys(obj(x.effects.hardenedZones)).length;
-
     out.push(rec('dolores', suppress ? 'caution' : 'support',
-      suppress ? 'Suppress-all builds the fire that beats us' : 'Managed fire, hard line at the WUI',
-      'Under suppress-all fuel builds 1.6 times faster; ' + worst.name + ' is already at ' + num(worst.avg * 100) + '%. ' +
-      'Managed fire lets a wet-season lightning start clean up a ridge for free, but I will full-suppress anything within reach of ' + x.wuiName + ' regardless of policy. ' +
-      'We have lost ' + Math.round(x.structuresLost) + ' structures so far; the question is which fire you want, the one you choose or the one you get.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
-
+      suppress ? 'Suppress-all builds the big fire' : 'Managed fire, hard WUI line',
+      'Suppress-all builds fuel 1.6 times faster and ' + worst.name + ' is already at ' + num(worst.avg * 100) + '%.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     out.push(rec('marcus', x.structuresLost > 0 || x.fireDanger > 0.6 ? 'urge' : 'caution',
-      x.structuresLost > 0 ? 'Put them out, all of them' : 'Fine until it is my street',
-      (x.structuresLost > 0 ? 'We have already lost ' + Math.round(x.structuresLost) + ' homes and logged ' + num(x.smokeDays) + ' smoke days. Letting anything burn is a hard sell on my block. ' : 'Fire danger is ' + x.dangerLabel + ' with ' + num(x.smokeDays) + ' smoke days so far. A fire allowed to burn for a month is a month of kids indoors. ') +
-      (hardened > 0 ? 'Home hardening is funded in ' + hardened + ' neighborhood' + (hardened > 1 ? 's' : '') + ', which makes managed fire easier to accept. ' : 'Nobody has hardened a single neighborhood yet, so the town is the fuel. ') +
-      'Public safety scores ' + num(x.outcomes.P) + '.',
+      x.structuresLost > 0 ? 'Put them all out' : 'Fine until my street',
+      (x.structuresLost > 0 ? 'We lost ' + Math.round(x.structuresLost) + ' homes and logged ' + num(x.smokeDays) + ' smoke days; letting fires burn is a hard sell.' : 'Fire danger is ' + num(x.fireDanger * 100) + '/100 and ' + hardened + ' neighborhoods are hardened; a month-long fire means kids indoors.'),
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.6)));
-
     out.push(rec('ana', suppress ? 'oppose' : 'urge',
-      'The forest needs fire more than us',
-      'Ecosystem health sits at ' + num(x.outcomes.E) + '; a century of suppression is why crown fires now sterilise whole drainages. ' +
-      'Mixed-severity fire creates the openings, snags and aspen regeneration that elk and cavity nesters depend on. ' +
-      'Managed fire in the back country with a wet-season start is the cheapest restoration tool we have. ' +
-      'Suppress-all trades small fires now for a stand-replacing one later, and that fire is what fills the reservoir with ash.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
-
+      'The forest needs fire',
+      'Ecosystem health is ' + num(x.outcomes.E) + '; managed backcountry fire is the cheapest restoration tool we have.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     out.push(rec('priya', x.upstreamAcres > 1000 ? 'caution' : 'support',
-      'Judge the policy by the water',
-      'Burned area above the reservoir totals ' + acres(x.upstreamAcres) + '; mean burn severity is ' + num(x.burnMean * 100) + '%. ' +
-      'Low-severity managed fire raises runoff only slightly; high-severity crown fire can raise post-storm sediment tenfold and turbidity is already ' + num(x.turbidity * 100) + '%. ' +
-      'The measurement that matters is severity, not acres, so any policy that lowers fuel before the dry years wins on the water balance.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
-
+      'Judge the policy by water',
+      'Burn above the reservoir: ' + acres(x.upstreamAcres) + ' at ' + num(x.burnMean * 100) + '% severity; severity, not acres, makes ash.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     out.push(rec('walt', 'caution',
-      'Managed above the dam, suppressed above hay',
-      'Grass fire in ' + num(x.wind) + ' mph wind moves faster than any engine. ' +
-      'A fire that runs onto the valley floor in August takes the second cutting with it. ' +
-      'I can accept managed fire in the upper sectors where fuel is ' + num(worst.avg * 100) + '%, but ' + x.farmName + ' needs a suppression commitment in writing. ' +
-      'Insurance on the barns is already asking what the county policy is.',
+      'Managed above the dam, not hay',
+      'Grass fire in ' + num(x.wind) + ' mph wind outruns engines; ' + x.farmName + ' needs a written suppression commitment.',
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
-
     out.push(rec('naomi', suppress ? 'caution' : 'support',
-      'Choose the fire that respects the river',
-      'The ' + num(x.fuel.avg * 100) + '% fuel load is what happens when fire is taken away by law. ' +
-      'Our elders describe fire as a tool. ' +
-      'Managed fire that keeps severity low protects the springs and the trout the community depends on; a suppress-all policy protects houses this year and hands the reservoir an ash load in a dry one. ' +
-      'Whatever you choose, make the decision with the people downstream in the room.',
-      evidence(s, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x.fuel.avg, 0.6)));
+      'Choose the fire respecting the river',
+      'The ' + num(x.fuel.avg * 100) + '% fuel load is what happens when fire is outlawed; low severity protects the springs.',
+      evidence(s, 'fuelAvg', 'Forest fuel', 'index 0-1', x.fuel.avg, 0.6)));
     return out;
   };
 
@@ -394,51 +310,29 @@
     var scar = x.scarAcres;
     var peakEst = Math.round(120 + scar * 0.55 * Math.max(0.5, x.stormIn / 2));
     var sedEst = Math.round(scar * 0.8 * Math.max(0.5, x.stormIn / 2) * Math.max(0.3, x.burnMean + 0.3));
-
     out.push(rec('dolores', 'urge',
       'Sirens first, then the basin',
-      'A ' + num(x.stormIn, 1) + ' in storm on ' + acres(scar) + ' of scar could push peak flow near ' + peakEst.toLocaleString() + ' cfs. ' +
-      'Unburned, that slope would run roughly 120 cfs. ' +
-      'Warning markers in ' + x.wuiName + ' cut injury risk by about 80% and a debris basin on the main channel catches the boulders before the bridge. ' +
-      'Emergency fund is ' + money(x.emergencyFund) + '; spend it on the things that keep people out of the water.',
+      'A ' + num(x.stormIn, 1) + ' in storm on ' + acres(scar) + ' of scar could push peak flow near ' + peakEst.toLocaleString() + ' cfs.',
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
-
     out.push(rec('priya', 'urge',
       'Protect the intake, sensor upstream',
-      'Sediment yield from the scar could reach ' + sedEst.toLocaleString() + ' t. ' +
-      'Even a tenth of that reaching the reservoir lifts turbidity from ' + num(x.turbidity * 100) + '% into treatment-plant trouble. ' +
-      'Intake protection at the dam plus a sensor on the river above it halves outage days because the plant can switch or shut before the plume arrives. ' +
-      (x.effects.sensorCoverage ? 'Streamgages are funded, so the sensor reading will be trusted.' : 'Without gauges we will be guessing the arrival time.'),
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
-
+      'Sediment yield could reach ' + sedEst.toLocaleString() + ' t; a sensor above the intake halves outage days.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     out.push(rec('ana', x.effects.wetlandRestored ? 'support' : 'urge',
-      'Mulch the scar, let the wetland work',
-      'Mulch on the burned slopes cuts sediment at the source by roughly 60%. ' +
-      'That is worth more to the trout than any wall downstream. ' +
-      (x.effects.wetlandRestored ? 'The restored wetland will trap about a third of what passes and knock 30% off the peak. ' : 'A restored wetland would trap about a third of the sediment and cut the peak 30%; it is not funded. ') +
-      'Please keep hard bank armour to the reach by the treatment plant; riprap everywhere is a sterile channel for decades.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
-
+      'Mulch the scar, use the wetland',
+      'Mulch cuts sediment at the source by 60%; ' + (x.effects.wetlandRestored ? 'the restored wetland traps a third more.' : 'an unfunded wetland would trap a third more.'),
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     out.push(rec('marcus', x.effects.warningSystem ? 'support' : 'urge',
-      x.effects.warningSystem ? 'The sirens are in, now use them' : 'Get a warning into every neighborhood',
-      'The storm is ' + Math.round(x.stormTurns) + ' step' + (x.stormTurns === 1 ? '' : 's') + ' out and people in ' + x.wuiName + ' are asking what to do. ' +
-      (x.effects.warningSystem ? 'The town-wide warning system is funded; pair it with the marker in each neighborhood so the message is local. ' : 'A warning marker costs a quarter million and covers a whole neighborhood; there is no cheaper life saved. ') +
-      'Flood damage so far is ' + money(x.stats.floodDamageM) + ' and none of it was budgeted.',
-      evidence(s, 'P', 'Public safety score', '0-100', x.outcomes.P, 60)));
-
+      x.effects.warningSystem ? 'The sirens are in, use them' : 'Get a warning to every neighborhood',
+      'The storm is ' + Math.round(x.stormTurns) + ' step' + (x.stormTurns === 1 ? '' : 's') + ' out and ' + (x.effects.warningSystem ? 'the warning system is funded; pair it with local markers.' : 'a $0.25M warning marker covers a whole neighborhood.'),
+      evidence(s, 'P', 'Public safety', '0-100', x.outcomes.P, 60)));
     out.push(rec('walt', 'caution',
       'Barriers on the ditches too',
-      'Crop health is ' + num(x.cropHealth * 100) + '% and mud over the headgate fills the ditches for a season. ' +
-      'The fields then go dry in the middle of irrigation. ' +
-      'Log barriers on the side draws above ' + x.farmName + ' are cheap, and I would put two there before a second sensor. ' +
-      'Do not spend the whole ' + money(x.emergencyFund) + ' on town; the valley floods too.',
-      evidence(s, 'cropHealth', 'Farm crop health', 'index 0-1', x.cropHealth, 0.7)));
-
+      'Crop health is ' + num(x.cropHealth * 100) + '%; log barriers above ' + x.farmName + ' beat a second sensor.',
+      evidence(s, 'cropHealth', 'Crop health', 'index 0-1', x.cropHealth, 0.7)));
     out.push(rec('naomi', 'support',
-      'Slow the water, do not fight it',
-      'The scar is ' + acres(scar) + ' and the reservoir is ' + pct(x.storagePct) + ' full. ' +
-      'There is room to hold a pulse if it arrives clean; the river is doing what a burned watershed makes it do, and the work is to slow it. ' +
-      'Mulch, wetland and beaver-style structures keep sediment on the slope and water in the ground, where our people have always understood it belongs; concrete moves the problem to whoever lives below.',
+      'Slow the water',
+      'The scar is ' + acres(scar) + ', reservoir ' + pct(x.storagePct) + ' full; mulch and wetland keep sediment uphill.',
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.capacity)));
     return out;
   };
@@ -446,52 +340,30 @@
   TOPIC_FNS.contamination = function (x) {
     var s = x.state, out = [];
     var bad = x.ash > 0.3 || x.turbidity > 0.4;
-
     out.push(rec('priya', bad ? 'urge' : 'support',
-      bad ? 'Treatment capacity is the bottleneck' : 'Watch the decay curve first',
-      'Turbidity is ' + num(x.turbidity * 100) + '% and ash contamination ' + num(x.ash * 100) + '%. ' +
-      'Both decay roughly 35% and 25% per season, so without intervention ash is still about ' + num(x.ash * 0.75 * 100) + '% next season. ' +
-      (x.effects.multiLevelIntake ? 'The multi-level intake lets the plant draw from the cleanest layer. ' : 'A multi-level intake would let the plant draw clear water from above the plume. ') +
-      (x.effects.treatment ? 'The treatment upgrade is in place; outage days so far: ' + Math.round(x.stats.outageDays) + '.' : 'The plant has ' + Math.round(x.stats.outageDays) + ' outage days already; the treatment upgrade is the direct fix.'),
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.4)));
-
+      bad ? 'Treatment capacity is the bottleneck' : 'Watch the decay curve',
+      'Turbidity is ' + num(x.turbidity * 100) + '% and ash ' + num(x.ash * 100) + '%; ' + (x.effects.treatment ? 'the upgrade is in, outage days so far ' + Math.round(x.stats.outageDays) + '.' : 'the treatment upgrade is the direct fix.'),
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.4)));
     out.push(rec('marcus', x.stats.outageDays > 0 ? 'urge' : 'caution',
-      x.stats.outageDays > 0 ? 'Bottled water is not a plan' : 'Do not let it reach boil notices',
-      (x.stats.outageDays > 0 ? 'We have had ' + Math.round(x.stats.outageDays) + ' days of outage or boil notice. The school closed the fountains. ' : 'No outages yet, but ash at ' + num(x.ash * 100) + '% is one storm from a boil notice. ') +
-      'Whatever it costs, the treatment upgrade is cheaper than a town of ' + Math.round(x.population).toLocaleString() + ' buying water by the case, and trust (' + num(x.outcomes.T) + ') does not survive brown tap water. ' +
-      'Tell people what the numbers mean before they see the colour.',
-      evidence(s, 'W', 'Water security score', '0-100', x.outcomes.W, 50)));
-
+      x.stats.outageDays > 0 ? 'Bottled water is not a plan' : 'No boil notices',
+      (x.stats.outageDays > 0 ? 'We have had ' + Math.round(x.stats.outageDays) + ' outage days; ' : 'Ash at ' + num(x.ash * 100) + '% is one storm from a boil notice; ') + 'trust (' + num(x.outcomes.T) + ') cannot survive brown water.',
+      evidence(s, 'W', 'Water security', '0-100', x.outcomes.W, 50)));
     out.push(rec('dolores', 'support',
       'Stop it on the slope',
-      'Every ton of ash in the reservoir started on ' + acres(x.scarAcres) + ' of burn scar. ' +
-      'Mulch and barriers on the steep drainages are the only measures that reduce the next plume rather than treat it. ' +
-      'For suppression I can draft turbid water all day, so do not hold the fire reserve for quality reasons. ' +
-      'Sediment delivered so far: ' + Math.round(x.stats.sedimentTons).toLocaleString() + ' t.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.4)));
-
+      'All ash started on ' + acres(x.scarAcres) + ' of scar; mulch and barriers there cut the next plume.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.4)));
     out.push(rec('ana', x.turbidity > 0.3 ? 'urge' : 'support',
       'Turbid water is a fish problem',
-      'Fine sediment at ' + num(x.turbidity * 100) + '% turbidity smothers the gravel where cutthroat spawn. ' +
-      'The algae index is ' + num(x.algae * 100) + '%. ' +
-      'Releasing a flushing pulse below the dam clears the plant intake faster but scours the redds, so time any flush for late fall after spawning. ' +
-      'The lasting fix is upstream: mulch, wetland, riparian shade, not just filters.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
-
+      'Turbidity at ' + num(x.turbidity * 100) + '% smothers cutthroat spawning gravel; time any flushing pulse for late fall.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     out.push(rec('walt', 'support',
-      'Farms can take the dirty water',
-      'Farm delivery this season is ' + af(fin(x.delivered.farms, fin(x.demands.farms))) + ' and irrigation water need not meet drinking standards. ' +
-      'If the plant is struggling, route the turbid releases to the ditches and keep the clean layer for town; ash-laden water is fine on hay as long as the headgates do not silt up. ' +
-      'Charge the ditch cleaning to the flood account, not to us.',
-      evidence(s, 'cropHealth', 'Farm crop health', 'index 0-1', x.cropHealth, 0.7)));
-
+      'Farms can take dirty water',
+      'Farm delivery is ' + af(fin(x.delivered.farms, fin(x.demands.farms))) + '; send turbid releases to ditches, clean water to town.',
+      evidence(s, 'cropHealth', 'Crop health', 'index 0-1', x.cropHealth, 0.7)));
     out.push(rec('naomi', 'caution',
-      'What we send downstream is a promise',
-      'The delivery obligation is ' + af(H.DOWNSTREAM_AF_YR) + ' a year and it does not say the water may arrive black. ' +
-      'Communities below us drink from the same relative. ' +
-      'Ash at ' + num(x.ash * 100) + '% will pass the dam whether or not the town plant copes, so the measures that matter are the ones that clean the water, not just the ones that protect the intake. ' +
-      'Fund the wetland and mulch alongside the plant.',
-      evidence(s, 'turbidity', 'Reservoir turbidity', 'index 0-1', x.turbidity, 0.3)));
+      'Downstream water is a promise',
+      'The ' + af(H.DOWNSTREAM_AF_YR) + ' delivery must not arrive black; fund wetland and mulch alongside the plant.',
+      evidence(s, 'turbidity', 'Turbidity', 'index 0-1', x.turbidity, 0.3)));
     return out;
   };
 
@@ -500,52 +372,29 @@
     var severe = x.droughtLevel >= 3 || x.snowpackPct < 70;
     var carryTurns = x.consumptive > 0 ? (x.storage - x.deadPool) / (x.consumptive) : 8;
     carryTurns = C.clamp(fin(carryTurns, 8), 0, 40);
-
     out.push(rec('priya', severe ? 'urge' : 'caution',
       severe ? 'Plan on the low forecast' : 'Dry, not yet a crisis',
-      'Snowpack is ' + pct(x.snowpackPct) + ' of average (' + num(x.swe, 1) + ' in SWE against ' + num(H.AVG_SNOW_SWE_IN) + ' in), drought category ' + x.drought + '. ' +
-      'Soil moisture is ' + pct(x.soil) + '. ' +
-      'At current consumptive demand the reservoir has about ' + num(carryTurns, 1) + ' seasons of usable storage above dead pool. ' +
-      'Uncertainty is ±' + pct(x.uncertainty * 100) + '; plan on the lower bound, because a second dry winter is the historical norm, not the exception.',
-      evidence(s, 'snowpackPct', 'Snowpack, % of average', '%', x.snowpackPct, 70)));
-
+      'Snowpack is ' + pct(x.snowpackPct) + ' (drought ' + x.drought + ') and storage covers about ' + num(carryTurns, 1) + ' seasons above dead pool.',
+      evidence(s, 'snowpackPct', 'Snowpack', '%', x.snowpackPct, 70)));
     out.push(rec('walt', x.farmShort > 0.2 ? 'oppose' : 'caution',
-      x.farmShort > 0.2 ? 'You cannot dry us up twice' : 'Pay for fallowing, do not order it',
-      'Farm shortfall is ' + pct(x.farmShort * 100) + ' and crop health ' + num(x.cropHealth * 100) + '%. ' +
-      'Hay was already scarce on the Front Range in the last dry year and the price follows the snowpack. ' +
-      'If cuts are coming, a voluntary paid fallowing program lets me choose which field to idle and keeps the herd; a mandatory cut sells cows at the bottom of the market. ' +
-      'Our decree is senior to the town\'s; do not forget that when the sliders move.',
-      evidence(s, 'cropHealth', 'Farm crop health', 'index 0-1', x.cropHealth, 0.7)));
-
-    out.push(rec('marcus', severe && x.restriction === 'none' ? 'support' : (severe ? 'support' : 'oppose'),
-      severe ? 'Stage restrictions now, before the panic' : 'Restrictions can wait',
-      'Restriction level is "' + x.restriction + '" and household shortfall is ' + pct(x.householdShort * 100) + '. ' +
-      (severe ? 'With snowpack at ' + pct(x.snowpackPct) + ', early voluntary or stage-1 rules spread the pain and are far cheaper on the bill than an emergency purchase later. ' : 'The reservoir is ' + pct(x.storagePct) + ' full; asking families to let the yard die now is a trust cost with no water benefit. ') +
-      'Say plainly what triggers the next stage.',
+      x.farmShort > 0.2 ? 'You cannot dry us twice' : 'Pay for fallowing, not orders',
+      'Farm shortfall ' + pct(x.farmShort * 100) + ', crop health ' + num(x.cropHealth * 100) + '%; paid fallowing keeps the herd, mandatory cuts sell cows.',
+      evidence(s, 'cropHealth', 'Crop health', 'index 0-1', x.cropHealth, 0.7)));
+    out.push(rec('marcus', severe ? 'support' : 'oppose',
+      severe ? 'Stage restrictions before the panic' : 'Restrictions can wait',
+      (severe ? 'With snowpack at ' + pct(x.snowpackPct) + ', early stage-1 rules spread the pain cheaply; say what triggers stage 2.' : 'The reservoir is ' + pct(x.storagePct) + ' full; a yard ban now costs trust for no water.'),
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.capacity * 0.4)));
-
     out.push(rec('ana', x.streamflow < H.MIN_FLOW_CFS * 1.5 ? 'urge' : 'caution',
-      'Drought is when minimum flow matters most',
-      'Flow below the dam is ' + num(x.streamflow) + ' cfs against a ' + H.MIN_FLOW_CFS + ' cfs instream right. ' +
-      'Warm low water is how a fish kill starts; the temperature anomaly is ' + (x.tempAnom >= 0 ? '+' : '') + num(x.tempAnom, 1) + ' °F. ' +
-      'The wildlife release is non-consumptive; it reaches the state line and counts toward the downstream obligation, so holding it costs the ledger nothing. ' +
-      'Elk winter range on the shrub benches is ' + num(x.habitat * 100) + '% quality and drought pushes them into the hayfields, which is Walt\'s problem next.',
-      evidence(s, 'streamflowCfs', 'Streamflow below dam', 'cfs', x.streamflow, H.MIN_FLOW_CFS)));
-
+      'Minimum flow matters most now',
+      'Flow is ' + num(x.streamflow) + ' cfs against the ' + H.MIN_FLOW_CFS + ' cfs right; the wildlife release costs the ledger nothing.',
+      evidence(s, 'streamflowCfs', 'Streamflow', 'cfs', x.streamflow, H.MIN_FLOW_CFS)));
     out.push(rec('naomi', 'caution',
-      'Senior rights are not a hardship exemption',
-      'The tribal right of ' + af(H.TRIBAL_RIGHT_AF_YR) + ' a year is met before any local shortage is shared. ' +
-      'So is the ' + af(H.DOWNSTREAM_AF_YR) + ' Colorado River delivery; that is settled law and the community will not renegotiate it under pressure. ' +
-      'What we will do is conserve alongside you, because the river is a relative in a hard year too. ' +
-      'Storage is ' + af(x.storage) + '; show the numbers openly and the sharing goes easier.',
+      'Senior rights are not exempt',
+      'The ' + af(H.TRIBAL_RIGHT_AF_YR) + ' tribal right is met before shortage is shared; show the numbers openly.',
       evidence(s, 'storageAF', 'Reservoir storage', 'AF', x.storage, x.deadPool)));
-
     out.push(rec('dolores', x.fireDanger > 0.5 ? 'urge' : 'support',
-      'Drought is fire season by another name',
-      'Fire danger is ' + x.dangerLabel + ' with soil moisture at ' + pct(x.soil) + ' and fuel at ' + num(x.fuel.avg * 100) + '%. ' +
-      'The same numbers that dry the reservoir dry the crowns. ' +
-      'Keep the ' + af(fin(x.demands.fire, 600)) + ' reserve whole and do not let the fire stations\' hydrant pressure drop with the pool. ' +
-      'Every drought year on record in this state ends with a big fire somewhere.',
+      'Drought is fire season',
+      'Soil moisture is ' + pct(x.soil) + ' and fuel ' + num(x.fuel.avg * 100) + '%; keep the ' + af(fin(x.demands.fire, 600)) + ' reserve whole.',
       evidence(s, 'fireDanger', 'Fire danger', 'index 0-1', x.fireDanger, 0.5)));
     return out;
   };
@@ -578,10 +427,10 @@
       var x2;
       try { x2 = x || context(state, world); } catch (err2) { x2 = context({}, {}); }
       var pads = [
-        rec('priya', 'caution', 'Check the measurements', 'Storage is ' + af(x2.storage) + ' and snowpack ' + pct(x2.snowpackPct) + '. Decide with the numbers in view.', evidence(state, 'storageAF', 'Reservoir storage', 'AF', x2.storage)),
-        rec('dolores', 'caution', 'Watch the fuel', 'Fuel averages ' + num(x2.fuel.avg * 100) + '% and danger is ' + x2.dangerLabel + '.', evidence(state, 'fuelAvg', 'Mean forest fuel load', 'index 0-1', x2.fuel.avg)),
-        rec('marcus', 'caution', 'Keep people informed', 'Trust is ' + num(x2.outcomes.T) + '; explain the decision.', evidence(state, 'T', 'Public trust', '0-100', x2.outcomes.T)),
-        rec('ana', 'caution', 'Mind the river', 'Flow is ' + num(x2.streamflow) + ' cfs.', evidence(state, 'streamflowCfs', 'Streamflow below dam', 'cfs', x2.streamflow))
+        rec('priya', 'caution', 'Check the measurements', 'Storage is ' + af(x2.storage) + ' and snowpack ' + pct(x2.snowpackPct) + '; decide with the numbers in view.', evidence(state, 'storageAF', 'Reservoir storage', 'AF', x2.storage)),
+        rec('dolores', 'caution', 'Watch the fuel', 'Fuel averages ' + num(x2.fuel.avg * 100) + '% and fire danger reads ' + x2.dangerLabel + ' this season.', evidence(state, 'fuelAvg', 'Forest fuel', 'index 0-1', x2.fuel.avg)),
+        rec('marcus', 'caution', 'Keep people informed', 'Public trust sits at ' + num(x2.outcomes.T) + ' out of 100; explain every decision plainly.', evidence(state, 'T', 'Public trust', '0-100', x2.outcomes.T)),
+        rec('ana', 'caution', 'Mind the river', 'Flow below the dam is ' + num(x2.streamflow) + ' cfs against a ' + H.MIN_FLOW_CFS + ' cfs instream right.', evidence(state, 'streamflowCfs', 'Streamflow', 'cfs', x2.streamflow))
       ];
       for (var i = 0; recs.length < 4 && i < pads.length; i++) recs.push(sanitize(pads[i]));
     }

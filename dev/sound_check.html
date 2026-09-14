@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watershed — sound check</title>
+<style>
+  html, body { margin: 0; background: #1a1e22; font: 13px/1.4 system-ui, sans-serif; color: #f2efe8; }
+  body { padding: 14px 16px 90px; }
+  h1 { font-size: 16px; margin: 0 0 6px; } h2 { font-size: 13px; color: #c9c4b8; margin: 18px 0 6px; text-transform: uppercase; letter-spacing: .06em; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { background: #3a4656; color: #eee; border: 1px solid #667; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #4b5a6d; }
+  .loop { display: grid; grid-template-columns: 110px 60px 1fr 60px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.08); max-width: 560px; }
+  .loop input[type=range] { width: 100%; }
+  #stats { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre; background: rgba(0,0,0,.35); padding: 8px 10px; border-radius: 6px; margin-top: 12px; max-width: 560px; }
+  .hint { color: #8f8b82; font-size: 12px; }
+  label.vol { display: inline-flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<h1>Watershed — sound check</h1>
+<p class="hint">All sounds are synthesized (Web Audio). Click anywhere first to unlock the AudioContext. <kbd>M</kbd> mutes. The round button bottom-right is the in-game mute toggle.</p>
+<div class="row">
+  <label class="vol">Master volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.6"></label>
+  <button id="stopAll">Stop all loops</button>
+</div>
+
+<h2>One-shots</h2>
+<div class="row" id="shots"></div>
+<div class="row" style="margin-top:8px">
+  <button data-adv="dolores">advisor: dolores</button><button data-adv="walt">advisor: walt</button><button data-adv="naomi">advisor: naomi</button>
+  <button data-adv="priya">advisor: priya</button><button data-adv="marcus">advisor: marcus</button><button data-adv="ana">advisor: ana</button>
+</div>
+
+<h2>Loops (toggle + intensity)</h2>
+<div id="loops"></div>
+
+<div id="stats">—</div>
+
+<script src="../src/audio/sound.js"></script>
+<script>
+(function () {
+  var S = WS.Sound; S.init();
+  var shots = document.getElementById('shots'), loops = document.getElementById('loops');
+  S.names.forEach(function (n) {
+    var b = document.createElement('button'); b.textContent = n; b.setAttribute('data-nosound', '1');
+    b.addEventListener('click', function () { S.play(n); });
+    shots.appendChild(b);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-adv]'), function (b) {
+    b.setAttribute('data-nosound', '1');
+    b.addEventListener('click', function () { S.play('advisor', { id: b.getAttribute('data-adv') }); });
+  });
+  S.loopNames.forEach(function (n) {
+    var row = document.createElement('div'); row.className = 'loop';
+    var name = document.createElement('span'); name.textContent = n;
+    var on = document.createElement('input'); on.type = 'checkbox'; on.id = 'loop-' + n;
+    var slider = document.createElement('input'); slider.type = 'range'; slider.min = 0; slider.max = 1; slider.step = 0.05; slider.value = 0.6;
+    var val = document.createElement('span'); val.textContent = '0.60';
+    var apply = function () { val.textContent = (+slider.value).toFixed(2); S.loop(n, on.checked, +slider.value); };
+    on.addEventListener('change', apply); slider.addEventListener('input', apply);
+    row.appendChild(name); row.appendChild(on); row.appendChild(slider); row.appendChild(val);
+    loops.appendChild(row);
+  });
+  var vol = document.getElementById('vol'); vol.value = S.getVolume();
+  vol.addEventListener('input', function () { S.setVolume(+vol.value); });
+  document.getElementById('stopAll').addEventListener('click', function () {
+    S.stopAll();
+    Array.prototype.forEach.call(loops.querySelectorAll('input[type=checkbox]'), function (c) { c.checked = false; });
+  });
+  var stats = document.getElementById('stats');
+  setInterval(function () {
+    var s = S.state(), c = S.context();
+    stats.textContent = 'context: ' + s.context + '   unlocked: ' + s.unlocked + '   muted: ' + s.muted + '   volume: ' + s.volume.toFixed(2) +
+      '\nscheduler: ' + s.scheduler + '   loops: ' + JSON.stringify(s.loops) +
+      (c ? '\nsampleRate: ' + c.sampleRate + '   baseLatency: ' + (c.baseLatency != null ? c.baseLatency.toFixed(4) : '?') + '   currentTime: ' + c.currentTime.toFixed(1) : '');
+  }, 400);
+})();
+</script>
+</body>
+</html>

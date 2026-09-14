@@ -15,7 +15,8 @@
   var PH = C.PHASES || { PLAN: 'plan', FLOOD_PREP: 'flood_prep' };
   var SENIOR = { tribal: true, downstream: true };
   var NONCONS = { hydro: true, recreation: true, wildlife: true };
-  var CATEGORY_NAMES = { monitor: 'Monitoring', water: 'Water supply', fire: 'Wildfire', flood: 'Flood & sediment', community: 'Community' };
+  var CATEGORY_NAMES = { monitor: 'Monitoring', water: 'Water', fire: 'Wildfire', flood: 'Flood', community: 'Community' };
+  var CATEGORY_ICONS = { monitor: '📡', water: '💧', fire: '🔥', flood: '🌊', community: '🏘' };
   var CATEGORY_ORDER = ['monitor', 'water', 'fire', 'flood', 'community'];
 
   function h() { return UI.h.apply(null, arguments); }
@@ -63,37 +64,40 @@
     var s = st();
     var list = [];
     try { list = safeList(UI.game && UI.game.getProjectList && UI.game.getProjectList()); } catch (e) { console.error(e); list = []; }
-    if (!list.length) { box.appendChild(h('p', { class: 'muted' }, 'No projects available yet.')); return; }
+    if (!list.length) { box.appendChild(h('p', { class: 'muted small', 'aria-label': 'No projects available yet' }, '—')); return; }
     var showAll = UI.pref('allProjects') === true;
     var coreIds = coreProjectIds();
     var byId = {}; list.forEach(function (it) { var id = ((it || {}).def || {}).id; if (id != null) byId[String(id)] = it; });
     var core = coreIds.map(function (id) { return byId[id]; }).filter(Boolean);
     var extra = list.length - core.length;
     if (!core.length) showAll = true;
-    var toggle = h('button', { class: 'ghost tiny proj-toggle', type: 'button', id: 'projects-toggle', 'aria-expanded': showAll ? 'true' : 'false', hidden: !core.length || extra <= 0 },
-      showAll ? 'Core projects only ▴' : 'Show all projects ▾ (' + extra + ' more)');
+    /* "+3 ▾" shows the rest; the words live in the tooltip / aria-label */
+    var toggleLabel = showAll ? 'Core projects only' : 'Show all projects (' + extra + ' more)';
+    var toggle = h('button', { class: 'ghost tiny proj-toggle', type: 'button', id: 'projects-toggle', 'aria-expanded': showAll ? 'true' : 'false', hidden: !core.length || extra <= 0, 'aria-label': toggleLabel, 'data-tip': toggleLabel },
+      showAll ? '▴' : '+' + extra + ' ▾');
     toggle.addEventListener('click', function () { UI.pref('allProjects', !showAll); UI.renderProjects(); });
-    box.appendChild(h('div', { class: 'row between', style: { marginBottom: '6px' } }, [
-      h('span', { class: 'label' }, 'Budget ' + money(s.budget)),
+    box.appendChild(h('div', { class: 'row between tabhead' }, [
+      h('span', { class: 'chip money', 'data-tip': 'Budget ' + money(s.budget) + ' · emergency fund ' + money(s.emergencyFund), 'aria-label': 'Budget ' + money(s.budget) }, [h('span', { 'aria-hidden': 'true' }, '💵 '), money(s.budget)]),
       toggle
     ]));
     if (!showAll) {
-      var g = h('div', { class: 'group core', 'data-category': 'core' }, h('div', { class: 'label' }, 'Core projects'));
-      core.forEach(function (it) { g.appendChild(projectCard(it, s)); });
+      var g = h('div', { class: 'tiles', role: 'list', 'aria-label': 'Core projects' });
+      core.forEach(function (it) { g.appendChild(projectTile(it, s)); });
       box.appendChild(g);
-      box.appendChild(h('p', { class: 'small dim', style: { margin: '2px 0 0' } }, 'Eight projects cover most of what the watershed needs. Reservoir, storage, shelters and outreach are under "Show all".'));
       return;
     }
     var groups = {};
     list.forEach(function (it) { var cat = ((it || {}).def || {}).category || 'community'; (groups[cat] = groups[cat] || []).push(it); });
     var cats = CATEGORY_ORDER.filter(function (c) { return groups[c]; }).concat(Object.keys(groups).filter(function (c) { return CATEGORY_ORDER.indexOf(c) < 0; }));
     cats.forEach(function (cat) {
-      var g = h('div', { class: 'group', 'data-category': cat }, h('div', { class: 'label' }, CATEGORY_NAMES[cat] || cat));
-      groups[cat].forEach(function (it) { g.appendChild(projectCard(it, s)); });
-      box.appendChild(g);
+      var g = h('div', { class: 'group', 'data-category': cat }, h('div', { class: 'label' }, [h('span', { 'aria-hidden': 'true' }, (CATEGORY_ICONS[cat] || '▪') + ' '), CATEGORY_NAMES[cat] || cat]));
+      var tiles = h('div', { class: 'tiles', role: 'list' });
+      groups[cat].forEach(function (it) { tiles.appendChild(projectTile(it, s)); });
+      g.appendChild(tiles); box.appendChild(g);
     });
   };
-  function projectCard(it, s) {
+  /** Project tile: icon + 2-word name + price chip + level dots (+ zone select when a target must be chosen) + Fund. Everything else is the ⓘ tooltip. */
+  function projectTile(it, s) {
     it = it || {}; var d = it.def || {};
     var id = d.id || 'unknown', level = fin(it.level), maxLevel = Math.max(1, fin(d.maxLevel, 1));
     var funded = !!it.funded || level > 0;
@@ -111,69 +115,74 @@
     var sel = UI._targetSel[id];
     if (sel == null || !targets.some(function (t) { return String(t.zoneId) === String(sel); })) sel = openTargets.length ? openTargets[0].zoneId : (targets.length ? targets[0].zoneId : null);
     if (zoneTargeted && targets.length && !openTargets.length && !reason) { reason = 'All sectors covered'; canFund = false; }
+    var fullName = d.name || id, shortName = UI.shortName(UI.PROJECT_SHORT, id, fullName, UI.WORD_CAPS.label);
+    var status = maxLevel > 1 ? 'level ' + level + ' of ' + maxLevel : (funded ? 'funded' : 'not funded');
+    var a11y = fullName + ', ' + money(d.costM) + ', ' + status + (fundedTargets.length ? ' in ' + fundedTargets.map(function (t) { return t.name || UI.zoneName(t.zoneId); }).join(', ') : '') + (reason ? '. ' + reason : '');
 
-    var card = h('div', { class: 'card' + (funded ? ' funded' : '') + (!canFund ? ' locked' : ''), 'data-project': id });
-    var pips = h('span', { class: 'pips', 'aria-label': 'Level ' + level + ' of ' + maxLevel });
-    for (var i = 0; i < maxLevel; i++) pips.appendChild(h('i', { class: i < level ? 'on' : '' }));
-    card.appendChild(h('div', { class: 'head' }, [
-      h('div', { class: 'icon', 'aria-hidden': 'true' }, d.icon || '▪'),
-      h('div', { class: 'grow' }, [
-        h('div', { class: 'row between' }, [h('span', { class: 'name' }, d.name || id), h('span', { class: 'cost' }, [money(d.costM), fin(d.upkeepM) > 0 ? h('span', { class: 'up' }, ' +' + money(d.upkeepM) + '/yr') : null])]),
-        h('div', { class: 'row small dim' }, [maxLevel > 1 ? pips : null, maxLevel > 1 ? 'Level ' + level + '/' + maxLevel : (funded ? 'Funded' : 'Not funded'),
-          fundedTargets.length ? ' · ' + fundedTargets.map(function (t) { return t.name || UI.zoneName(t.zoneId); }).join(', ') : null])
-      ])
-    ]));
-    if (d.summary) card.appendChild(h('div', { class: 'summary' }, d.summary));
-    var detail = h('div', { class: 'detail', hidden: true }, [d.detail ? h('div', {}, d.detail) : null, d.tradeoff ? h('div', { class: 'tradeoff' }, d.tradeoff) : null]);
-    card.appendChild(detail);
-    var foot = h('div', { class: 'foot' });
-    var select = null;
-    if (zoneTargeted && targets.length) {
-      select = h('select', { 'aria-label': 'Target for ' + (d.name || id) }, targets.map(function (t) {
-        return h('option', { value: String(t.zoneId), selected: String(t.zoneId) === String(sel) ? true : null, disabled: t.funded ? true : null }, (t.name || UI.zoneName(t.zoneId)) + (t.funded ? ' ✓' : ''));
-      }));
-      select.addEventListener('change', function () { UI._targetSel[id] = select.value; call('highlightZone', [Number(select.value)]); });
-      select.addEventListener('focus', function () { call('highlightZone', [Number(select.value)]); });
-      foot.appendChild(select);
+    var tile = h('div', { class: 'tile' + (funded ? ' funded' : '') + (!canFund ? ' locked' : '') + (maxed ? ' maxed' : ''), 'data-project': id, role: 'listitem', 'aria-label': a11y });
+    /* ⓘ popover: name + ≤ 2 short lines (summary, trade-off) */
+    var line1 = UI.short(d.summary || d.detail || '', 12), line2 = d.tradeoff ? UI.short(d.tradeoff, 10) : '';
+    var tip = fullName + (line1 ? ' — ' + line1 : '') + (line2 ? ' ⚠ ' + line2 : '');
+    tile.appendChild(h('div', { class: 'top' }, [h('span', { class: 'icon', 'aria-hidden': 'true' }, d.icon || '▪'), UI.info(tip)]));
+    tile.appendChild(h('div', { class: 'name', 'data-tip': shortName !== fullName ? fullName : null }, shortName));
+    var pips = null;
+    if (maxLevel > 1) {
+      pips = h('span', { class: 'pips', role: 'img', 'aria-label': 'Level ' + level + ' of ' + maxLevel, 'data-tip': 'Level ' + level + ' / ' + maxLevel });
+      for (var i = 0; i < maxLevel; i++) pips.appendChild(h('i', { class: i < level ? 'on' : '' }));
     }
-    var btn = h('button', { class: 'primary tiny', type: 'button', disabled: !canFund ? true : null, 'data-tip': !canFund && reason ? reason : null },
-      funded && !maxed ? 'Upgrade ' + money(d.costM) : 'Fund ' + money(d.costM));
+    tile.appendChild(h('div', { class: 'meta' }, [
+      h('span', { class: 'chip cost', 'data-tip': money(d.costM) + (fin(d.upkeepM) > 0 ? ' + ' + money(d.upkeepM) + '/yr upkeep' : '') }, money(d.costM)),
+      pips || (funded ? h('span', { class: 'chip good tiny', 'data-tip': 'Funded' }, '✓') : null),
+      fundedTargets.length && !openTargets.length ? h('span', { class: 'chip good tiny', 'data-tip': fundedTargets.map(function (t) { return t.name || UI.zoneName(t.zoneId); }).join(', ') }, '✓' + fundedTargets.length) : null
+    ]));
+    var select = null;
+    if (zoneTargeted && openTargets.length) {
+      /* option text = first word of the zone (tiles are ~90 px); the full name is the select's tooltip + aria-label */
+      var zname = function (t) { return t.name || UI.zoneName(t.zoneId); };
+      select = h('select', { 'aria-label': 'Target for ' + fullName, 'data-tip': 'Where to build' }, targets.map(function (t) {
+        return h('option', { value: String(t.zoneId), selected: String(t.zoneId) === String(sel) ? true : null, disabled: t.funded ? true : null, title: zname(t) }, UI.cap(zname(t), 1) + (t.funded ? ' ✓' : ''));
+      }));
+      var syncSel = function () { var t = targets.filter(function (x) { return String(x.zoneId) === String(select.value); })[0]; var n = t ? zname(t) : ''; select.setAttribute('data-tip', 'Where to build · ' + n); select.setAttribute('aria-label', 'Target for ' + fullName + ': ' + n); };
+      syncSel();
+      select.addEventListener('change', function () { UI._targetSel[id] = select.value; syncSel(); call('highlightZone', [Number(select.value)]); });
+      select.addEventListener('focus', function () { call('highlightZone', [Number(select.value)]); });
+      tile.appendChild(select);
+    }
+    var btnText = maxed ? '✓' : (!canFund ? '🔒' : (funded ? '⬆ Fund' : 'Fund'));
+    var btn = h('button', { class: 'primary tiny fund', type: 'button', disabled: !canFund ? true : null, 'aria-label': (funded && !maxed ? 'Upgrade ' : 'Fund ') + fullName + ' for ' + money(d.costM) + (reason ? '. ' + reason : ''), 'data-tip': !canFund && reason ? reason : (funded && !maxed ? 'Upgrade · ' + money(d.costM) : 'Fund · ' + money(d.costM)) }, btnText);
     btn.addEventListener('click', function () {
       var target = select ? Number(select.value) : (targets.length ? sel : undefined);
       btn.disabled = true;
       call('fundProject', [id, target], function (r) {
-        if (r && r.ok === false) UI.toast(r.reason || r.text || 'Cannot fund ' + (d.name || id), 'warn');
+        if (r && r.ok === false) UI.toast(r.reason || r.text || 'Cannot fund ' + fullName, 'warn');
         else if (r && r.text) UI.toast(r.text, 'good');
-        else if (r !== false) UI.toast((d.name || id) + ' funded', 'good');
+        else if (r !== false) UI.toast(shortName + ' funded', 'good');
         UI.refresh();
       });
     });
-    foot.appendChild(btn);
-    var more = h('button', { class: 'ghost tiny', type: 'button', 'aria-expanded': 'false' }, 'Details');
-    more.addEventListener('click', function () { detail.hidden = !detail.hidden; more.setAttribute('aria-expanded', detail.hidden ? 'false' : 'true'); more.textContent = detail.hidden ? 'Details' : 'Less'; });
-    if (d.detail || d.tradeoff) foot.appendChild(more);
-    if (reason) foot.appendChild(h('div', { class: 'reason' + (!canFund ? ' bad' : '') }, reason));
-    card.appendChild(foot);
+    tile.appendChild(btn);
     var hoverZone = fundedTargets.length ? fundedTargets[0].zoneId : null;
     if (hoverZone != null) {
-      card.addEventListener('mouseenter', function () { call('highlightZone', [Number(hoverZone)]); });
-      card.addEventListener('mouseleave', function () { call('highlightZone', [null]); });
+      tile.addEventListener('mouseenter', function () { call('highlightZone', [Number(hoverZone)]); });
+      tile.addEventListener('mouseleave', function () { call('highlightZone', [null]); });
     }
-    return card;
+    return tile;
   }
+  UI.projectTile = projectTile;
 
   /* ================================================================== WATER */
   /* Five sliders; hydro+recreation move together as 'power_rec'. Tribal and downstream are fixed senior rows. */
+  /* name = ≤ 2 words on screen; `full` is the aria-label / tooltip name */
   var WATER_ROWS = [
-    { key: 'households', name: 'Households', sectors: ['households'], icon: '🏘', color: '#4aa3df', tip: 'Indoor and outdoor use for every home. Restrictions trim this demand.' },
-    { key: 'farms', name: 'Farms & Ranches', sectors: ['farms'], icon: '🌾', color: '#d4a24c', tip: 'Irrigation for hay, pasture and orchards. Short deliveries cut crop health and the farm economy.' },
-    { key: 'wildlife', name: 'River & Wildlife', sectors: ['wildlife'], icon: '🦌', color: '#6fbf73', nonc: true, tip: 'Instream flow below the dam keeps fish, the riparian corridor and elk habitat alive. Non-consumptive: the water keeps flowing downstream.' },
-    { key: 'power_rec', name: 'Power & Recreation', sectors: ['hydro', 'recreation'], readKey: 'hydro', icon: '⚡', color: '#a78bfa', nonc: true, tip: 'Hydropower releases and rafting/boating flows, moved together. Non-consumptive: the water returns to the river.' },
-    { key: 'fire', name: 'Fire Reserve', sectors: ['fire'], icon: '🚒', color: '#ff7a33', tip: 'Storage held back for firefighting and treatment-plant flushing. Cutting it saves water now and hurts when a fire comes.' }
+    { key: 'households', name: 'Households', full: 'Households', sectors: ['households'], icon: '🏘', color: '#4aa3df', tip: 'Households — indoor and outdoor use for every home. Restrictions trim this demand.' },
+    { key: 'farms', name: 'Farms', full: 'Farms & Ranches', sectors: ['farms'], icon: '🌾', color: '#d4a24c', tip: 'Farms & Ranches — irrigation for hay, pasture and orchards. Short deliveries cut crop health and the farm economy.' },
+    { key: 'wildlife', name: 'Wildlife', full: 'River & Wildlife', sectors: ['wildlife'], icon: '🦌', color: '#6fbf73', nonc: true, tip: 'River & Wildlife — instream flow below the dam keeps fish, the riparian corridor and elk habitat alive. Non-consumptive: the water keeps flowing downstream.' },
+    { key: 'power_rec', name: 'Power & Rec', full: 'Power & Recreation', sectors: ['hydro', 'recreation'], readKey: 'hydro', icon: '⚡', color: '#a78bfa', nonc: true, tip: 'Power & Recreation — hydropower releases and rafting flows, moved together. Non-consumptive: the water returns to the river.' },
+    { key: 'fire', name: 'Fire reserve', full: 'Fire Reserve', sectors: ['fire'], icon: '🚒', color: '#ff7a33', tip: 'Fire Reserve — storage held back for firefighting and treatment-plant flushing. Cutting it saves water now and hurts when a fire comes.' }
   ];
   var SENIOR_ROWS = [
-    { key: 'tribal', name: 'Tribal Water Right', icon: '🪶', color: '#e9c46a', tip: 'Senior water right. Tribal reserved rights date to reservation creation (Winters doctrine, 1908) and are legally senior to most others in the basin. Always delivered.' },
-    { key: 'downstream', name: 'Colorado River Delivery', icon: '🏞', color: '#7dd3c0', tip: 'Legally senior: the 1922 Colorado River Compact obliges the Upper Basin to deliver water downstream. Always delivered.' }
+    { key: 'tribal', name: 'Tribal right', full: 'Tribal Water Right', icon: '🪶', color: '#e9c46a', tip: 'Tribal Water Right — senior (Winters doctrine, 1908); always delivered.' },
+    { key: 'downstream', name: 'Downstream', full: 'Colorado River Delivery', icon: '🏞', color: '#7dd3c0', tip: 'Colorado River Delivery — senior under the 1922 Compact; always delivered.' }
   ];
   UI.renderWater = function () {
     var box = UI.els.tabBody; if (!box) return;
@@ -189,62 +198,66 @@
     var all = rows.concat(seniors);
     var totalAlloc = 0; all.forEach(function (r) { totalAlloc += r.req * r.a; });
 
-    /* stacked bar: requested (allocated) by row vs available */
-    var scale = Math.max(available, totalAlloc, 1);
+    /* one compact available / requested bar: numbers + ⓘ, no captions */
+    var scale = Math.max(available, totalAlloc, 1), over = totalAlloc > available;
     var bar = h('div', { class: 'stackbar', role: 'img', 'aria-label': 'Requested ' + af(totalAlloc) + ' of ' + af(available) + ' available' });
     all.forEach(function (r) {
       var v = r.req * r.a;
-      if (v > 0) bar.appendChild(h('i', { style: { width: (v / scale * 100) + '%', background: r.def.color }, 'data-tip': r.def.name + ' ' + af(v) }));
+      if (v > 0) bar.appendChild(h('i', { style: { width: (v / scale * 100) + '%', background: r.def.color }, 'data-tip': r.def.full + ' ' + af(v) }));
     });
-    bar.appendChild(h('span', { class: 'avail', style: { left: clamp(available / scale * 100, 0, 100) + '%' }, 'data-tip': 'Available this season: ' + af(available) }));
-    var over = totalAlloc > available;
-    box.appendChild(h('div', { style: { marginBottom: '8px' } }, [
-      h('div', { class: 'row between' }, [h('span', { class: 'label' }, 'Available vs requested'), UI.info('Available = this season\'s inflow plus storage above dead pool. Requested = each use\'s need × your allocation. If requests exceed availability, lower-priority uses go short.')]),
-      h('div', { class: 'row between small', style: { margin: '4px 0' } }, [h('span', {}, ['Available ', h('b', { class: 'num' }, af(available))]), h('span', { style: { color: over ? '#ffb3ba' : '' } }, ['Requested ', h('b', { class: 'num' }, af(totalAlloc)), over ? ' ⚠ over' : ''])]),
-      bar,
-      h('div', { class: 'legend-dots' }, all.map(function (r) { return h('span', { style: { '--c': r.def.color } }, r.def.name.split(' ')[0]); }))
+    bar.appendChild(h('span', { class: 'avail', style: { left: clamp(available / scale * 100, 0, 100) + '%' }, 'data-tip': 'Available ' + af(available) }));
+    var unc = fin((s.climate || {}).uncertainty, 0.15);
+    box.appendChild(h('div', { class: 'wbar' }, [
+      h('div', { class: 'row between small num' }, [
+        h('span', { class: 'wn', 'data-tip': 'Available this season · inflow ' + af(w.inflowAF) + ' + storage ' + af((s.reservoir || {}).storageAF) + (unc > 0.1 ? ' (±' + Math.round(unc * 100) + '%)' : ''), 'aria-label': 'Available ' + af(available) }, [h('span', { 'aria-hidden': 'true' }, '💧 '), af(available)]),
+        h('span', { class: 'wn' + (over ? ' bad' : ''), 'data-tip': 'Requested = each use\'s need × your allocation' + (over ? ' · over what is available: lower-priority uses go short' : ''), 'aria-label': 'Requested ' + af(totalAlloc) + (over ? ', more than available' : '') }, [h('span', { 'aria-hidden': 'true' }, '→ '), af(totalAlloc), over ? ' ⚠' : '']),
+        UI.info('Available = inflow + storage above dead pool. Requested = need × allocation. Deliveries run in priority order: households, senior rights, farms, wildlife, fire reserve, power & recreation. Non-consumptive releases return to the river.')
+      ]),
+      bar
     ]));
-    box.appendChild(h('div', { class: 'small dim', style: { margin: '0 0 6px' } }, 'Inflow ' + af(w.inflowAF) + ' · storage ' + af((s.reservoir || {}).storageAF) + ' · ' + (fin((s.climate || {}).uncertainty, 0.15) > 0.1 ? 'estimates ±' + Math.round(fin((s.climate || {}).uncertainty, 0.15) * 100) + '%' : 'gauged')));
 
-    /* restriction */
-    var restr = h('select', { id: 'restriction-select', 'aria-label': 'Water restriction level' }, [['none', 'No restrictions'], ['voluntary', 'Voluntary conservation'], ['stage1', 'Stage 1 — watering 2 days/week'], ['stage2', 'Stage 2 — outdoor watering ban']].map(function (o) {
+    /* restriction: icon + a short select (details in the tooltip) */
+    var restr = h('select', { id: 'restriction-select', 'aria-label': 'Water restriction level', 'data-tip': 'Restrictions cut household demand: voluntary ≈ 5–10%, Stage 1 ≈ 15–20% (watering 2 days/week), Stage 2 ≈ 30%+ (outdoor ban). Costs some trust.' }, [['none', 'No limits'], ['voluntary', 'Voluntary'], ['stage1', 'Stage 1'], ['stage2', 'Stage 2']].map(function (o) {
       return h('option', { value: o[0], selected: (w.restriction || 'none') === o[0] ? true : null }, o[1]);
     }));
     restr.addEventListener('change', function () { call('setRestriction', [restr.value], function () { UI.refresh(); }); });
-    box.appendChild(h('div', { class: 'row', style: { marginBottom: '6px' } }, [h('span', { class: 'label', style: { flex: '0 0 auto' } }, 'Restrictions'), UI.info('Restrictions cut household demand (voluntary ≈ 5–10%, Stage 1 ≈ 15–20%, Stage 2 ≈ 30%+) at a cost to trust and lawns. Front Range cities used staged restrictions in 2002 and 2013.'), restr]));
+    box.appendChild(h('div', { class: 'row restrict' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '🚱'), restr]));
     box.appendChild(h('hr', { class: 'rule' }));
 
-    /* sliders */
+    /* slider rows: icon + name + % + AF */
     rows.forEach(function (r) {
       var d = r.def, req = r.req, a = r.a, est = req * a;
-      var row = h('div', { class: 'sector', 'data-sector': d.key });
-      var tags = [];
-      if (d.nonc) tags.push(h('span', { class: 'chip nonc', 'data-tip': 'Non-consumptive: water released for this use keeps flowing downstream, so it also helps meet the downstream delivery and minimum-flow needs.' }, 'non-consumptive'));
+      var row = h('div', { class: 'sector', 'data-sector': d.key, role: 'group', 'aria-label': d.full });
       var pctEl = h('span', { class: 'pct num' }, Math.round(a * 100) + '%');
-      row.appendChild(h('div', { class: 't' }, [h('span', { 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name' }, d.name), UI.info(d.tip)].concat(tags).concat([pctEl])));
-      var slider = h('input', { type: 'range', min: 0, max: 100, step: 5, value: Math.round(a * 100), 'aria-label': 'Allocation for ' + d.name });
-      var delEl = h('span', { class: 'del' }, 'deliver ≈ ' + af(est));
+      var afEl = h('span', { class: 'af num', 'data-tip': 'Delivery ≈ ' + af(est) + ' of ' + af(req) + ' requested' + (r.last != null ? ' · last season ' + af(r.last) : '') }, af(est));
+      row.appendChild(h('div', { class: 't' }, [
+        h('span', { class: 'ic', 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name', 'data-tip': d.full !== d.name ? d.full : null }, d.name), UI.info(d.tip),
+        d.nonc ? h('span', { class: 'glyph nonc', role: 'img', 'aria-label': 'Non-consumptive', 'data-tip': 'Non-consumptive · the water keeps flowing downstream' }, '↻') : null,
+        pctEl, afEl
+      ]));
+      var slider = h('input', { type: 'range', min: 0, max: 100, step: 5, value: Math.round(a * 100), 'aria-label': 'Allocation for ' + d.full });
       slider.addEventListener('input', function () {
         var v = clamp(Number(slider.value), 0, 100);
-        pctEl.textContent = v + '%'; delEl.textContent = 'deliver ≈ ' + af(req * v / 100);
+        pctEl.textContent = v + '%'; afEl.textContent = af(req * v / 100);
+        afEl.setAttribute('data-tip', 'Delivery ≈ ' + af(req * v / 100) + ' of ' + af(req) + ' requested');
         row.classList.toggle('short', v < 100);
       });
       slider.addEventListener('change', function () { call('setAllocation', [d.key, clamp(Number(slider.value), 0, 100) / 100]); });
       row.appendChild(slider);
-      row.appendChild(h('div', { class: 'nums' }, [h('span', {}, 'request ' + af(req)), delEl, r.last != null ? h('span', { 'data-tip': 'Delivered last season' }, 'last ' + af(r.last)) : null]));
       if (a < 0.999) row.classList.add('short');
       box.appendChild(row);
     });
-    /* fixed senior rows */
+    /* fixed senior rows: icon + name + 🔒 + AF */
     seniors.forEach(function (r) {
       var d = r.def;
-      var row = h('div', { class: 'sector senior', 'data-sector': d.key }, [
-        h('div', { class: 't' }, [h('span', { 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name' }, d.name), h('span', { class: 'chip senior', 'data-tip': d.tip }, 'senior right — always delivered')]),
-        h('div', { class: 'nums' }, [h('span', {}, 'request ' + af(r.req)), h('span', { class: 'del' }, 'delivered in full'), r.last != null ? h('span', { 'data-tip': 'Delivered last season' }, 'last ' + af(r.last)) : null])
-      ]);
-      box.appendChild(row);
+      box.appendChild(h('div', { class: 'sector senior', 'data-sector': d.key, role: 'group', 'aria-label': d.full + ', senior right, always delivered, ' + af(r.req) }, [
+        h('div', { class: 't' }, [
+          h('span', { class: 'ic', 'aria-hidden': 'true' }, d.icon), h('span', { class: 'name', 'data-tip': d.full }, d.name),
+          h('span', { class: 'glyph lock', role: 'img', 'aria-label': 'Senior right, always delivered', 'data-tip': d.tip }, '🔒'),
+          h('span', { class: 'af num', 'data-tip': 'Delivered in full' + (r.last != null ? ' · last season ' + af(r.last) : '') }, af(r.req))
+        ])
+      ]));
     });
-    box.appendChild(h('div', { class: 'note' }, 'Deliveries are resolved in priority order when the season runs: households, then the senior tribal and downstream rights, then farms, river & wildlife, fire reserve, power & recreation. Non-consumptive releases return to the river.'));
   };
 
   /* ================================================================== FIRE */
@@ -278,55 +291,58 @@
     var eff = projectEffects(), thinned = eff.thinnedZones || {}, breaks = eff.fuelBreakZones || {};
     var pending = pendingBurnZone();
 
-    /* policy */
-    var seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Fire policy' }, [
-      h('button', { type: 'button', class: policy === 'managed' ? 'active' : '', 'aria-pressed': policy === 'managed', onclick: function () { call('setFirePolicy', ['managed'], function () { UI.refresh(); }); } }, 'Managed fire'),
-      h('button', { type: 'button', class: policy === 'suppress_all' ? 'active' : '', 'aria-pressed': policy === 'suppress_all', onclick: function () { call('setFirePolicy', ['suppress_all'], function () { UI.refresh(); }); } }, 'Suppress all')
+    /* policy = two icon buttons; the fire paradox lives in the ⓘ tooltip */
+    var paradox = 'The fire paradox — putting out every small fire lets fuel pile up; Colorado\'s forests historically burned every 10–30 years at low intensity, and a century of suppression fed the 2020 fires. Managed: some low-intensity fire burns under watch (some smoke and risk). Suppress all: fewer small fires now, fuel builds ~60% faster, the eventual fire burns hotter.';
+    var seg = h('div', { class: 'seg policy', role: 'group', 'aria-label': 'Fire policy' }, [
+      h('button', { type: 'button', class: policy === 'managed' ? 'active' : '', 'aria-pressed': policy === 'managed', 'data-tip': 'Managed fire · low-intensity fires may burn under watch; fuel stays down', onclick: function () { call('setFirePolicy', ['managed'], function () { UI.refresh(); }); } }, [h('span', { 'aria-hidden': 'true' }, '🌿 '), 'Managed fire']),
+      h('button', { type: 'button', class: policy === 'suppress_all' ? 'active' : '', 'aria-pressed': policy === 'suppress_all', 'data-tip': 'Suppress all fires · every start is attacked; fuel builds ~60% faster', onclick: function () { call('setFirePolicy', ['suppress_all'], function () { UI.refresh(); }); } }, [h('span', { 'aria-hidden': 'true' }, '🧯 '), 'Suppress all'])
     ]);
-    box.appendChild(h('div', { class: 'row between', style: { marginBottom: '6px' } }, [h('span', { class: 'label' }, 'Policy'), seg]));
-    box.appendChild(h('div', { class: 'note fire' }, [
-      h('b', {}, 'The fire paradox. '),
-      'Putting out every small fire lets needles, deadfall and dense young trees pile up. Colorado\'s ponderosa and mixed-conifer forests historically burned every 10–30 years at low intensity; a century of suppression built the fuel loads that fed the 2020 Cameron Peak and East Troublesome fires. ',
-      policy === 'suppress_all' ? h('span', { style: { color: '#ffd3bd' } }, 'Suppress-all: fewer small fires now, fuel accumulates ~60% faster, and the eventual fire burns hotter.') : h('span', { style: { color: '#d1f0d3' } }, 'Managed: some low-intensity fire is allowed to burn under watch, keeping fuel loads down — with some smoke and risk.')
-    ]));
+    box.appendChild(h('div', { class: 'row between tabhead' }, [seg, UI.info(paradox)]));
 
-    /* sector table */
+    /* sector rows: name · fuel bar · one status chip · one action */
     var zones = zoneList('forest');
-    if (!zones.length) { box.appendChild(h('p', { class: 'muted' }, 'Forest sectors will appear once the world is loaded.')); return; }
-    var list = h('div', { id: 'fuel-table', role: 'list' });
+    if (!zones.length) { box.appendChild(h('p', { class: 'muted small', 'aria-label': 'Forest sectors appear once the world is loaded' }, '—')); return; }
+    var list = h('div', { id: 'fuel-table', role: 'list', 'aria-label': 'Forest sectors, fuel load' });
     zones.forEach(function (z) {
       z = z || {};
       var fuel = zoneFuel(z), fpct = isFinite(fuel) ? Math.round(clamp(fuel, 0, 1) * 100) : null;
-      var status = [];
-      var tstr = thinned[z.id];
-      if (tstr) status.push(h('span', { class: 'chip forest', 'data-tip': 'Mechanical thinning in effect; the benefit fades ~12%/yr as the stand regrows.' }, 'thinned ' + Math.round(clamp(typeof tstr === 'number' ? tstr : 1, 0, 1) * 100) + '%'));
-      if (breaks[z.id]) status.push(h('span', { class: 'chip forest' }, 'fuel break'));
-      if (String(pending) === String(z.id)) status.push(h('span', { class: 'chip fire' }, 'burn scheduled'));
-      if (z.upstreamOfReservoir) status.push(h('span', { class: 'chip upstream', 'data-tip': 'Drains into the reservoir: a severe burn here sends ash and sediment into the water supply after the next big storm.' }, 'upstream'));
-      var burnedPct = zoneBurnedPct(z);
-      if (burnedPct > 5) status.push(h('span', { class: 'chip danger', 'data-tip': 'Share of this sector already burned' }, 'burned ' + burnedPct + '%'));
       var isPending = String(pending) === String(z.id);
+      var burnedPct = zoneBurnedPct(z), tstr = thinned[z.id];
+      /* candidate chips in priority order; the first is shown, the rest go into the row tooltip */
+      var status = [];
+      if (isPending) status.push(['fire', '🔥 ▶', 'Prescribed burn scheduled']);
+      if (burnedPct > 5) status.push(['danger', '🔥 ' + burnedPct + '%', burnedPct + '% of this sector already burned']);
+      if (tstr) status.push(['forest', '🪓 ' + Math.round(clamp(typeof tstr === 'number' ? tstr : 1, 0, 1) * 100) + '%', 'Thinned · benefit fades ~12%/yr as the stand regrows']);
+      if (breaks[z.id]) status.push(['forest', '🪓 ═', 'Fuel break']);
+      if (z.upstreamOfReservoir) status.push(['upstream', '🏔 ↑', 'Upstream of the reservoir · a severe burn here sends ash and sediment into the water supply']);
+      var first = status[0], rest = status.slice(1).map(function (c) { return c[2]; });
       var canSchedule = burnSeason && pending == null && s.phase !== 'live';
-      var tip = isPending ? 'Cancel the scheduled burn' : (!burnSeason ? 'Prescribed burns are only carried out in Spring or Fall, when fuels are damp enough to control.' : (pending != null ? 'One burn per season' : 'Burn under controlled conditions to reduce fuel ~60% in this sector. ~4% escape risk, higher in high fire danger.'));
-      var btn = h('button', { class: 'tiny act' + (isPending ? ' active' : ''), type: 'button', disabled: (!isPending && !canSchedule) ? true : null, 'data-tip': tip, 'aria-label': (isPending ? 'Cancel prescribed burn in ' : 'Schedule prescribed burn in ') + (z.name || 'zone') }, isPending ? 'Cancel burn' : 'Schedule burn');
+      var tip = isPending ? 'Cancel the scheduled burn' : (!burnSeason ? 'Prescribed burns only in Spring or Fall' : (pending != null ? 'One burn per season' : 'Prescribed burn · fuel −60%, ~4% escape risk (more in high danger)'));
+      var btn = h('button', { class: 'tiny act' + (isPending ? ' active' : ''), type: 'button', disabled: (!isPending && !canSchedule) ? true : null, 'data-tip': tip, 'aria-label': (isPending ? 'Cancel prescribed burn in ' : 'Schedule prescribed burn in ') + (z.name || 'zone') + '. ' + tip }, isPending ? '✕' : '🔥');
       btn.addEventListener('click', function () {
         if (isPending) call('cancelBurn', [], function () { UI.toast('Prescribed burn cancelled', 'info'); UI.refresh(); });
-        else call('scheduleBurn', [z.id], function (r) { if (r && r.ok === false) UI.toast(r.reason || r.text || 'Could not schedule burn', 'warn'); else UI.toast('Prescribed burn scheduled in ' + (z.name || 'sector') + (r && r.text ? ' — ' + r.text : ''), 'good'); UI.refresh(); });
+        else call('scheduleBurn', [z.id], function (r) { if (r && r.ok === false) UI.toast(r.reason || r.text || 'Could not schedule burn', 'warn'); else UI.toast('Burn scheduled · ' + (z.name || 'sector'), 'good'); UI.refresh(); });
       });
-      var row = h('div', { class: 'fz', role: 'listitem', 'data-zone': z.id }, [
-        h('button', { class: 'name', type: 'button', 'data-tip': 'Fly to ' + (z.name || 'sector'), onclick: function () { call('focusZone', [z.id]); call('highlightZone', [z.id]); } }, z.name || ('Sector ' + z.id)),
-        h('div', { class: 'fuel', 'aria-label': 'Fuel load' }, [fpct == null ? '—' : fpct + '%', h('div', { class: 'meter thin' }, h('i', { class: fpct > 70 ? 'danger' : (fpct > 55 ? 'fire' : 'forest'), style: { width: (fpct || 0) + '%' } }))]),
-        h('div', { class: 'chips' }, status.length ? status : h('span', { class: 'small dim' }, 'untreated')),
+      var name = z.name || ('Sector ' + z.id), shortName = UI.cap(name, 2);
+      var row = h('div', { class: 'fz', role: 'listitem', 'data-zone': z.id, 'aria-label': name + ', fuel ' + (fpct == null ? 'unknown' : fpct + '%') + (status.length ? ', ' + status.map(function (c) { return c[2]; }).join(', ') : ''), 'data-tip': rest.length ? rest.join(' · ') : null }, [
+        h('button', { class: 'name', type: 'button', 'data-tip': 'Fly to ' + name, 'aria-label': 'Fly to ' + name, onclick: function () { call('focusZone', [z.id]); call('highlightZone', [z.id]); } }, shortName),
+        h('div', { class: 'fuel', 'data-tip': 'Fuel load ' + (fpct == null ? '—' : fpct + '%') }, [h('span', { class: 'num' }, fpct == null ? '—' : fpct + '%'), h('div', { class: 'meter thin' }, h('i', { class: fpct > 70 ? 'danger' : (fpct > 55 ? 'fire' : 'forest'), style: { width: (fpct || 0) + '%' } }))]),
+        h('div', { class: 'chips' }, first ? h('span', { class: 'chip ' + first[0], 'data-tip': first[2], 'aria-label': first[2] }, first[1]) : null),
         btn
       ]);
       row.addEventListener('mouseenter', function () { call('highlightZone', [z.id]); });
       row.addEventListener('mouseleave', function () { call('highlightZone', [null]); });
       list.appendChild(row);
     });
-    box.appendChild(h('div', { class: 'row between', style: { margin: '10px 0 2px' } }, [h('span', { class: 'label' }, 'Forest sectors · fuel load'), h('span', { class: 'small dim' }, burnSeason ? 'Burn window open' : 'Burns: Spring & Fall only')]));
-    box.appendChild(list);
     var fires = safeList(f.fires);
-    box.appendChild(h('div', { class: 'small dim', style: { marginTop: '8px' } }, 'Burned so far: ' + Math.round(fin(f.totalAcres)).toLocaleString() + ' acres in ' + fires.length + ' fire' + (fires.length === 1 ? '' : 's') + ' · structures lost ' + Math.round(fin(f.structuresLost))));
+    box.appendChild(h('div', { class: 'row between firehead' }, [
+      h('span', { class: 'chip tiny ' + (burnSeason ? 'good' : ''), 'data-tip': burnSeason ? 'Burn window open (Spring / Fall)' : 'Burns only in Spring and Fall', 'aria-label': burnSeason ? 'Burn window open' : 'Burn window closed' }, burnSeason ? '🗓 ✓' : '🗓 ✗'),
+      h('span', { class: 'row small num', 'aria-label': Math.round(fin(f.totalAcres)).toLocaleString() + ' acres burned in ' + fires.length + ' fires, ' + Math.round(fin(f.structuresLost)) + ' structures lost' }, [
+        h('span', { 'data-tip': 'Acres burned so far · ' + fires.length + ' fire' + (fires.length === 1 ? '' : 's') }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), Math.round(fin(f.totalAcres)).toLocaleString()]),
+        h('span', { 'data-tip': 'Structures lost' }, [h('span', { 'aria-hidden': 'true' }, '🏠 '), String(Math.round(fin(f.structuresLost)))])
+      ])
+    ]));
+    box.appendChild(list);
   };
   function zoneBurnedPct(z) {
     var w = wd(), cells = z.cells, burn = w.burn;
@@ -415,9 +431,9 @@
       b.addEventListener('click', function () { setFace(p.face); });
       return b;
     }));
-    var rand = h('button', { type: 'button', class: 'rand', 'data-tip': 'Roll a random look' }, '🎲 Randomise');
+    var rand = h('button', { type: 'button', class: 'rand', 'aria-label': 'Randomise', 'data-tip': 'Roll a random look' }, '🎲');
     rand.addEventListener('click', function () { if (F) setFace(F.random(null)); });
-    el.appendChild(h('div', { class: 'c-title' }, [h('span', { class: 'label' }, 'Your character'), h('span', { class: 'hint' }, 'This is who walks the watershed and gives the orders.')]));
+    el.appendChild(h('div', { class: 'c-title' }, [h('span', { class: 'label', 'data-tip': 'This is who walks the watershed and gives the orders.' }, 'Your character')]));
     el.appendChild(h('div', { class: 'c-left' }, [portraitBox, nameInput, rand, presets]));
     el.appendChild(rows);
     renderPortrait(); syncButtons();
@@ -429,39 +445,42 @@
     return UI.modal({
       className: 'intro wide', critical: true,
       render: function (body, close) {
+        /* brand mark + one line (≤ 12 words); the longer pitch is the tooltip */
         body.appendChild(h('div', { class: 'intro-hero' }, [
           h('span', { html: UI.BRAND_SVG }),
           h('div', { class: 'wordmark' }, 'WATERSHED'),
-          h('div', { class: 'tag' }, 'A Colorado water-resilience simulation')
-        ]));
-        /* two short paragraphs only (player feedback: less text) */
-        body.appendChild(h('div', { class: 'intro-narrative' }, [
-          h('p', {}, ['You run the Bitterbrush Creek watershed: a snow-fed reservoir, a mountain town, four farms, a century of unburned forest and neighbours with senior water rights. ', h('b', {}, 'What burns above the reservoir ends up in the tap.')]),
-          h('p', { class: 'live-line' }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), h('b', {}, 'When a fire or flood hits, you fight it live.'), h('span', { class: 'small dim' }, ' No decision is free; the advisors in town disagree for good reasons.')])
+          h('div', { class: 'tag', 'data-tip': 'You run the Bitterbrush Creek watershed: a snow-fed reservoir, a mountain town, four farms, a century of unburned forest and neighbours with senior water rights. What burns above the reservoir ends up in the tap — and when a fire or flood hits, you fight it live.' },
+            UI.cap('Run a Colorado watershed: snow, fire, floods, water rights.', UI.WORD_CAPS.intro))
         ]));
         var years = 6, mode = 'simulated', tutorial = true;
-        var yearsOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Game length')].concat([4, 6, 8].map(function (y) {
-          return h('label', {}, [h('input', { type: 'radio', name: 'ws-years', value: y, checked: y === years ? true : null, onchange: function () { years = y; } }), y + ' years', h('span', { class: 'hint' }, y === 4 ? '· quick' : y === 8 ? '· full arc' : '· recommended')]);
-        })));
-        var modeOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Climate'),
-          h('label', {}, [h('input', { type: 'radio', name: 'ws-mode', value: 'simulated', checked: true, onchange: function () { mode = 'simulated'; } }), 'Simulated', h('span', { class: 'hint' }, '· seeded, varies by seed')]),
-          h('label', {}, [h('input', { type: 'radio', name: 'ws-mode', value: 'historical', onchange: function () { mode = 'historical'; } }), 'Historical', h('span', { class: 'hint' }, '· approximate Colorado snowpack sequence')])
-        ]);
-        var seedInput = h('input', { type: 'text', id: 'intro-seed', value: String(Math.floor(Math.random() * 90000) + 10000), 'aria-label': 'Seed', maxlength: 24 });
-        var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Seed'), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, '🎲')]), h('div', { class: 'hint small dim', style: { marginTop: '4px' } }, 'Same seed, same world and weather.')]);
-        var tutOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, 'Guidance'), h('label', {}, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), 'Show tutorial hints']),
-          h('div', { class: 'hint small dim' }, 'Coach marks on the first turn. Skippable.')]);
+        /* three pickers: years · climate · seed (segmented buttons; explanations in tooltips) */
+        function segPick(name, opts, current, onPick) {
+          var seg = h('div', { class: 'seg', role: 'group', 'aria-label': name });
+          var btns = opts.map(function (o) {
+            var b = h('button', { type: 'button', class: o[0] === current ? 'active' : '', 'aria-pressed': o[0] === current ? 'true' : 'false', 'data-tip': o[2] || null, 'aria-label': o[1] + (o[2] ? ' · ' + o[2] : '') }, o[1]);
+            b.addEventListener('click', function () { btns.forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('active'); b.setAttribute('aria-pressed', 'true'); onPick(o[0]); });
+            seg.appendChild(b); return b;
+          });
+          return seg;
+        }
+        var yearsOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [h('span', { 'aria-hidden': 'true' }, '📅 '), 'Years']),
+          segPick('Game length', [[4, '4', 'Quick game'], [6, '6', 'Recommended'], [8, '8', 'Full arc']], years, function (v) { years = v; })]);
+        var modeOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [h('span', { 'aria-hidden': 'true' }, '🌤 '), 'Climate']),
+          segPick('Climate', [['simulated', 'Simulated', 'Seeded weather; varies by seed'], ['historical', 'Historical', 'Approximate Colorado snowpack sequence']], mode, function (v) { mode = v; })]);
+        var seedInput = h('input', { type: 'text', id: 'intro-seed', value: String(Math.floor(Math.random() * 90000) + 10000), 'aria-label': 'Seed', maxlength: 24, 'data-tip': 'Same seed, same world and weather' });
+        var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [h('span', { 'aria-hidden': 'true' }, '🎲 '), 'Seed']), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', 'data-tip': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, '🎲')])]);
         /* "Your character": live 128 px portrait, name, pickers, Randomise, presets. Remembered in localStorage (guarded by UI.pref). */
         var remembered = UI.pref('player');
         var creator = UI.characterCreator({ name: (remembered && remembered.name) || 'Director Rivera', face: (remembered && remembered.face) || (WS.Faces && WS.Faces.PRESETS && WS.Faces.PRESETS[0].face) || null });
         body.appendChild(creator.el);
-        body.appendChild(h('div', { class: 'opts' }, [yearsOpt, modeOpt, seedOpt, tutOpt]));
-        body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } }, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
+        body.appendChild(h('div', { class: 'opts three' }, [yearsOpt, modeOpt, seedOpt]));
+        var tutLabel = h('label', { class: 'tut small', 'data-tip': 'Coach marks on the first turn (skippable)' }, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), h('span', { 'aria-hidden': 'true' }, '🎓 '), 'Tutorial']);
+        body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', gap: '16px', marginTop: '16px' } }, [tutLabel, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
           var raw = (seedInput.value || '').trim(); var seed = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : (raw || String(Date.now()));
           var player = creator.get();
           UI.pref('player', player);
           close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player });
-        } }, 'Begin ▶')));
+        } }, 'Begin ▶')]));
       }
     });
   };
@@ -471,21 +490,22 @@
     card = card || {};
     var s = st();
     var sev = card.severity || 'info';
+    var fullTitle = String(card.title || 'Something happens'), title = UI.cap(fullTitle, UI.WORD_CAPS.eventTitle);
     return UI.modal({
-      icon: card.icon || '⚡', eyebrow: 'Event · ' + seasonName(s.season) + ', Year ' + fin(s.year, 1), title: card.title || 'Something happens', critical: true, className: 'event',
+      icon: card.icon || '⚡', eyebrow: seasonName(s.season) + ' · Y' + fin(s.year, 1), title: title, critical: true, className: 'event',
       render: function (body, close) {
-        body.appendChild(h('div', { class: 'severity-row' }, [h('span', { class: 'chip ' + sev }, sev === 'crisis' ? 'Crisis' : sev === 'warn' ? 'Warning' : 'Notice'), card.once ? h('span', { class: 'small dim' }, 'one-time event') : null]));
-        /* ≤ 2 sentences up front, the rest behind "more…"; the Colorado context line is collapsed by default */
-        if (card.text) { var lead = UI.disclosure(card.text, { sentences: 2, className: 'lead' }); if (lead) body.appendChild(lead); }
-        if (card.source) {
-          var src = String(card.source).replace(/^\s*why this happens in colorado\s*[:\-–—]\s*/i, '');
-          var srcBody = h('div', { class: 'source', id: 'event-source', hidden: true }, src);
-          var srcBtn = h('button', { class: 'ghost tiny source-toggle', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'event-source' }, 'Why this happens in Colorado ▾');
-          srcBtn.addEventListener('click', function () { var open = srcBody.hidden; srcBody.hidden = !open; srcBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); srcBtn.textContent = open ? 'Why this happens in Colorado ▴' : 'Why this happens in Colorado ▾'; });
-          body.appendChild(srcBtn); body.appendChild(srcBody);
-        }
+        var fullText = String(card.text || ''), line = UI.short(fullText, UI.WORD_CAPS.eventText);
+        var src = card.source ? String(card.source).replace(/^\s*why this happens in colorado\s*[:\-–—]\s*/i, '') : '';
+        /* severity chip · one line of text · "why" ⓘ (full text + Colorado source in the tooltip) */
+        body.appendChild(h('div', { class: 'severity-row' }, [
+          h('span', { class: 'chip ' + sev, 'data-tip': card.once ? 'One-time event' : null }, sev === 'crisis' ? 'Crisis' : sev === 'warn' ? 'Warning' : 'Notice'),
+          fullTitle !== title ? h('span', { class: 'small dim', 'data-tip': fullTitle, 'aria-label': fullTitle }, '…') : null,
+          h('span', { class: 'grow' }),
+          (fullText || src) ? h('button', { class: 'info why', type: 'button', 'aria-label': 'Why this happens' + (src ? ': ' + src : ''), 'data-tip': (line !== fullText ? fullText + ' ' : '') + (src ? '— Why this happens in Colorado: ' + src : '') }, 'i') : null
+        ]));
+        if (line) body.appendChild(h('p', { class: 'lead one-line', 'data-tip': line !== fullText ? fullText : null }, line));
         var choices = safeList(card.choices);
-        if (!choices.length) choices = [{ label: 'Acknowledge', desc: '' }];
+        if (!choices.length) choices = [{ label: 'OK', desc: '' }];
         var affordable = choices.map(function (ch) { return !(fin(ch.costM) > fin(s.budget) + fin(s.emergencyFund) + 1e-9); });
         var anyAffordable = affordable.some(Boolean);
         var list = h('div', { class: 'event-choices', role: 'group', 'aria-label': 'Choices' });
@@ -493,18 +513,22 @@
           ch = ch || {};
           var canPick = affordable[i] || !anyAffordable;
           var eff = [];
-          if (ch.delta && typeof ch.delta === 'object') OUT_KEYS.forEach(function (k) { if (isFinite(Number(ch.delta[k])) && Number(ch.delta[k]) !== 0) eff.push(h('span', {}, [k + ' ', deltaNode(ch.delta[k])])); });
-          if (ch.preview) eff.push(h('span', {}, String(ch.preview)));
-          var b = h('button', { class: 'choice', type: 'button', disabled: canPick ? null : true, 'data-choice': i, onclick: function () { close(i); } }, [
-            h('div', { class: 'l' }, [h('span', { class: 'lbl' }, ch.label || ('Option ' + (i + 1))), h('span', { class: 'cost ' + (fin(ch.costM) > 0 ? '' : 'free') }, fin(ch.costM) > 0 ? money(ch.costM) : 'no cost')]),
-            ch.desc ? h('div', { class: 'd' }, String(ch.desc)) : null,
-            eff.length ? h('div', { class: 'eff' }, eff) : null,
-            !canPick ? h('div', { class: 'noafford' }, 'Not enough budget (' + money(fin(s.budget) + fin(s.emergencyFund)) + ' available)') : null
+          if (ch.delta && typeof ch.delta === 'object') OUT_KEYS.forEach(function (k) { if (isFinite(Number(ch.delta[k])) && Number(ch.delta[k]) !== 0) eff.push(h('span', { class: 'chip tiny', 'data-tip': OUT_NAMES[k] || k }, [k + ' ', deltaNode(ch.delta[k])])); });
+          var fullLabel = String(ch.label || ('Option ' + (i + 1))), label = UI.cap(fullLabel, UI.WORD_CAPS.choice);
+          var tipParts = [];
+          if (label !== fullLabel) tipParts.push(fullLabel);
+          if (ch.desc) tipParts.push(String(ch.desc));
+          if (ch.preview) tipParts.push(String(ch.preview));
+          if (!canPick) tipParts.push('Not enough budget (' + money(fin(s.budget) + fin(s.emergencyFund)) + ' available)');
+          var b = h('button', { class: 'choice', type: 'button', disabled: canPick ? null : true, 'data-choice': i, 'data-tip': tipParts.length ? tipParts.join(' · ') : null, 'aria-label': fullLabel + (fin(ch.costM) > 0 ? ', ' + money(ch.costM) : ', free') + (ch.desc ? '. ' + ch.desc : '') + (!canPick ? '. Not enough budget' : ''), onclick: function () { close(i); } }, [
+            h('span', { class: 'lbl' }, label),
+            eff.length ? h('span', { class: 'eff' }, eff) : null,
+            h('span', { class: 'chip cost ' + (fin(ch.costM) > 0 ? '' : 'free') }, fin(ch.costM) > 0 ? money(ch.costM) : 'Free'),
+            !canPick ? h('span', { class: 'noafford', 'aria-hidden': 'true' }, '🔒') : null
           ]);
           list.appendChild(b);
         });
         body.appendChild(list);
-        if (!anyAffordable) body.appendChild(h('p', { class: 'small dim', style: { marginTop: '8px' } }, 'Budget is exhausted; paid options will run the budget negative.'));
       }
     });
   };
@@ -518,43 +542,50 @@
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === rec.characterId) return list[i];
     return { id: rec.characterId, name: rec.name || rec.characterId || 'Advisor', role: rec.role || '', color: rec.color || '#4aa3df', avatarEmoji: rec.avatarEmoji || '🧑' };
   }
-  var STANCE_LABEL = { urge: 'Urges action', support: 'Supports', caution: 'Cautions', oppose: 'Opposes' };
+  var STANCE_LABEL = { urge: 'Urges', support: 'Supports', caution: 'Cautions', oppose: 'Opposes' };
+  var STANCE_ICON = { urge: '‼', support: '👍', caution: '⚠', oppose: '👎' };
   var STANCE_EXPR = { urge: 'worried', support: 'happy', caution: 'neutral', oppose: 'worried' };
+  /** Evidence Board = a row of portrait tiles (64 px, name, stance chip, ≤ 6-word headline). Clicking one shows its sentence + chart in one strip. */
   UI.showEvidenceBoard = function (topic, recs, opts) {
     opts = opts || {}; recs = safeList(recs);
     var topicName = (UI.EVIDENCE_TOPICS.filter(function (t) { return t[0] === topic; })[0] || [topic, String(topic || 'Decision')])[1];
     return UI.modal({
       icon: '📊', eyebrow: 'Evidence board', title: opts.title || topicName, className: 'wide evidence',
       render: function (body) {
-        body.appendChild(h('p', { class: 'lead' }, opts.intro || 'Same numbers, six conclusions. None of them has the whole picture.'));
-        if (!recs.length) { body.appendChild(h('p', { class: 'muted' }, 'No advisor has weighed in on this yet.')); return; }
-        var grid = h('div', { class: 'advisors' });
-        recs.forEach(function (rec) {
-          rec = rec || {}; var ch = characterFor(rec), ev = rec.evidence || null;
-          var card = h('div', { class: 'advisor', 'data-advisor': ch.id || '' }, [
-            h('div', { class: 'who', style: { '--adv': ch.color || '#4aa3df' } }, [
-              /* 56 px portrait; the stance sets the expression. Emoji dot only when no face is known. */
-              UI.faceOf(ch) ? UI.portrait(UI.faceOf(ch), 56, { expression: STANCE_EXPR[rec.stance] || 'neutral', title: ch.name }) : h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
-              h('div', { class: 'grow' }, [h('div', { class: 'name' }, ch.name || 'Advisor'), h('div', { class: 'role' }, ch.role || '')]),
-              h('span', { class: 'chip ' + (rec.stance || 'support') }, STANCE_LABEL[rec.stance] || rec.stance || 'says')
-            ]),
-            rec.headline ? h('div', { class: 'headline' }, String(rec.headline)) : null,
-            /* headline + first sentence with the chart; the rest behind "more…" */
-            rec.text ? UI.disclosure(rec.text, { sentences: 1, className: 'text' }) : null
+        if (!recs.length) { body.appendChild(h('p', { class: 'muted small', 'aria-label': 'No advisor has weighed in on this yet' }, '—')); return; }
+        var row = h('div', { class: 'adv-tiles', role: 'list' });
+        var strip = h('div', { class: 'adv-strip', id: 'adv-strip', hidden: true, role: 'region', 'aria-live': 'polite', 'aria-label': 'Advisor detail' });
+        var tiles = [];
+        function select(i) {
+          tiles.forEach(function (t, j) { t.classList.toggle('active', i === j); t.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+          clear(strip);
+          var rec = recs[i] || {}, ch = characterFor(rec), ev = rec.evidence || null;
+          strip.style.setProperty('--adv', ch.color || '#4aa3df');
+          var sentence = rec.text ? UI.firstSentence(rec.text, 1) : '';
+          strip.appendChild(h('div', { class: 'grow' }, [
+            h('div', { class: 'sentence', 'data-tip': rec.text && sentence !== String(rec.text).trim() ? String(rec.text) : null }, sentence || String(rec.headline || '')),
+            ev && isFinite(Number(ev.current)) ? h('div', { class: 'cl small num' }, [UI.cap(ev.label || 'Measurement', 2) + ' ', h('b', {}, num(Number(ev.current), Math.abs(Number(ev.current)) < 10 ? 1 : 0) + (ev.unit ? ' ' + ev.unit : '')), isFinite(Number(ev.threshold)) ? h('span', { class: 'dim', 'data-tip': 'Threshold' }, ' · ⚑ ' + num(ev.threshold, Math.abs(ev.threshold) < 10 ? 1 : 0)) : null]) : null
+          ]));
+          if (ev && (Array.isArray(ev.series) || isFinite(Number(ev.current)))) strip.appendChild(h('div', { class: 'chart' }, UI.lineChart(ev.series || [], { threshold: ev.threshold, current: isFinite(Number(ev.current)) ? Number(ev.current) : null, color: ch.color })));
+          strip.hidden = false;
+        }
+        recs.forEach(function (rec, i) {
+          rec = rec || {}; var ch = characterFor(rec);
+          var stance = rec.stance || 'support', headline = UI.cap(rec.headline || '', UI.WORD_CAPS.headline);
+          var tile = h('button', { type: 'button', class: 'adv-tile', role: 'listitem', 'aria-pressed': 'false', 'data-advisor': ch.id || '', style: { '--adv': ch.color || '#4aa3df' },
+            'aria-label': (ch.name || 'Advisor') + (ch.role ? ', ' + ch.role : '') + ', ' + (STANCE_LABEL[stance] || stance) + '. ' + String(rec.headline || ''), 'data-tip': (ch.role ? ch.role + ' · ' : '') + String(rec.headline || '') }, [
+            UI.faceOf(ch) ? UI.portrait(UI.faceOf(ch), 64, { expression: STANCE_EXPR[stance] || 'neutral' }) : h('div', { class: 'avatar', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+            h('div', { class: 'name' }, UI.cap(String(ch.name || 'Advisor').replace(/^(Capt\.|Dr\.|Mr\.|Ms\.)\s*/, ''), 2)),
+            h('span', { class: 'chip ' + stance }, [h('span', { 'aria-hidden': 'true' }, (STANCE_ICON[stance] || '') + ' '), STANCE_LABEL[stance] || stance]),
+            headline ? h('div', { class: 'headline' }, headline) : null
           ]);
-          if (ev && (Array.isArray(ev.series) || isFinite(Number(ev.current)))) {
-            var cur = isFinite(Number(ev.current)) ? Number(ev.current) : null;
-            card.appendChild(h('div', { class: 'chart' }, [
-              h('div', { class: 'cl' }, [h('span', {}, (ev.label || 'Measurement') + (ev.unit ? ' (' + ev.unit + ')' : '')), h('b', {}, cur == null ? '' : 'now ' + num(cur, Math.abs(cur) < 10 ? 1 : 0) + (isFinite(Number(ev.threshold)) ? ' · limit ' + num(ev.threshold, Math.abs(ev.threshold) < 10 ? 1 : 0) : ''))]),
-              UI.lineChart(ev.series || [], { threshold: ev.threshold, current: cur })
-            ]));
-          }
-          grid.appendChild(card);
+          tile.addEventListener('click', function () { select(i); });
+          tiles.push(tile); row.appendChild(tile);
         });
-        body.appendChild(grid);
+        body.appendChild(row);
+        body.appendChild(strip);
       },
       foot: function (foot, close) {
-        foot.appendChild(h('span', { class: 'left' }, recs.length + ' advisor' + (recs.length === 1 ? '' : 's')));
         foot.appendChild(h('button', { class: 'primary', type: 'button', onclick: function () { close(); } }, opts.decideLabel || 'Decide'));
       }
     });
@@ -573,39 +604,43 @@
       icon: ['❄', '🌱', '☀', '🍂'][fin(report.season != null ? report.season : s.season) & 3], eyebrow: 'Season report', title: seasonLabel + ', Year ' + fin(year, 1), className: 'wide report', critical: true,
       head: UI.playerBadge(28),
       render: function (body, close) {
-        /* headline stat tiles (water + any crisis) */
+        /* 4–6 stat tiles (water + the season's crisis) */
         var cap = fin((s.reservoir || {}).capacityAF, 42000);
         var storagePct = isFinite(Number(hy.storagePct)) ? Number(hy.storagePct) * (Number(hy.storagePct) <= 1.5 ? 100 : 1) : (fin(hy.endStorageAF) / Math.max(cap, 1) * 100);
         var sh = hy.shortages || {}, shortTotal = 0; SECTORS.forEach(function (k) { shortTotal += fin(sh[k]); });
-        body.appendChild(h('div', { class: 'kv' }, [
+        var tiles = [
           stat('Inflow', af(hy.inflowAF)),
-          stat('Reservoir', af(hy.endStorageAF), Math.round(storagePct) + '%', storagePct < 35 ? 'bad' : ''),
-          stat('Shortages', shortTotal > 1 ? af(shortTotal) : 'None', null, shortTotal > 1 ? 'bad' : 'good'),
-          stat('Min. flow', hy.minFlowMet === false ? 'Missed' : 'Met', null, hy.minFlowMet === false ? 'bad' : 'good'),
-          fire ? stat('Wildfire', Math.round(fin(fire.acres)).toLocaleString(), 'acres', 'bad') : null,
+          stat('Reservoir', Math.round(storagePct) + '%', null, storagePct < 35 ? 'bad' : ''),
+          stat('Short', shortTotal > 1 ? af(shortTotal) : '0', null, shortTotal > 1 ? 'bad' : 'good'),
+          stat('Min flow', hy.minFlowMet === false ? '✗' : '✓', null, hy.minFlowMet === false ? 'bad' : 'good'),
+          fire ? stat('Burned', Math.round(fin(fire.acres)).toLocaleString(), 'ac', 'bad') : null,
           fire && fin(fire.structuresLost) > 0 ? stat('Homes lost', Math.round(fin(fire.structuresLost)), null, 'bad') : null,
-          flood ? stat('Flood damage', money(flood.damageM), null, fin(flood.damageM) > 0.5 ? 'bad' : '') : null,
-          flood && fin(flood.sedimentToReservoir) > 0 ? stat('Sediment in', Math.round(fin(flood.sedimentToReservoir)).toLocaleString(), 't', fin(flood.sedimentToReservoir) > 2000 ? 'bad' : '') : null,
-          burn ? stat('Prescribed burn', burn.escaped ? 'Escaped' : (burn.success === false ? 'Called off' : 'Done'), null, burn.escaped ? 'bad' : 'good') : null
-        ]));
-        if (hy.legalOverride) body.appendChild(h('div', { class: 'note bad' }, '⚖ Senior rights were under-allocated — the tribal right and Colorado River delivery were served from storage anyway. Trust took a hit.'));
+          flood ? stat('Flood', money(flood.damageM), null, fin(flood.damageM) > 0.5 ? 'bad' : '') : null,
+          flood && fin(flood.sedimentToReservoir) > 0 ? stat('Sediment', Math.round(fin(flood.sedimentToReservoir)).toLocaleString(), 't', fin(flood.sedimentToReservoir) > 2000 ? 'bad' : '') : null,
+          burn ? stat('Burn', burn.escaped ? '✗' : (burn.success === false ? '—' : '✓'), null, burn.escaped ? 'bad' : 'good') : null
+        ].filter(Boolean).slice(0, 6);
+        var tileTips = { Reservoir: af(hy.endStorageAF) + ' in storage', Short: 'Shortages across all uses', 'Min flow': hy.minFlowMet === false ? 'Minimum flow missed' : 'Minimum flow met', Burn: burn ? (burn.escaped ? 'Prescribed burn escaped' : burn.success === false ? 'Burn called off' : 'Prescribed burn done') : '', Flood: 'Flood damage' };
+        tiles.forEach(function (t) { var k = t.querySelector('.k').textContent; if (tileTips[k]) t.setAttribute('data-tip', tileTips[k]); });
+        if (hy.legalOverride) tiles = tiles.slice(0, 5);   /* keep 4–6 tiles in total */
+        if (hy.legalOverride) tiles.push(h('div', { class: 'stat bad', 'data-tip': 'Senior rights were under-allocated; the tribal right and Colorado River delivery were served from storage anyway. Trust took a hit.', role: 'img', 'aria-label': 'Senior rights served by override; trust fell' }, [h('span', { class: 'k' }, 'Rights'), h('span', { class: 'v' }, '⚖ ✗')]));
+        body.appendChild(h('div', { class: 'kv' }, tiles));
 
-        /* cause and effect first */
-        body.appendChild(h('h3', {}, 'Cause and effect'));
-        var tl = safeList(report.timeline);
-        if (!tl.length) body.appendChild(h('p', { class: 'muted small' }, 'A quiet season. Nothing to explain — yet.'));
-        else body.appendChild(h('ul', { class: 'timeline' }, tl.map(function (e) {
+        /* what happened: ≤ 4 rows, icon + ≤ 10 words (full sentence in the tooltip) */
+        var tl = safeList(report.timeline).slice(0, 4);
+        if (tl.length) body.appendChild(h('ul', { class: 'timeline happened', 'aria-label': 'What happened' }, tl.map(function (e) {
           var text = String(typeof e === 'string' ? e : (e && e.text) || ''); var kind = (e && e.kind) || 'info';
-          var brief = UI.short(text, 22);   /* ≤ 22 words each; the full sentence lives in the Log & timeline modal */
-          return h('li', { class: kind, 'data-tip': brief !== text ? text : null }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, brief)]);
+          var brief = UI.short(text, UI.WORD_CAPS.happened);
+          return h('li', { class: kind, 'data-tip': brief !== text ? text : null, 'aria-label': text }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, brief)]);
         })));
 
-        /* outcomes */
-        body.appendChild(h('h3', {}, 'Outcomes'));
+        /* outcomes as delta chips: W ▲2 · E ▼5 … */
         var after = oc.after || s.outcomes || {}, before = oc.before || {}, delta = oc.delta || {};
-        body.appendChild(h('div', { class: 'outcome-deltas' }, OUT_KEYS.map(function (k) {
+        body.appendChild(h('div', { class: 'outcome-chips', role: 'list', 'aria-label': 'Outcome changes' }, OUT_KEYS.map(function (k) {
           var a = clamp(after[k], 0, 100), d = isFinite(Number(delta[k])) ? Number(delta[k]) : (isFinite(Number(before[k])) ? a - Number(before[k]) : 0);
-          return h('div', { class: 'od', 'data-key': k }, [h('span', { class: 'k' }, OUT_NAMES[k] || k), h('div', { class: 'n' }, Math.round(a)), deltaNode(d, 1), h('div', { class: 'meter thin' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: a + '%' } }))]);
+          var cls = d > 0.05 ? 'up' : (d < -0.05 ? 'down' : 'flat');
+          return h('span', { class: 'chip oc ' + cls, role: 'listitem', 'data-key': k, 'data-tip': (OUT_NAMES[k] || k) + ' · now ' + Math.round(a), 'aria-label': (OUT_NAMES[k] || k) + ' ' + (d > 0 ? 'up' : d < 0 ? 'down' : 'unchanged') + ' ' + num(Math.abs(d), 1) + ', now ' + Math.round(a) }, [
+            h('span', { class: 'k' }, UI.OUTCOME_SHORT[k] || k), deltaNode(d, Math.abs(d) < 1 && d !== 0 ? 1 : 0)
+          ]);
         })));
 
         /* details (collapsed): deliveries table, fire/flood/burn detail, outcome reasons */
@@ -680,28 +715,31 @@
         var reasons = safeList(oc.reasons);
         if (reasons.length) { right.appendChild(h('h3', {}, 'Why the outcomes moved')); right.appendChild(h('ul', { class: 'small muted' }, reasons.slice(0, 8).map(function (r) { return h('li', {}, [String(r.text || ''), ' ', r.delta != null ? deltaNode(r.delta, 1) : null]); }))); }
         cols.appendChild(right);
+        /* the rest of the timeline (rows 5+) and the full-log link also live under Details */
+        var moreTl = safeList(report.timeline).slice(4);
+        if (moreTl.length) details.insertBefore(h('ul', { class: 'timeline', style: { marginBottom: '10px' } }, moreTl.map(function (e) {
+          var text = String(typeof e === 'string' ? e : (e && e.text) || ''); var kind = (e && e.kind) || 'info';
+          return h('li', { class: kind }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, TL_ICONS[kind] || 'ℹ'), h('span', {}, text)]);
+        })), details.firstChild);
         details.appendChild(cols);
-        var detBtn = h('button', { class: 'ghost tiny', type: 'button', id: 'report-details-btn', 'aria-expanded': 'false', 'aria-controls': 'report-details' }, 'Details ▾');
-        detBtn.addEventListener('click', function () { var open = details.hidden; details.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Hide details ▴' : 'Details ▾'; });
-        var logBtn = h('button', { class: 'ghost tiny', type: 'button', 'data-tip': 'Full cause-and-effect timeline and log' }, 'Full timeline ↗');
+        var logBtn = h('button', { class: 'ghost tiny', type: 'button', 'data-tip': 'Full cause-and-effect timeline and log' }, '📓 Timeline ↗');
         logBtn.addEventListener('click', function () { if (UI.showLog) UI.showLog(); });
-        body.appendChild(h('div', { class: 'row', style: { marginTop: '10px' } }, [detBtn, logBtn]));
-        body.appendChild(details);
-
-        /* case studies */
+        details.appendChild(h('div', { class: 'row', style: { marginTop: '10px' } }, logBtn));
+        var detBtn = h('button', { class: 'ghost tiny', type: 'button', id: 'report-details-btn', 'aria-expanded': 'false', 'aria-controls': 'report-details' }, 'Details ▾');
+        detBtn.addEventListener('click', function () { var open = details.hidden; details.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Details ▴' : 'Details ▾'; });
+        /* case study unlocked: one teaser button (title only) */
         var unlocked = safeList(report.unlocked);
-        if (unlocked.length) {
-          body.appendChild(h('h3', {}, 'Case study unlocked'));
-          body.appendChild(h('div', { class: 'teasers' }, unlocked.map(function (id) {
-            var cs = findCase(id) || {};
-            var b = h('button', { class: 'teaser', type: 'button' }, [h('span', { class: 'n' }, '📚 ' + (cs.title || String(id))), h('span', { class: 's' }, [cs.year ? cs.year + ' · ' : '', cs.region || 'Colorado', ' — opens after this report'])]);
-            b.addEventListener('click', function () { b.classList.add('queued'); b.disabled = true; b.querySelector('.s').textContent = 'Queued ✓'; call('openCaseStudy', [id]); });
-            return b;
-          })));
-        }
+        var teasers = unlocked.length ? h('div', { class: 'teasers' }, unlocked.map(function (id) {
+          var cs = findCase(id) || {};
+          var b = h('button', { class: 'teaser tiny', type: 'button', 'data-tip': 'Case study unlocked · ' + (cs.year ? cs.year + ' · ' : '') + (cs.region || 'Colorado') + ' · opens after this report', 'aria-label': 'Open case study ' + (cs.title || String(id)) + ' after this report' }, [h('span', { 'aria-hidden': 'true' }, '📚 '), UI.cap(cs.title || String(id), 4)]);
+          b.addEventListener('click', function () { b.classList.add('queued'); b.disabled = true; b.appendChild(h('span', {}, ' ✓')); call('openCaseStudy', [id]); });
+          return b;
+        })) : null;
+        body.appendChild(h('div', { class: 'row', style: { marginTop: '10px', gap: '10px' } }, [detBtn, teasers]));
+        body.appendChild(details);
       },
       foot: function (foot, close) {
-        foot.appendChild(h('span', { class: 'left' }, 'Budget ' + money(s.budget)));
+        foot.appendChild(h('span', { class: 'left num', 'data-tip': 'Budget', 'aria-label': 'Budget ' + money(s.budget) }, [h('span', { 'aria-hidden': 'true' }, '💵 '), money(s.budget)]));
         foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Continue ▶'));
       }
     });
@@ -776,22 +814,29 @@
         body.appendChild(h('div', { class: 'end-score' }, [h('div', { class: 'big' }, Math.round(R)), h('div', { class: 'grade' }, [h('div', { class: 'g' }, g.letter || '—'), h('div', { class: 'title' }, g.title || 'Colorado Resilience Score')])]));
         body.appendChild(h('div', { class: 'end-bars' }, OUT_KEYS.map(function (k) {
           var v = clamp(oc[k], 0, 100);
-          return h('div', { class: 'eb' }, [h('span', { class: 'label' }, (OUT_NAMES[k] || k) + ' · ' + Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%'), h('div', { class: 'meter' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: v + '%' } })), h('span', { class: 'n' }, Math.round(v))]);
+          return h('div', { class: 'eb', 'data-tip': (OUT_NAMES[k] || k) + ' · weight ' + Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%' }, [h('span', { class: 'label' }, UI.OUTCOME_SHORT[k] || k), h('div', { class: 'meter' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: v + '%' } })), h('span', { class: 'n' }, Math.round(v))]);
         })));
         var stats = summary.stats || s.stats || {}, fire = s.fire || {};
         body.appendChild(h('div', { class: 'kv', style: { marginTop: '12px' } }, [
-          stat('Acres burned', Math.round(fin(fire.totalAcres)).toLocaleString()),
-          stat('Structures lost', Math.round(fin(fire.structuresLost))),
-          stat('Flood damage', money(stats.floodDamageM)),
+          stat('Burned', Math.round(fin(fire.totalAcres)).toLocaleString(), 'ac'),
+          stat('Homes lost', Math.round(fin(fire.structuresLost))),
+          stat('Flood', money(stats.floodDamageM)),
           stat('Sediment', Math.round(fin(stats.sedimentTons)).toLocaleString(), 't'),
-          stat('Outage days', Math.round(fin(stats.contaminationOutageDays))),
-          stat('Population', Math.round(fin(s.population)).toLocaleString())
+          stat('Outage', Math.round(fin(stats.contaminationOutageDays)), 'd'),
+          stat('People', Math.round(fin(s.population)).toLocaleString())
         ]));
-        var cols = h('div', { class: 'two-col', style: { marginTop: '12px' } });
-        var hl = safeList(summary.highlights), ls = safeList(summary.lessons);
-        cols.appendChild(h('div', {}, [h('h3', {}, 'Highlights'), hl.length ? h('ul', {}, hl.map(function (t) { return h('li', {}, String(t)); })) : h('p', { class: 'muted small' }, 'A quiet tenure.')]));
-        cols.appendChild(h('div', {}, [h('h3', {}, 'Lessons'), ls.length ? h('ul', {}, ls.map(function (t) { return h('li', {}, String(t)); })) : h('p', { class: 'muted small' }, 'Wildfire and water are one system: what burns above the reservoir ends up in the tap.')]));
-        body.appendChild(cols);
+        /* highlights: ≤ 3 icon rows of ≤ 10 words; lessons behind Details */
+        var hl = safeList(summary.highlights).slice(0, 3), ls = safeList(summary.lessons);
+        if (hl.length) body.appendChild(h('ul', { class: 'timeline happened', style: { marginTop: '12px' }, 'aria-label': 'Highlights' }, hl.map(function (t) {
+          var text = String(t && typeof t === 'object' ? (t.text || t.label || '') : t), brief = UI.short(text, UI.WORD_CAPS.happened);
+          return h('li', { class: 'info', 'data-tip': brief !== text ? text : null, 'aria-label': text }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '★'), h('span', {}, brief)]);
+        })));
+        if (ls.length) {
+          var det = h('div', { class: 'report-details', hidden: true }, [h('h3', {}, 'Lessons'), h('ul', {}, ls.map(function (t) { return h('li', {}, String(t)); }))]);
+          var detBtn = h('button', { class: 'ghost tiny', type: 'button', 'aria-expanded': 'false', style: { marginTop: '10px' } }, 'Details ▾');
+          detBtn.addEventListener('click', function () { var open = det.hidden; det.hidden = !open; detBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); detBtn.textContent = open ? 'Details ▴' : 'Details ▾'; });
+          body.appendChild(detBtn); body.appendChild(det);
+        }
       },
       foot: function (foot, close) {
         foot.appendChild(h('button', { class: 'ghost', type: 'button', onclick: function () { UI.showCases(); } }, 'Case studies'));
@@ -808,35 +853,41 @@
     var stats = safeList(report.stats), actions = safeList(report.actions), lessons = safeList(report.lessons);
     var cf = (report.counterfactual && typeof report.counterfactual === 'object') ? report.counterfactual : {};
     var without = safeList(cf.without), withL = safeList(cf['with']);
-    function cfCol(title, items, cls) {
-      return h('div', { class: 'col ' + cls }, [h('div', { class: 'label' }, title)].concat(items.length ? items.map(function (it) {
-        it = (it && typeof it === 'object') ? it : { label: String(it) };
-        return h('div', { class: 'li' }, [h('span', {}, String(it.label == null ? '' : it.label)), h('b', { class: 'num' }, String(it.value == null ? '—' : it.value))]);
-      }) : [h('div', { class: 'li dim' }, 'No numbers available')]));
+    /* "without / with" = two columns of numbers; the row label (≤ 2 words) sits between them */
+    function cfTable() {
+      var keys = [], byLabel = {};
+      function add(items, side) { items.forEach(function (it) { it = (it && typeof it === 'object') ? it : { label: String(it) }; var k = String(it.label == null ? '' : it.label); if (!byLabel[k]) { byLabel[k] = {}; keys.push(k); } byLabel[k][side] = it.value == null ? '—' : String(it.value); }); }
+      add(without, 'w'); add(withL, 'y');
+      var t = h('div', { class: 'cf-table', role: 'table', 'aria-label': 'Without your response versus with it' }, [
+        h('div', { class: 'cf-head', role: 'row' }, [h('span', { class: 'without', role: 'columnheader', 'data-tip': 'Without your response' }, '✗ Without'), h('span', { role: 'columnheader' }, ''), h('span', { class: 'with', role: 'columnheader', 'data-tip': 'With your response' }, '✓ With')])
+      ]);
+      keys.forEach(function (k) {
+        var r = byLabel[k], lbl = UI.cap(k, 2);
+        t.appendChild(h('div', { class: 'cf-row', role: 'row' }, [h('b', { class: 'num without', role: 'cell' }, r.w || '—'), h('span', { class: 'k', role: 'rowheader', 'data-tip': lbl !== k ? k : null }, lbl), h('b', { class: 'num with', role: 'cell' }, r.y || '—')]));
+      });
+      return t;
     }
+    var sentenceFull = String(cf.summary || report.headline || ''), sentence = UI.short(sentenceFull, UI.WORD_CAPS.afterAction);
+    var extra = [].concat(actions.map(function (a) { return String(a && typeof a === 'object' ? (a.text || a.label || '') : a); }), lessons.map(String)).filter(Boolean);
     return UI.modal({
-      icon: mode === 'storm' ? '🌊' : '🔥', eyebrow: 'After-action report', title: report.title || (mode === 'storm' ? 'Storm defense' : 'Fire response'), className: 'wide afteraction ' + mode, critical: true,
+      icon: mode === 'storm' ? '🌊' : '🔥', eyebrow: 'After-action', title: UI.cap(report.title || (mode === 'storm' ? 'Storm defense' : 'Fire response'), 5), className: 'wide afteraction ' + mode, critical: true,
       head: UI.playerBadge(28, { expression: 'worried' }),
       render: function (body) {
-        if (report.headline) body.appendChild(h('p', { class: 'lead' }, String(report.headline)));
-        if (stats.length) body.appendChild(h('div', { class: 'kv' }, stats.map(function (x) {
+        /* 3 stat tiles */
+        if (stats.length) body.appendChild(h('div', { class: 'kv three' }, stats.slice(0, 3).map(function (x) {
           x = (x && typeof x === 'object') ? x : { label: String(x) };
-          return stat(String(x.label == null ? '' : x.label), String(x.value == null ? '—' : x.value), x.unit ? String(x.unit) : null, x.bad ? 'bad' : (x.good ? 'good' : ''));
+          var lbl = String(x.label == null ? '' : x.label), el = stat(UI.cap(lbl, 2), String(x.value == null ? '—' : x.value), x.unit ? String(x.unit) : null, x.bad ? 'bad' : (x.good ? 'good' : ''));
+          if (UI.cap(lbl, 2) !== lbl) el.setAttribute('data-tip', lbl);
+          return el;
         })));
-        var cols = h('div', { class: 'aa-cols' });
-        cols.appendChild(h('div', {}, [h('h3', {}, 'What you did'), actions.length ? h('ul', { class: 'aa-actions' }, actions.map(function (a) { return h('li', {}, String(a && typeof a === 'object' ? (a.text || a.label || '') : a)); })) : h('p', { class: 'muted small' }, 'No tactical actions were taken — the crisis ran its course.')]));
-        if (without.length || withL.length || cf.summary) {
-          cols.appendChild(h('div', {}, [
-            h('h3', {}, 'What your response changed'),
-            h('div', { class: 'cf' }, [cfCol('Without your response', without, 'without'), cfCol('With your response', withL, 'with')]),
-            cf.summary ? h('p', { class: 'cf-summary' }, String(cf.summary)) : null
-          ]));
-        }
-        body.appendChild(cols);
-        if (lessons.length) { body.appendChild(h('h3', {}, 'Lessons')); body.appendChild(h('ul', { class: 'aa-lessons' }, lessons.map(function (l) { return h('li', {}, String(l)); }))); }
+        /* without / with numbers */
+        if (without.length || withL.length) body.appendChild(cfTable());
+        /* ONE sentence (≤ 14 words); what you did + lessons are the ⓘ tooltip, not a list */
+        if (sentence || extra.length) body.appendChild(h('p', { class: 'cf-summary one-line', 'data-tip': sentence !== sentenceFull ? sentenceFull : null }, [
+          sentence, extra.length ? h('button', { class: 'info', type: 'button', 'aria-label': 'What you did and lessons: ' + extra.join('. '), 'data-tip': extra.join(' · ') }, 'i') : null
+        ]));
       },
       foot: function (foot, close) {
-        foot.appendChild(h('span', { class: 'left' }, mode === 'storm' ? 'The season continues once the water recedes.' : 'The season continues once the fire is out.'));
         foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Continue ▶'));
       }
     });
@@ -847,50 +898,56 @@
     return UI.modal({
       icon: '❔', eyebrow: 'Help', title: 'How to play Watershed', className: 'wide help',
       render: function (body) {
-        /* bullets only (player feedback: less text) */
-        var grid = h('div', { class: 'help-grid' });
-        grid.appendChild(h('div', {}, [
-          h('h3', {}, 'A season, in order'),
-          h('ul', {}, [
+        /* tabbed: only one section is visible at a time (help is opt-in, so prose is allowed inside) */
+        var sections = [
+          ['season', '🗓 Season', h('ul', {}, [
             h('li', {}, [h('b', {}, 'Conditions'), ' — snowpack, storage, fire danger, drought (left). Ranges shrink once you fund streamgages.']),
             h('li', {}, [h('b', {}, 'Events'), ' — a card may interrupt with a choice; some consequences arrive later.']),
             h('li', {}, [h('b', {}, 'Plan'), ' — fund projects, allocate water, set fire policy (right). Click an advisor in town for their take.']),
             h('li', {}, [h('b', {}, 'End Season'), ' — deliveries, maybe a fire, maybe a storm on a burn scar, then a short report.']),
             h('li', {}, [h('b', {}, 'Crisis'), ' — fight fires and floods live: lines, tankers, engines, evacuations, sandbags, pumps, spillway.'])
-          ]),
-          h('h3', {}, 'Controls'),
-          h('ul', {}, [
+          ])],
+          ['controls', '⌨ Controls', h('ul', {}, [
             h('li', {}, [h('kbd', {}, 'Drag'), ' pan · ', h('kbd', {}, 'Right-drag'), ' / ', h('kbd', {}, 'Ctrl-drag'), ' orbit · ', h('kbd', {}, 'Wheel'), ' zoom']),
             h('li', {}, [h('kbd', {}, 'W A S D'), ' / arrows pan · ', h('kbd', {}, 'Q'), ' ', h('kbd', {}, 'E'), ' rotate']),
             h('li', {}, [h('kbd', {}, 'Space'), ' end season · ', h('kbd', {}, '1'), '–', h('kbd', {}, '4'), ' speed · ', h('kbd', {}, 'V'), ' overlay · ', h('kbd', {}, 'Esc'), ' close']),
             h('li', {}, [h('b', {}, 'Crisis: '), h('kbd', {}, '1'), '–', h('kbd', {}, '5'), ' tool · ', h('kbd', {}, 'Drag'), ' paint · ', h('kbd', {}, 'Space'), ' pause · ', h('kbd', {}, 'Esc'), ' deselect'])
-          ])
-        ]));
-        grid.appendChild(h('div', {}, [
-          h('h3', {}, 'Scoring'),
-          h('div', { class: 'formula' }, 'Resilience = ' + OUT_KEYS.map(function (k) { return Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%·' + k; }).join(' + ')),
-          h('ul', { class: 'small', style: { marginTop: '8px' } }, [
-            h('li', {}, 'Five outcomes, 0–100, each drifting 45% of the way toward a target each season — bad years linger.'),
-            h('li', {}, 'Trust moves only through your decisions.')
-          ].concat(OUT_KEYS.map(function (k) { return h('li', {}, [h('b', {}, (OUT_NAMES[k] || k) + '. '), UI.short((UI.OUTCOME_TIPS[k] || '').replace(/^[^—]+—\s*/, ''), 14)]); }))),
-          h('h3', {}, 'Where the numbers come from'),
-          h('ul', { class: 'small' }, ((C.SOURCES && C.SOURCES.length) ? C.SOURCES : [{ label: 'Sources', value: '', note: 'Calibrated to typical Colorado Front Range / West Slope figures.' }]).map(function (r) {
+          ])],
+          ['scoring', '🏁 Scoring', h('div', {}, [
+            h('div', { class: 'formula' }, 'Resilience = ' + OUT_KEYS.map(function (k) { return Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%·' + k; }).join(' + ')),
+            h('ul', { class: 'small', style: { marginTop: '8px' } }, [
+              h('li', {}, 'Five outcomes, 0–100, each drifting 45% of the way toward a target each season — bad years linger.'),
+              h('li', {}, 'Trust moves only through your decisions.')
+            ].concat(OUT_KEYS.map(function (k) { return h('li', {}, [h('b', {}, (OUT_NAMES[k] || k) + '. '), UI.short((UI.OUTCOME_TIPS[k] || '').replace(/^[^—]+—\s*/, ''), 14)]); })))
+          ])],
+          ['sources', '📚 Sources', h('ul', { class: 'small' }, ((C.SOURCES && C.SOURCES.length) ? C.SOURCES : [{ label: 'Sources', value: '', note: 'Calibrated to typical Colorado Front Range / West Slope figures.' }]).map(function (r) {
             return h('li', {}, [h('b', {}, String(r.label || '') + (r.value ? ' · ' + r.value : '') + '. '), String(r.note || '')]);
-          })),
-          h('h3', {}, 'Water law, briefly'),
-          h('ul', { class: 'small' }, [
+          }))],
+          ['law', '⚖ Water law', h('ul', { class: 'small' }, [
             h('li', {}, 'Prior appropriation: first in time, first in right.'),
             h('li', {}, 'The tribal right and the Colorado River delivery are senior — delivered even if you cut them, at a cost to trust.'),
             h('li', {}, 'Hydro, recreation and wildlife releases are non-consumptive: the water keeps flowing.')
-          ]),
-          h('h3', {}, 'The fire–water link'),
-          h('ul', { class: 'small' }, [
+          ])],
+          ['firewater', '🔥💧 Fire & water', h('ul', { class: 'small' }, [
             h('li', {}, 'Burned soil sheds water: a modest storm on a fresh scar can run 10–30× the normal flow.'),
             h('li', {}, 'Ash and sediment reach the reservoir and the treatment intake.'),
             h('li', {}, 'Thinning, prescribed fire, wetlands, mulch and debris basins change that math.')
-          ])
-        ]));
-        body.appendChild(grid);
+          ])]
+        ];
+        var current = UI.pref('helpTab') || 'season';
+        if (!sections.some(function (sct) { return sct[0] === current; })) current = 'season';
+        var tabs = h('div', { class: 'tabs help-tabs', role: 'tablist' }), panes = h('div', { class: 'help-panes' });
+        sections.forEach(function (sct) {
+          var pane = h('div', { class: 'help-pane', role: 'tabpanel', id: 'help-' + sct[0], hidden: sct[0] !== current }, sct[2]);
+          var tab = h('button', { type: 'button', role: 'tab', 'data-tab': sct[0], 'aria-selected': sct[0] === current ? 'true' : 'false', 'aria-controls': 'help-' + sct[0], class: sct[0] === current ? 'active' : '' }, sct[1]);
+          tab.addEventListener('click', function () {
+            current = sct[0]; UI.pref('helpTab', current);
+            tabs.querySelectorAll('[role="tab"]').forEach(function (t) { var on = t.getAttribute('data-tab') === current; t.classList.toggle('active', on); t.setAttribute('aria-selected', on ? 'true' : 'false'); });
+            panes.querySelectorAll('.help-pane').forEach(function (p) { p.hidden = p.id !== 'help-' + current; });
+          });
+          tabs.appendChild(tab); panes.appendChild(pane);
+        });
+        body.appendChild(tabs); body.appendChild(panes);
       },
       foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', onclick: function () { close(); } }, 'Got it')); }
     });
@@ -946,37 +1003,39 @@
     var days = spec.daysUntil != null ? spec.daysUntil : (storm.daysUntil != null ? storm.daysUntil : (spec.turnsUntil != null ? spec.turnsUntil : storm.turnsUntil));
     var inches = fin(spec.intensityIn, fin(storm.intensityIn));
     var budget = spec.emergencyBudget != null ? spec.emergencyBudget : (spec.budget != null ? spec.budget : st().emergencyFund);
-    var countdown = spec.countdown || ('Storm arrives in ' + (days != null ? fin(days) + ' day' + (fin(days) === 1 ? '' : 's') : 'days') + ' — ' + num(inches, 1) + ' in forecast' + (storm.durationHr ? ' over ' + Math.round(fin(storm.durationHr)) + ' h' : ''));
+    /* countdown = numbers (⛈ 3 d · 2.1 in); the sentence is the tooltip */
+    var countdownFull = spec.countdown || ('Storm arrives in ' + (days != null ? fin(days) + ' day' + (fin(days) === 1 ? '' : 's') : 'days') + ' — ' + num(inches, 1) + ' in forecast' + (storm.durationHr ? ' over ' + Math.round(fin(storm.durationHr)) + ' h' : ''));
+    var zones = safeList(prep.atRiskZones).map(function (z) { return UI.zoneName(z); }).filter(Boolean);
     box.appendChild(h('div', { class: 'countdown' }, [
-      h('div', { class: 't' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⛈'), countdown]),
-      h('div', { class: 'budget small' }, ['Emergency budget ', h('b', {}, money(budget)), spec.spent != null ? h('span', { class: 'dim' }, ' · spent ' + money(spec.spent)) : null])
+      h('div', { class: 't num', 'data-tip': countdownFull, 'aria-label': countdownFull }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⛈'), (days != null ? fin(days) + ' d · ' : ''), num(inches, 1) + ' in', storm.durationHr ? ' / ' + Math.round(fin(storm.durationHr)) + ' h' : '']),
+      h('div', { class: 'row small num prep' }, [
+        prep.scarAcres != null ? h('span', { 'data-tip': 'Burn scar, acres' }, [h('span', { 'aria-hidden': 'true' }, '🔥 '), Math.round(fin(prep.scarAcres)).toLocaleString()]) : null,
+        prep.predictedPeakCfs != null ? h('span', { 'data-tip': 'Predicted peak flow, cfs' }, [h('span', { 'aria-hidden': 'true' }, '📈 '), Math.round(fin(prep.predictedPeakCfs)).toLocaleString()]) : null,
+        prep.predictedSedimentTons != null ? h('span', { 'data-tip': 'Predicted sediment, tons' }, [h('span', { 'aria-hidden': 'true' }, '🪨 '), Math.round(fin(prep.predictedSedimentTons)).toLocaleString()]) : null,
+        zones.length ? h('span', { class: 'chips' }, zones.slice(0, 3).map(function (z) { return h('span', { class: 'chip danger tiny', 'data-tip': 'At risk · ' + z }, UI.cap(z, 2)); })) : null
+      ]),
+      h('div', { class: 'budget small num', 'data-tip': 'Emergency fund' + (spec.spent != null ? ' · spent ' + money(spec.spent) : ''), 'aria-label': 'Emergency fund ' + money(budget) }, [h('span', { 'aria-hidden': 'true' }, '💵 '), h('b', {}, money(budget))])
     ]));
-    if (prep.scarAcres != null || prep.predictedPeakCfs != null) {
-      var zones = safeList(prep.atRiskZones).map(function (z) { return UI.zoneName(z); }).filter(Boolean);
-      box.appendChild(h('div', { class: 'small dim', style: { marginBottom: '8px' } }, [
-        prep.scarAcres != null ? 'Burn scar ' + Math.round(fin(prep.scarAcres)).toLocaleString() + ' acres' : null,
-        prep.predictedPeakCfs != null ? ' · predicted peak ' + Math.round(fin(prep.predictedPeakCfs)).toLocaleString() + ' cfs' : null,
-        prep.predictedSedimentTons != null ? ' · ~' + Math.round(fin(prep.predictedSedimentTons)).toLocaleString() + ' t sediment' : null,
-        zones.length ? ' · at risk: ' + zones.join(', ') : null
-      ]));
-    }
     var tools = normalizeTools(spec), selected = spec.selected != null ? spec.selected : UI._placementSelected;
     var grid = h('div', { class: 'tools', role: 'group', 'aria-label': 'Mitigation tools' });
     tools.forEach(function (t) {
-      var b = h('button', { class: 'tool' + (t.type === selected ? ' selected' : '') + (t.free > 0 ? ' free' : ''), type: 'button', 'data-tool': t.type, 'aria-pressed': t.type === selected ? 'true' : 'false', disabled: t.disabled ? true : null, 'data-tip': t.desc || t.name }, [
+      var shortName = UI.shortName(UI.TOOL_SHORT, t.type, t.name, UI.WORD_CAPS.tool);
+      var b = h('button', { class: 'tool' + (t.type === selected ? ' selected' : '') + (t.free > 0 ? ' free' : ''), type: 'button', 'data-tool': t.type, 'aria-pressed': t.type === selected ? 'true' : 'false', disabled: t.disabled ? true : null,
+        'data-tip': (t.name !== shortName ? t.name + ' · ' : '') + (t.desc || ''), 'aria-label': t.name + ', ' + (t.free > 0 ? t.free + ' free' : money(t.costM)) + (t.remaining != null ? ', ' + t.remaining + ' left' : '') + (t.desc ? '. ' + t.desc : '') }, [
         h('span', { class: 'ic', 'aria-hidden': 'true' }, t.icon),
-        h('span', { class: 'n' }, t.name),
-        h('span', { class: 'c' }, [t.free > 0 ? h('b', {}, t.free + ' free') : h('b', {}, money(t.costM)), t.remaining != null ? ' · ' + t.remaining + ' left' : (t.placed ? ' · ' + t.placed + ' placed' : '')])
+        h('span', { class: 'n' }, shortName),
+        h('span', { class: 'c num' }, [t.free > 0 ? h('b', {}, '×' + t.free + ' free') : h('b', {}, money(t.costM)), t.remaining != null ? ' · ×' + t.remaining : (t.placed ? ' · ' + t.placed + ' ✓' : '')])
       ]);
       b.addEventListener('click', function () { UI._placementSelected = t.type; call('selectPlacementTool', [t.type]); renderPlacement(Object.assign({}, spec, { selected: t.type })); });
       grid.appendChild(b);
     });
     box.appendChild(grid);
     var sel = tools.filter(function (t) { return t.type === selected; })[0];
+    var hintFull = sel ? ('Click the map to place ' + sel.name.toLowerCase() + ' where allowed. ' + (sel.desc || '')) : 'Pick a tool, then click the map. Valid cells are highlighted.';
+    var hint = sel ? UI.cap('Click the map to place ' + UI.shortName(UI.TOOL_SHORT, sel.type, sel.name, UI.WORD_CAPS.tool).toLowerCase(), UI.WORD_CAPS.coach) : 'Pick a tool, then click the map';
     box.appendChild(h('div', { class: 'foot' }, [
-      h('div', { class: 'hint' }, sel ? ('Click the map to place ' + sel.name.toLowerCase() + ' where allowed. ' + (sel.desc || '')) : 'Pick a tool, then click the map. Valid cells are highlighted.'),
-      h('button', { class: 'ghost tiny', type: 'button', onclick: function () { if (UI.showHelp) UI.showHelp(); } }, 'What do these do?'),
-      h('button', { class: 'primary warn', type: 'button', id: 'brace-btn', onclick: function () { UI._finishPlacement(); } }, 'Brace for storm ⛈')
+      h('div', { class: 'hint', 'data-tip': hintFull, 'aria-label': hintFull }, hint),
+      h('button', { class: 'primary warn', type: 'button', id: 'brace-btn', onclick: function () { UI._finishPlacement(); } }, 'Brace ⛈')
     ]));
     box.hidden = false;
   }
@@ -1017,11 +1076,13 @@
       clear(coach);
       var arrow = h('span', { class: 'arrow top', 'aria-hidden': 'true' });
       var done = function (v) { coach.hidden = true; if (anchor) anchor.classList.remove('coach-target'); window.removeEventListener('resize', place); clear(coach); resolve(v); };
+      /* ≤ 8 words on the card; the full sentence is the tooltip + aria-label */
+      var full = String(text || ''), brief = UI.short(full, UI.WORD_CAPS.coach);
       coach.appendChild(arrow);
-      coach.appendChild(h('div', { class: 'eyebrow' }, 'Tutorial'));
-      coach.appendChild(h('div', { class: 'body' }, String(text || '')));
+      coach.appendChild(h('div', { class: 'eyebrow', 'aria-hidden': 'true' }, '🎓'));
+      coach.appendChild(h('div', { class: 'body', 'data-tip': brief !== full ? full : null, 'aria-label': full }, brief));
       coach.appendChild(h('div', { class: 'foot' }, [
-        h('button', { type: 'button', onclick: function () { done(false); } }, 'Skip tutorial'),
+        h('button', { type: 'button', 'aria-label': 'Skip tutorial', onclick: function () { done(false); } }, 'Skip'),
         h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { done(true); } }, 'Next ▶')
       ]));
       coach.hidden = false;

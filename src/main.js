@@ -85,6 +85,13 @@
     return { name: name, face: face, title: 'Water-Resilience Director' };
   }
 
+  /* Tutorial coach marks: [text ≤ 8 words, anchor]; '{budget}' is filled at run time. Exported as WS.Game.TUTORIAL_STEPS. */
+  var TUTORIAL_STEPS = [
+    ['Conditions: snowpack, storage, fire danger. Budget {budget}.', '#conditions'],
+    ['End Season ▶ (Space) plays the season.', '#primary-btn'],
+    ['Fires and floods: fight them live.', '#primary-btn']
+  ];
+
   /* ------------------------------------------------------------------ adapters */
   // Renderer adapter: every method is a guarded call into WS.Renderer (or a no-op when headless / missing).
   var RENDER_FNS = ['init', 'setSeason', 'refreshWorld', 'setReservoir', 'setRiverFlow', 'setFire', 'setWeather', 'setWind', 'showDebris', 'clearDebris',
@@ -328,12 +335,8 @@
     async function runTutorial() {
       if (headless || tutorialDone || !state.tutorial) return;
       tutorialDone = true;
-      // SPEC2 §D: three coach marks max — conditions → End Season → "when a fire starts you fight it live".
-      var steps = [
-        ['Welcome to Bitterbrush Creek. The Conditions panel shows this season\'s measurements — snowpack, reservoir storage, streamflow, fire danger and drought. Projects on the right cost money from your ' + fmtM(state.budget) + ' budget and change how fire, floods and drought play out later.', '#conditions'],
-        ['When you are ready, press End Season ▶ (or Space). The season then plays out live: runoff fills or drains the reservoir, fires may ignite, and storms may hit burn scars.', '#primary-btn'],
-        ['When a fire starts you fight it live: drag on the map to cut dozer lines, click to drop retardant, station engines and evacuate neighborhoods with a crew-point budget. Space pauses, 1–5 pick tools. Storms over a burn scar work the same way with sandbags, pumps and the spillway.', '#primary-btn']
-      ];
+      // SPEC2 §D: three coach marks max (≤ 8 words each) — conditions → End Season → fight fires live.
+      var steps = TUTORIAL_STEPS.map(function (st) { return [st[0].replace('{budget}', fmtM(state.budget)), st[1]]; });
       for (var i = 0; i < steps.length; i++) {
         try { var r = await ui.tutorialStep(steps[i][0], steps[i][1]); if (r === false || (r && r.skip)) break; } catch (e) { break; }
       }
@@ -359,7 +362,7 @@
       if (res.delta) C.OUTCOME_KEYS.forEach(function (k) { if (num(res.delta[k], 0)) ui.flashOutcome(k); });
       C.OUTCOME_KEYS.forEach(function (k) { state.outcomes[k] = clamp(num(state.outcomes[k], 50), 0, 100); });
       var text = res.text || (card.title + ': ' + choice.label);
-      log(card.title + ' — ' + choice.label + '. ' + (res.text || ''), card.severity === 'crisis' ? 'bad' : 'event');
+      log((card.icon ? card.icon + ' ' : '') + text, card.severity === 'crisis' ? 'bad' : 'event');
       turnNotes.cards.push({ id: card.id, title: card.title, choice: choice.label, text: text, delta: res.delta || null, severity: card.severity });
       return { card: card, index: idx, result: res };
     }
@@ -433,15 +436,15 @@
       var pb = state.projects && state.projects.pendingBurn;
       if (!pb) return null;
       var zoneId = (typeof pb === 'object') ? pb.zoneId : pb;
-      await autoEvidence('prescribed_burn', 'burn:' + state.turn, 'Crews are ready to light the prescribed burn in ' + zoneName(world, zoneId) + '. Fire danger is ' + (state.climate.fireDangerLabel || 'unknown') + '.');
+      await autoEvidence('prescribed_burn', 'burn:' + state.turn, 'Burn in ' + zoneName(world, zoneId) + ' · fire danger ' + (state.climate.fireDangerLabel || 'unknown') + '.');
       renderer.flyToZone(zoneId);
-      ui.ticker('Prescribed burn under way in ' + zoneName(world, zoneId));
+      ui.ticker('Rx burn · ' + zoneName(world, zoneId));
       var res = call('Fire', 'prescribedBurn', state, world, zoneId, turnRng.fork('rxburn')) || null;
       state.projects.pendingBurn = null;
       stats.burns++;
       if (res) {
         res.zoneId = zoneId; res.zoneName = zoneName(world, zoneId);
-        log('Prescribed burn in ' + res.zoneName + (res.escaped ? ' ESCAPED containment.' : ': fuel ' + Math.round(num(res.fuelBefore) * 100) + '% → ' + Math.round(num(res.fuelAfter) * 100) + '%.'), res.escaped ? 'bad' : 'good');
+        log('Rx burn ' + res.zoneName + (res.escaped ? ' ESCAPED.' : ': fuel ' + Math.round(num(res.fuelBefore) * 100) + '% → ' + Math.round(num(res.fuelAfter) * 100) + '%.'), res.escaped ? 'bad' : 'good');
         renderer.refreshWorld();
         await sleep(600);
       }
@@ -542,8 +545,8 @@
       var dir = compass(th.headingDeg), first = (th.threatened || [])[0];
       var headline = 'Fire ' + (th.intensity || 'active') + ((th.intensity === 'running' || th.intensity === 'extreme') && dir ? ' ' + dir : '') + ' in ' + Math.round(num(th.windMph, 8)) + ' mph wind' +
         (first ? ' — ' + first.name + (first.burningInside ? ' burning' : ' ' + fmtN(first.distanceCells) + ' cells away') : '');
-      var hint = { dozer: 'Drag on the map to cut a line', retardant: 'Click the map to drop retardant', engine: 'Pick a neighborhood for the engine', evacuate: 'Pick a neighborhood to evacuate', mutual_aid: 'Calls neighboring counties (+10 crew points)' }[cr.selected] || 'Pick a tool (1–5); Space pauses';
-      if (cr.mopUp) { headline = 'Fire contained at ' + fmtN(th.acres) + ' acres — crews are mopping up hot spots'; hint = 'After-action report coming up'; }
+      var hint = { dozer: 'Drag to cut line', retardant: 'Click to drop retardant', engine: 'Pick a neighborhood', evacuate: 'Pick a neighborhood', mutual_aid: '+10 crew points' }[cr.selected] || 'Tools 1–5 · Space pauses';
+      if (cr.mopUp) { headline = 'Contained · ' + fmtN(th.acres) + ' acres · mop-up'; hint = 'After-action report next'; }
       return {
         mode: 'fire', title: cr.mopUp ? 'Mop-up — fire contained' : 'WILDFIRE — ' + fmtN(th.acres) + ' acres', subtitle: cr.startName, step: cr.step, maxSteps: cr.maxSteps, paused: !!cr.paused, speed: speed,
         points: { label: 'Crew points', value: Math.round(num(tac.crewPts) * 10) / 10, max: num(tac.crewMax, 30), unit: 'pts' },
@@ -583,9 +586,11 @@
           var zc = zoneCenterCell(+target);
           if (zc >= 0) { var p3 = C.xy(zc); renderer.addMarker(type + '-' + target, type === 'engine' ? 'engine' : 'evac', p3.x, p3.y); }
           renderer.pulseZone(+target, type === 'engine' ? 0xff3b30 : 0xffd166);
-        } else if (type === 'mutual_aid') { ui.alert('Mutual aid is rolling — +10 crew points', 'good'); }
+        } else if (type === 'mutual_aid') { ui.alert('Mutual aid: +10 crew points', 'good'); }
         if (type === 'dozer' || type === 'retardant' || type === 'engine' || type === 'evacuate') playerPoint();   // SPEC3 §C: the director points the order out
-        if (res.text) { ui.ticker(res.text); log(res.text, 'info'); }
+        var ptsLeft = Math.round(num((fs.tactics || crisis.tactics || {}).crewPts)) + ' pts left';
+        ui.ticker(type === 'dozer' ? 'Dozer line ' + cells.length + ' cells · ' + ptsLeft : type === 'retardant' ? 'Retardant drop · ' + ptsLeft : type === 'engine' ? 'Engine → ' + zoneName(world, +target) : type === 'evacuate' ? 'Evacuating ' + zoneName(world, +target) : 'Mutual aid · +10 pts');
+        if (res.text) log(res.text, 'info');
         crisis.actions.push({ type: type, step: crisis.step, cost: num(res.cost), cells: cells.length, target: (type === 'dozer') ? null : target, text: res.text || '' });
       }
       pushTactical();
@@ -626,17 +631,20 @@
     }
     function fireAfterAction(report) {
       var t = report.tactics || {}, cf = t.counterfactual || {};
+      // caps (tests/wordcaps.test.js): headline ≤ 8 words, counterfactual.summary ≤ 14, actions ≤ 6 words each, lessons ≤ 1 item ≤ 12 words
       var did = [];
-      if (num(t.cellsBroken) > 0) did.push('Cut ' + fmtN(t.cellsBroken) + ' cell' + (num(t.cellsBroken) === 1 ? '' : 's') + ' of dozer / hand line');
+      if (num(t.cellsBroken) > 0) did.push('Dozer line: ' + fmtN(t.cellsBroken) + ' cells');
       if (num(t.drops) > 0) did.push(fmtN(t.drops) + ' air-tanker ' + plural(t.drops, 'drop'));
-      (t.engines || []).forEach(function (n) { did.push('Engine crew stationed in ' + n); });
+      (t.engines || []).forEach(function (n) { did.push('Engine in ' + n); });
       (t.evacuated || []).forEach(function (n) { did.push('Evacuated ' + n); });
-      if (t.mutualAid) did.push('Called mutual aid (+10 crew points)');
-      if (!did.length) did.push('No tactics used — the fire ran unopposed');
-      var what = describeFireTactics(t) || 'tactics';
-      var summary = 'Without your ' + what + ': ' + fmtN(cf.acres) + ' acres and ' + fmtN(cf.structuresLost) + ' ' + plural(cf.structuresLost, 'home') + '. With them: ' + fmtN(report.acres) + ' acres and ' + fmtN(report.structuresLost) + ' ' + plural(report.structuresLost, 'home') + '.';
+      if (t.mutualAid) did.push('Mutual aid (+10 pts)');
+      if (!did.length) did.push('No tactics used');
+      var summary = (did.length && did[0] !== 'No tactics used' ? 'Without tactics: ' : 'Unopposed: ') + fmtN(cf.acres) + ' acres, ' + fmtN(cf.structuresLost) + ' homes; with: ' + fmtN(report.acres) + ' acres, ' + fmtN(report.structuresLost) + ' homes.';
+      var lesson = num(t.injuries) > 0 ? 'Fire reached unevacuated homes; order evacuations before the front arrives.'
+        : num(report.upstreamAcres) > 100 ? fmtN(report.upstreamAcres) + ' acres drain to the reservoir; expect a debris-flow storm.'
+        : num(t.unnecessaryEvacs) > 0 ? 'Evacuating ' + fmtN(t.unnecessaryEvacs) + ' ' + plural(t.unnecessaryEvacs, 'neighborhood') + ' the fire never reached cost trust.' : null;
       return {
-        mode: 'fire', kind: 'fire', title: 'After-action report — ' + (report.startZoneName || 'wildfire'), headline: fmtN(report.acres) + ' acres burned, ' + fmtN(report.structuresLost) + ' ' + plural(report.structuresLost, 'structure') + ' lost',
+        mode: 'fire', kind: 'fire', title: 'After-action — ' + (report.startZoneName || 'wildfire'), headline: fmtN(report.acres) + ' acres burned, ' + fmtN(report.structuresLost) + ' ' + plural(report.structuresLost, 'structure') + ' lost',
         acres: num(report.acres), structuresLost: num(report.structuresLost), upstreamAcres: num(report.upstreamAcres), injuries: num(t.injuries), unnecessaryEvacs: num(t.unnecessaryEvacs),
         stats: [
           { label: 'Acres burned', value: fmtN(report.acres), counterfactual: fmtN(cf.acres), good: num(cf.acres) > num(report.acres) },
@@ -651,10 +659,7 @@
           'with': [{ label: 'Acres burned', value: fmtN(report.acres) }, { label: 'Homes lost', value: fmtN(report.structuresLost) }, { label: 'Acres above the reservoir', value: fmtN(report.upstreamAcres) }]
         },
         saved: { acres: num(t.acresSaved), structures: num(t.structuresSaved) }, summary: summary, tactics: t,
-        lessons: [].concat(
-          num(t.unnecessaryEvacs) > 0 ? ['Evacuating ' + numWord(t.unnecessaryEvacs) + ' ' + plural(t.unnecessaryEvacs, 'neighborhood') + ' the fire never reached cost public trust.'] : [],
-          num(t.injuries) > 0 ? ['Fire reached homes that had not been evacuated — order evacuations before the front arrives.'] : [],
-          num(report.upstreamAcres) > 100 ? [fmtN(report.upstreamAcres) + ' burned acres drain to the reservoir: expect a debris-flow storm within two seasons.'] : [])
+        lessons: lesson ? [lesson] : []
       };
     }
     async function runFireTactical(fireSim, turnRng, origin, start, startName, zoneStart, initial) {
@@ -675,7 +680,7 @@
       crisis.threat = call('Fire', 'threat', fireSim, state, world) || fallbackThreat(fireSim, burningArr, 0);
       renderer.setFireIntensity(INTENSITY[crisis.threat.intensity] != null ? INTENSITY[crisis.threat.intensity] : 0.5);
       ui.showTactical(fireSpec());
-      ui.alert('WILDFIRE — ' + startName + (origin === 'escape' ? ' (escaped burn)' : ''), 'fire');
+      ui.alert((origin === 'escape' ? 'Escaped burn: ' : 'Wildfire: ') + startName, 'fire');
       while (steps < maxSteps && crisis) {
         await waitWhilePaused();
         if (!crisis) break;
@@ -704,13 +709,13 @@
         renderer.setFireIntensity(INTENSITY[th.intensity] != null ? INTENSITY[th.intensity] : 0.5);
         (th.threatened || []).forEach(function (t) {
           if (!t || !t.burningInside || t.zoneId == null) return;
-          if (t.type === 'neighborhood' || t.type === 'farm' || t.type === 'civic') alertOnce('zone:' + t.zoneId, 'Fire has reached ' + t.name + '!', 'bad', t.zoneId);
+          if (t.type === 'neighborhood' || t.type === 'farm' || t.type === 'civic') alertOnce('zone:' + t.zoneId, 'Fire in ' + t.name + '!', 'bad', t.zoneId);
         });
-        if (num(th.upstreamAcres) > 0) alertOnce('upstream', 'Fire is burning above the reservoir — ' + fmtN(th.upstreamAcres) + ' acres drain to your water supply', 'bad');
-        if (steps - crisis.holdStep > 12 && lineHolding(tac, burning)) { crisis.holdStep = steps; ui.alert('Dozer line holding', 'good'); log('The dozer line is holding the fire.', 'good'); }
+        if (num(th.upstreamAcres) > 0) alertOnce('upstream', fmtN(th.upstreamAcres) + ' acres above reservoir', 'bad');
+        if (steps - crisis.holdStep > 12 && lineHolding(tac, burning)) { crisis.holdStep = steps; ui.alert('Dozer line holding', 'good'); log('Dozer line holding the fire.', 'good'); }
         if (!has('UI', 'showTactical')) ui.showFireBanner({ acres: Math.round(acres), threatened: (th.threatened || []).map(function (t) { return t.name; }), step: steps, perimeter: num(r.perimeterCells) });
         pushTactical();
-        ui.ticker('Fire ' + (th.intensity || 'active') + ' — ' + fmtN(acres) + ' acres, ' + Math.round(num(tac.crewPts)) + ' crew pts');
+        ui.ticker('Fire ' + fmtN(acres) + ' acres · ' + Math.round(num(tac.crewPts)) + ' crew pts');
         prevAcres = acres;
         if (r.done) break;
         await sleep(800 / speed);   // ~0.8 s per step at 1x (cells burn 4-6 steps in tactical mode, so the front stays wide and glowing)
@@ -720,8 +725,8 @@
       if (crisis) {
         crisis.mopUp = true; crisis.paused = false; resumeCrisis();
         if (!PLAYER.pointTimer) playerAct('wave');   // SPEC3 §C: mop-up → wave (a pending point timer lands on 'wave' itself)
-        ui.alert('Fire contained — crews are mopping up', 'good');
-        ui.ticker('Mop-up — fire contained at ' + fmtN(acres) + ' acres');
+        ui.alert('Fire contained', 'good');
+        ui.ticker('Contained · ' + fmtN(acres) + ' acres');
         pushTactical();
         var fade = burningArr.slice().sort(function (a, b) { return ((a * 2654435761) >>> 0) - ((b * 2654435761) >>> 0); }); // deterministic scatter
         var fadeBurned = burnedArr.slice(), FADE_FRAMES = 6;
@@ -748,8 +753,8 @@
       renderer.setFireIntensity(0);
       renderer.refreshWorld();
       ui.showFireBanner(null);
-      ui.ticker('Fire contained: ' + fmtN(report.acres) + ' acres burned' + (num(report.structuresLost) ? ', ' + fmtN(report.structuresLost) + ' structures lost' : ''));
-      log('Fire contained at ' + fmtN(report.acres) + ' acres (' + fmtN(report.upstreamAcres) + ' above the reservoir); ' + fmtN(report.structuresLost) + ' structures lost.', 'bad');
+      ui.ticker('Contained · ' + fmtN(report.acres) + ' acres' + (num(report.structuresLost) ? ' · ' + fmtN(report.structuresLost) + ' lost' : ''));
+      log('Fire contained: ' + fmtN(report.acres) + ' acres, ' + fmtN(report.upstreamAcres) + ' above reservoir, ' + fmtN(report.structuresLost) + ' structures lost.', 'bad');
       renderer.removeMarker('fire-start');
       report.afterAction = fireAfterAction(report);
       try { await ui.showAfterAction(report.afterAction); } catch (e) { fail('after-action report', e); }
@@ -767,9 +772,9 @@
       renderer.setWeather('smoke', 0.8);
       var zoneStart = (world && world.zone && start != null) ? world.zone[start] : -1;
       var startName = zoneStart >= 0 ? zoneName(world, zoneStart)
-        : (world && world.land && start != null ? 'the ' + (C.LAND_NAMES[world.land[start]] || 'open').toLowerCase() + ' country' + (world.isUpstreamOfReservoir && world.isUpstreamOfReservoir(start) ? ' above the reservoir' : ' below the dam') : 'the foothills');
-      ui.ticker('Wildfire reported in ' + startName + (origin === 'escape' ? ' — the prescribed burn escaped!' : '!'));
-      log('Wildfire ignited in ' + startName + (origin === 'escape' ? ' (escaped prescribed burn).' : '.'), 'bad');
+        : (world && world.land && start != null ? (C.LAND_NAMES[world.land[start]] || 'Open') + (world.isUpstreamOfReservoir && world.isUpstreamOfReservoir(start) ? ' above reservoir' : ' below dam') : 'the foothills');
+      ui.ticker((origin === 'escape' ? 'Escaped burn · ' : 'Wildfire · ') + startName + ' · ' + Math.round(num(state.climate.windMph, 8)) + ' mph');
+      log('Wildfire in ' + startName + (origin === 'escape' ? ' (escaped burn).' : '.'), 'bad');
       // fire response card: v1 only. The browser flow skips it when tactics exist (the player fights the fire live);
       // headless keeps it so decide.card / card counts behave as in v1.
       var tactical = fireTacticsAvailable();
@@ -802,7 +807,7 @@
         var threats = threatenedZones(burningArr).map(function (z) { return zoneName(world, z); });
         renderer.setFire(burningArr, burnedArr);
         ui.showFireBanner({ acres: Math.round(acres), threatened: threats, crewFocus: state.fire.crewFocus || null, step: steps, perimeter: num(r.perimeterCells) });
-        ui.ticker('Fire spreading in ' + (threats[0] || startName) + ' — ' + fmtN(acres) + ' acres');
+        ui.ticker('Fire · ' + (threats[0] || startName) + ' · ' + fmtN(acres) + ' acres');
         if (r.done) break;
         await sleep(1000 / (6 * speed));
       }
@@ -821,8 +826,8 @@
       renderer.setFire([], burnedArr);
       renderer.refreshWorld();
       ui.showFireBanner(null);
-      ui.ticker('Fire contained: ' + fmtN(report.acres) + ' acres burned' + (num(report.structuresLost) ? ', ' + fmtN(report.structuresLost) + ' structures lost' : ''));
-      log('Fire contained at ' + fmtN(report.acres) + ' acres (' + fmtN(report.upstreamAcres) + ' above the reservoir); ' + fmtN(report.structuresLost) + ' structures lost.', 'bad');
+      ui.ticker('Contained · ' + fmtN(report.acres) + ' acres' + (num(report.structuresLost) ? ' · ' + fmtN(report.structuresLost) + ' lost' : ''));
+      log('Fire contained: ' + fmtN(report.acres) + ' acres, ' + fmtN(report.upstreamAcres) + ' above reservoir, ' + fmtN(report.structuresLost) + ' structures lost.', 'bad');
       renderer.removeMarker('fire-start');
       await sleep(700);
       return report;
@@ -847,7 +852,7 @@
         intensityIn: num(st.intensityIn), turnsUntil: num(st.turnsUntil, 0), daysUntil: Math.max(1, Math.round(num(st.turnsUntil, 0) * 30 || 3)),
         selected: p.selected, placed: state.mitigations.slice(),
         freeLeft: p.freeLeft, scarAcres: Math.round(num(p.prep && p.prep.scarAcres)), atRiskZones: (p.prep && p.prep.atRiskZones || []).map(function (z) { return zoneName(world, z); }),
-        countdown: 'Storm arrives in ' + Math.max(1, Math.round(num(st.turnsUntil, 0) * 30 || 3)) + ' days — ' + num(st.intensityIn).toFixed(1) + ' in forecast',
+        countdown: 'Storm in ' + Math.max(1, Math.round(num(st.turnsUntil, 0) * 30 || 3)) + ' days · ' + num(st.intensityIn).toFixed(1) + ' in',
         predictedPeakCfs: Math.round(num(p.prep && p.prep.predictedPeakCfs)), predictedSedimentTons: Math.round(num(p.prep && p.prep.predictedSedimentTons))
       };
     }
@@ -891,13 +896,13 @@
         for (var k = 0; k < n; k++) { var p = C.xy(prep.scarCells[k]); sx += p.x; sy += p.y; }
         renderer.flyTo(Math.round(sx / n), Math.round(sy / n), 70);
       }
-      log('Storm forecast: ' + num(storm.intensityIn).toFixed(1) + ' in over a ' + fmtN(prep && prep.scarAcres) + '-acre burn scar. Emergency fund ' + fmtM(state.emergencyFund) + '.', 'warn');
+      log('Storm forecast: ' + num(storm.intensityIn).toFixed(1) + ' in on ' + fmtN(prep && prep.scarAcres) + ' scar acres; emergency fund ' + fmtM(state.emergencyFund) + '.', 'warn');
       if (headless) {
         var picks = [];
         try { if (typeof decide.placements === 'function') picks = decide.placements(prep, placement.tools, state.emergencyFund) || []; } catch (e) { fail('decide.placements', e); }
         picks.forEach(function (pk) { if (pk && pk.type != null) placeTool(pk.type, pk.x | 0, pk.y | 0); });
       } else {
-        await autoEvidence('flood', 'flood:' + state.turn, 'A storm is forecast over the burn scar. Your advisors argue over where the ' + fmtM(state.emergencyFund) + ' emergency fund should go.');
+        await autoEvidence('flood', 'flood:' + state.turn, 'Storm forecast on the scar · ' + fmtM(state.emergencyFund) + ' emergency fund to place.');
         var donePromise = new Promise(function (res) { placement.done = res; });
         try { await Promise.race([ui.startPlacement(placementSpec()), donePromise]); } catch (e) { fail('placement', e); }
       }
@@ -905,8 +910,8 @@
       ui.endPlacement();
       var summary = {};
       state.mitigations.forEach(function (m) { summary[m.type] = (summary[m.type] || 0) + 1; });
-      var parts = Object.keys(summary).map(function (t) { return summary[t] + ' × ' + t.replace('_', ' '); });
-      toast(parts.length ? 'Bracing for the storm with ' + parts.join(', ') : 'No mitigation placed — bracing for the storm.', parts.length ? 'info' : 'warn');
+      var placedN = state.mitigations.length;
+      toast(placedN ? 'Storm prep: ' + placedN + ' ' + plural(placedN, 'placement') + ' (' + Object.keys(summary).length + ' ' + plural(Object.keys(summary).length, 'type') + ').' : 'No mitigation placed; bracing for the storm.', placedN ? 'info' : 'warn');
       placement = null;
       return state.mitigations.slice();
     }
@@ -949,7 +954,7 @@
       crisis.live.push(m); state.mitigations.push(m);
       renderer.addMarker('live-' + type + '-' + i + '-' + crisis.live.length, STORM_MARKER[type] || type, x, y);
       if (isZone) { crisis.evacuated[zoneId] = true; renderer.pulseZone(zoneId, 0xffd166); ui.alert('Evacuating ' + zoneName(world, zoneId), 'warn'); log('Evacuation ordered for ' + zoneName(world, zoneId) + '.', 'warn'); }
-      else if (isOnce) { ui.alert('Emergency release — the dam gates are open', 'warn'); log('Emergency spillway release ordered at frame ' + (crisis.frame + 1) + '.', 'warn'); }
+      else if (isOnce) { ui.alert('Dam gates open', 'warn'); log('Emergency spillway release ordered at frame ' + (crisis.frame + 1) + '.', 'warn'); }
       pushTactical();
       return { ok: true, mitigation: m };
     }
@@ -972,8 +977,8 @@
       var fbf = first.floodedByFrame, floodedNow = (fbf && fbf.length) ? num(fbf[Math.min(f, fbf.length - 1)], cr.flooded.length) : cr.flooded.length;
       var atRisk = (prep.atRiskZones || []).map(function (z) { return { id: z, name: zoneName(world, z), type: (world && world.zoneById && world.zoneById(z)) ? world.zoneById(z).type : 'neighborhood' }; });
       var wet = cr.lastZoneName;
-      var headline = 'Flash flood — ' + num(st.intensityIn).toFixed(1) + ' in on the scar; ' + (wet ? 'water in ' + wet : (atRisk[0] ? 'water heading for ' + atRisk[0].name : 'water heading for town'));
-      var hint = { sandbag: 'Drag along a street to lay sandbags', pump: 'Click a flooded street to pump it out', evacuate: 'Pick a neighborhood to evacuate', spillway: 'Opens the dam gates early (once)' }[cr.selected] || 'Pick a tool (1–4); Space pauses';
+      var headline = 'Flash flood ' + num(st.intensityIn).toFixed(1) + ' in · ' + (wet ? 'water in ' + wet : (atRisk[0] ? 'heading for ' + atRisk[0].name : 'heading for town'));
+      var hint = { sandbag: 'Drag along a street', pump: 'Click a flooded street', evacuate: 'Pick a neighborhood', spillway: 'Opens the dam gates (once)' }[cr.selected] || 'Tools 1–4 · Space pauses';
       return {
         mode: 'storm', title: 'FLASH FLOOD — ' + num(st.intensityIn).toFixed(1) + ' in', subtitle: fmtN(prep.scarAcres) + '-acre burn scar', step: Math.min(f + 1, nF), maxSteps: nF, paused: !!cr.paused, speed: speed,
         points: { label: 'Emergency fund', value: round2(state.emergencyFund), max: round2(cr.fundStart), unit: '$M' },
@@ -1009,16 +1014,21 @@
     }
     function stormAfterAction(result, first) {
       var t = result.tactics || {}, cf = t.counterfactual || { damageM: num(first.damageM), floodedHouses: num(first.floodedHouses), injuriesRisk: num(first.injuriesRisk) };
+      // caps (tests/wordcaps.test.js): headline ≤ 8 words, counterfactual.summary ≤ 14, actions ≤ 6 words each, lessons ≤ 1 item ≤ 12 words
       var did = [];
       if (num(t.sandbagCells) > 0) did.push('Sandbag line: ' + fmtN(t.sandbagCells) + ' cells');
       if (num(t.pumps) > 0) did.push(fmtN(t.pumps) + ' pump ' + plural(t.pumps, 'crew'));
       (t.evacuated || []).forEach(function (n) { did.push('Evacuated ' + n); });
-      if (t.spillwayUsed) did.push('Emergency spillway release (' + fmtAF(num(result.releasedAF, 1500)) + ')');
-      if (!did.length) did.push('No live measures — the water ran its course');
-      var what = describeStormTactics(t) || 'live measures';
-      var summary = 'Without your ' + what + ': ' + fmtM(cf.damageM) + ' and ' + fmtN(cf.floodedHouses) + ' ' + plural(cf.floodedHouses, 'home') + '. With them: ' + fmtM(result.damageM) + ' and ' + fmtN(result.floodedHouses) + ' ' + plural(result.floodedHouses, 'home') + '.';
+      if (t.spillwayUsed) did.push('Spillway release: ' + fmtAF(num(result.releasedAF, 1500)));
+      if (!did.length) did.push('No live measures');
+      var summary = (did[0] !== 'No live measures' ? 'Without live tools: ' : 'Unopposed: ') + fmtM(cf.damageM) + ', ' + fmtN(cf.floodedHouses) + ' homes; with: ' + fmtM(result.damageM) + ', ' + fmtN(result.floodedHouses) + ' homes.';
+      var ue = num(t.unnecessaryEvacs, num(result.unnecessaryEvacs));
+      var lesson = num(result.sedimentToReservoir) > 500 ? fmtN(result.sedimentToReservoir) + ' t reached the reservoir; pre-storm mulch and basins stop that.'
+        : t.spillwayUsed ? 'The spillway blunted the pulse but cost ' + fmtAF(num(result.releasedAF, 1500)) + ' of storage.'
+        : (num(t.sandbagCells) > 0 && num(t.damageSaved) < 0.05) ? 'Sandbags laid after water arrives work at 40%; lay them earlier.'
+        : ue > 0 ? fmtN(ue) + ' ' + plural(ue, 'neighborhood') + ' evacuated but never flooded; trust dips.' : null;
       return {
-        mode: 'storm', kind: 'storm', title: 'After-action report — burn-scar storm', headline: fmtM(result.damageM) + ' of flood damage, ' + fmtN(result.floodedHouses) + ' ' + plural(result.floodedHouses, 'home') + ' flooded',
+        mode: 'storm', kind: 'storm', title: 'After-action — burn-scar storm', headline: fmtM(result.damageM) + ' flood damage, ' + fmtN(result.floodedHouses) + ' ' + plural(result.floodedHouses, 'home') + ' flooded',
         damageM: num(result.damageM), floodedHouses: num(result.floodedHouses), injuriesRisk: num(result.injuriesRisk), sedimentToReservoir: num(result.sedimentToReservoir), unnecessaryEvacs: num(t.unnecessaryEvacs, num(result.unnecessaryEvacs)),
         stats: [
           { label: 'Flood damage', value: fmtM(result.damageM), counterfactual: fmtM(cf.damageM), good: num(cf.damageM) > num(result.damageM) + 0.005 },
@@ -1032,11 +1042,7 @@
           'with': [{ label: 'Flood damage', value: fmtM(result.damageM) }, { label: 'Homes flooded', value: fmtN(result.floodedHouses) }, { label: 'Injury risk', value: Math.round(num(result.injuriesRisk) * 100) + '%' }]
         },
         saved: { damageM: num(t.damageSaved), houses: num(t.housesSaved) }, summary: summary, tactics: t,
-        lessons: [].concat(
-          (num(t.sandbagCells) > 0 && num(t.damageSaved) < 0.05) ? ['Sandbags laid after the water arrives work at 40% — lay them ahead of the flow next time.'] : [],
-          t.spillwayUsed ? ['The emergency release blunted the pulse but cost ' + fmtAF(num(result.releasedAF, 1500)) + ' of storage and surged the downstream farms.'] : [],
-          num(t.unnecessaryEvacs, num(result.unnecessaryEvacs)) > 0 ? ['A neighborhood was evacuated that never flooded — trust dips.'] : [],
-          num(result.sedimentToReservoir) > 500 ? [fmtN(result.sedimentToReservoir) + ' t of sediment reached the reservoir; pre-storm mulch and debris basins are what stop that.'] : [])
+        lessons: lesson ? [lesson] : []
       };
     }
     async function runFlood(storm, prep, mitigations) {
@@ -1046,7 +1052,7 @@
       setPhase(tactical ? PH.STORM : PH.FLOOD, { storm: storm, crisis: tactical ? 'storm' : null });
       playerGo(civicCorePos(), { run: true }, 'radio');   // SPEC3 §C: storm → the civic core, on the radio
       renderer.setWeather('storm', 1);
-      ui.ticker('Storm over the burn scar — ' + num(storm.intensityIn).toFixed(1) + ' in of rain');
+      ui.ticker('Storm ' + num(storm.intensityIn).toFixed(1) + ' in · scar ' + fmtN(prep && prep.scarAcres) + ' acres');
       // 1. first pass: the storm with only the pre-storm measures — its frames/floodTimeline are what the player watches and fights
       var first = call('Flood', 'simulate', state, world, storm, pre) || null;
       var result = first, cf = null, attrib = [], aa = null;
@@ -1055,7 +1061,7 @@
                    paused: false, selected: headless ? null : 'sandbag', alerted: {}, flooded: [], floodedSet: new Uint8Array(C.N * C.N), resume: null, fundStart: num(state.emergencyFund), lastPaintCell: null };
         renderer.setTacticalMode(true);
         ui.showTactical(stormSpec());
-        ui.alert('FLASH FLOOD — ' + num(storm.intensityIn).toFixed(1) + ' in on the burn scar', 'flood');
+        ui.alert('Flash flood: ' + num(storm.intensityIn).toFixed(1) + ' in', 'flood');
       }
       try {
         if (first) {
@@ -1077,13 +1083,13 @@
               var newZones = [];
               for (var k = 0; k < tl.length; k++) { var ci = tl[k]; if (ci >= 0 && ci < floodedSet.length && !floodedSet[ci]) { floodedSet[ci] = 1; flooded.push(ci); var z = world && world.zone ? world.zone[ci] : -1; if (crisis && z >= 0 && !crisis.wetZones[z]) { crisis.wetZones[z] = true; newZones.push(z); } } }
               renderer.setFlooded(flooded);
-              newZones.forEach(function (z) { var zz = (world && world.zoneById) ? world.zoneById(z) : null; if (crisis && zz && (zz.type === 'neighborhood' || zz.type === 'farm' || zz.type === 'civic')) { crisis.lastZoneName = zz.name; alertOnce('wet:' + z, 'Water has reached ' + zz.name + '!', 'bad', z, 0x4fa3ff); } });
+              newZones.forEach(function (z) { var zz = (world && world.zoneById) ? world.zoneById(z) : null; if (crisis && zz && (zz.type === 'neighborhood' || zz.type === 'farm' || zz.type === 'civic')) { crisis.lastZoneName = zz.name; alertOnce('wet:' + z, 'Water in ' + zz.name + '!', 'bad', z, 0x4fa3ff); } });
             }
             var t = (f + 1) / nF;
             var turb = (frames[f] && isFinite(frames[f].reservoirTurbidity)) ? frames[f].reservoirTurbidity : (turb0 + dT * t);
             renderer.setReservoir(clamp(num(state.reservoir.storageAF) / cap, 0, 1.2), clamp(turb, 0, 1), num(state.reservoir.ashContam));
             if (!crisis && f === Math.floor(nF / 2) && world && world.reservoir && world.reservoir.center) renderer.flyTo(world.reservoir.center.x, world.reservoir.center.y, 60);
-            if (crisis) { pushTactical(); ui.ticker('Flood water spreading — ' + fmtN(flooded.length) + ' cells under water, ' + fmtM(state.emergencyFund) + ' left'); }
+            if (crisis) { pushTactical(); ui.ticker('Flooded ' + fmtN(flooded.length) + ' cells · ' + fmtM(state.emergencyFund) + ' left'); }
             await sleep(1000 / (8 * speed));
           }
           // 2. final numbers: pre-storm + live measures (the live tools' atFrame decides their effectiveness)
@@ -1097,7 +1103,7 @@
           // spillway release: Flood.applyResult deducts result.releasedAF from storage; guard in case an older applyResult does not
           if (result.spillwayUsed && num(result.releasedAF) > 0 && Math.abs(num(state.reservoir.storageAF) - preAF) < 1) state.reservoir.storageAF = Math.max(0, preAF - num(result.releasedAF));
           result.paidM = Math.max(0, (preBudget + preFund) - (num(state.budget) + num(state.emergencyFund)));
-          log('Storm: peak ' + fmtN(result.peakCfsReservoir) + ' cfs at the reservoir, ' + fmtN(result.sedimentToReservoir) + ' t of sediment reached the water, ' + fmtN(result.floodedHouses) + ' homes flooded, ' + fmtM(result.damageM) + ' damage.', 'bad');
+          log('Storm: peak ' + fmtN(result.peakCfsReservoir) + ' cfs, ' + fmtN(result.sedimentToReservoir) + ' t sediment, ' + fmtN(result.floodedHouses) + ' homes flooded, ' + fmtM(result.damageM) + ' damage.', 'bad');
           if (tactical) aa = stormAfterAction(result, first);
         }
       } catch (e) { fail('storm', e); }
@@ -1148,70 +1154,66 @@
       return { thinnedPct: Math.round(100 * tBurn / tTot), unthinnedPct: Math.round(100 * uBurn / uTot), thinnedAcres: Math.round(tBurn * C.ACRES_PER_CELL), unthinnedAcres: Math.round(uBurn * C.ACRES_PER_CELL), tName: tName, uName: uName };
     }
     function buildTimeline(ctx) {
-      var out = [], hydro = ctx.hydro || {}, sName = seasonName(state.season).toLowerCase();
+      // Every entry ≤ 12 words (number first where possible); at most 4 per season, highest priority kept. tests/wordcaps.test.js enforces both.
+      var out = [], hydro = ctx.hydro || {};
       var cl = turnNotes.preClimate || state.climate || {};
       var cap = Math.max(1, capacity());
       var dem = (state.water && state.water.demands) || {}, del = hydro.deliveries || (state.water && state.water.delivered) || {}, sh = hydro.shortages || (state.water && state.water.shortage) || {};
-      function add(text, kind, delta) { if (text) out.push({ text: text, kind: kind || 'info', delta: delta || null }); }
+      var endAF = num(hydro.endStorageAF, state.reservoir.storageAF), endPct = Math.round(100 * endAF / cap);
+      function add(pri, text, kind, delta) { if (text) out.push({ text: text, kind: kind || 'info', delta: delta || null, priority: pri }); }
+      function pc(v) { return Math.round(num(v) * 100) + '%'; }
 
       // 1. delayed consequences of earlier decisions
-      (turnNotes.scheduled || []).forEach(function (t) { add('Consequence of an earlier decision: ' + t, 'event'); });
+      (turnNotes.scheduled || []).forEach(function (t) { add(6, 'Earlier choice: ' + t, 'event'); });
 
-      // 2. climate → inflow
-      if (state.season === SEASON.WINTER) {
-        add('Snowpack reached ' + Math.round(num(cl.snowpackPct, 100)) + '% of average (' + num(cl.snowSWEin, 18).toFixed(1) + ' in SWE)' + (num(cl.uncertainty, 0.15) > 0.2 ? ' — but without streamgages your forecast carries ±' + Math.round(num(cl.uncertainty) * 100) + '% uncertainty' : '') + '; the reservoir ended winter at ' + Math.round(100 * num(hydro.endStorageAF, state.reservoir.storageAF) / cap) + '%.', 'info');
-      } else {
-        add((state.season === SEASON.SPRING ? 'Snowmelt' : 'Inflow') + ' delivered ' + fmtAF(hydro.inflowAF != null ? hydro.inflowAF : state.water.inflowAF) + ' this ' + sName + ' (drought stage ' + (cl.drought || 'None') + ', ' + (num(cl.tempAnomF) >= 0 ? '+' : '') + num(cl.tempAnomF).toFixed(1) + '°F); storage ended at ' + Math.round(100 * num(hydro.endStorageAF, state.reservoir.storageAF) / cap) + '% of capacity' + (num(hydro.spillAF) > 50 ? ' after spilling ' + fmtAF(hydro.spillAF) : '') + '.', 'info');
-      }
+      // 2. climate → storage
+      if (state.season === SEASON.WINTER) add(3, 'Snowpack ' + Math.round(num(cl.snowpackPct, 100)) + '% (' + num(cl.snowSWEin, 18).toFixed(1) + ' in SWE) → reservoir ' + endPct + '%' + (num(cl.uncertainty, 0.15) > 0.2 ? ', forecast ±' + Math.round(num(cl.uncertainty) * 100) + '%' : ''), 'info');
+      else add(3, (state.season === SEASON.SPRING ? 'Snowmelt ' : 'Inflow ') + fmtAF(hydro.inflowAF != null ? hydro.inflowAF : state.water.inflowAF) + ' → reservoir ' + endPct + '%' + (num(hydro.spillAF) > 50 ? ', spilled ' + fmtAF(hydro.spillAF) : '') + ' · drought ' + (cl.drought || 'None'), 'info');
 
       // 3. allocation consequences with counterfactual storage
       var totalShort = 0; Object.keys(sh).forEach(function (k) { totalShort += num(sh[k]); });
-      var endAF = num(hydro.endStorageAF, state.reservoir.storageAF), cfAF = Math.max(0, endAF - totalShort);
-      var farmReq = num(dem.farms), farmDel = num(del.farms);
-      var crop = ctx.cropNow, cropBefore = turnNotes.preCrop;
+      var cfPct = Math.round(100 * Math.max(0, endAF - totalShort) / cap);
+      var farmReq = num(dem.farms), farmDel = num(del.farms), crop = ctx.cropNow;
       if (farmReq > 50) {
         var ratio = clamp(farmDel / farmReq, 0, 1.2);
-        if (ratio < 0.97) {
-          add('You delivered ' + Math.round(ratio * 100) + '% of farm requests: crop health ' + (crop != null && cropBefore != null ? (crop < cropBefore - 0.005 ? 'fell to ' : 'held at ') + Math.round(crop * 100) + '%' : 'suffered') + ', but the reservoir ended ' + sName + ' at ' + Math.round(100 * endAF / cap) + '% instead of ~' + Math.round(100 * cfAF / cap) + '%.', 'warn', { F: -1 });
-        } else {
-          add('Farms received their full ' + fmtAF(farmReq) + ' request' + (crop != null ? '; crop health ' + (cropBefore != null && crop > cropBefore + 0.005 ? 'recovered to ' : 'held at ') + Math.round(crop * 100) + '%' : '') + (totalShort < 50 ? ' — every sector was met, leaving storage at ' + Math.round(100 * endAF / cap) + '%.' : '.'), 'good');
-        }
+        if (ratio < 0.97) add(5, 'Farms ' + Math.round(ratio * 100) + '% delivered → crop health ' + (crop != null ? pc(crop) : '?') + '; storage ' + endPct + '% not ' + cfPct + '%', 'warn', { F: -1 });
+        else add(2, 'Farms 100% delivered (' + fmtAF(farmReq) + ') → crop health ' + (crop != null ? pc(crop) : '?'), 'good');
       }
       var hhReq = num(dem.households), hhShort = num(sh.households);
-      if (hhReq > 0 && hhShort / hhReq > 0.03) add('Households were shorted ' + fmtAF(hhShort) + ' (' + Math.round(100 * hhShort / hhReq) + '% of demand)' + (state.water.restriction && state.water.restriction !== 'none' ? ' under ' + state.water.restriction + ' restrictions' : '') + ' — public trust and water security take the hit.', 'bad', { W: -1, T: -1 });
-      if (hydro.legalOverride) add('You under-allocated a senior right: the tribal right and Colorado River delivery are legally senior, so ' + fmtAF(num(del.tribal) + num(del.downstream)) + ' was released from storage regardless, and the community noticed the attempt.', 'bad', { T: -2 });
-      if (hydro.minFlowMet === false) add('Releases fell below the ' + C.HYDRO.MIN_FLOW_CFS + ' cfs instream flow right below the dam — fish and riparian habitat degrade until flows recover.', 'bad', { E: -1 });
-      if (num(hydro.hydroMWh) > 0 && num(sh.hydro) / Math.max(1, num(dem.hydro)) > 0.3) add('Cutting hydro releases saved storage but generated only ' + fmtN(hydro.hydroMWh) + ' MWh — the co-op buys the difference on the market.', 'warn');
+      if (hhReq > 0 && hhShort / hhReq > 0.03) add(7, 'Households short ' + Math.round(100 * hhShort / hhReq) + '% (' + fmtAF(hhShort) + ')' + (state.water.restriction && state.water.restriction !== 'none' ? ' under ' + state.water.restriction : '') + ' → trust falls', 'bad', { W: -1, T: -1 });
+      if (hydro.legalOverride) add(8, 'Senior rights overridden: ' + fmtAF(num(del.tribal) + num(del.downstream)) + ' released anyway, trust −2', 'bad', { T: -2 });
+      if (hydro.minFlowMet === false) add(6, 'Flow under the ' + C.HYDRO.MIN_FLOW_CFS + ' cfs instream right → habitat degrades', 'bad', { E: -1 });
+      if (num(hydro.hydroMWh) > 0 && num(sh.hydro) / Math.max(1, num(dem.hydro)) > 0.3) add(2, 'Hydro cut: ' + fmtN(hydro.hydroMWh) + ' MWh; co-op buys the rest', 'warn');
 
       // 4. prescribed burn
       var b = ctx.burnResult;
       if (b) {
-        if (b.escaped) add('The prescribed burn in ' + b.zoneName + ' escaped containment' + (num(cl.fireDanger) > 0.5 ? ' — fire danger was ' + (cl.fireDangerLabel || 'High') + ', which triples escape risk' : ' (a 4% base risk that came true)') + '.', 'bad', { T: -3 });
-        else add('Prescribed burn treated ' + fmtN(num(b.cellsTreated) * C.ACRES_PER_CELL) + ' acres of ' + b.zoneName + ': fuel load ' + Math.round(num(b.fuelBefore) * 100) + '% → ' + Math.round(num(b.fuelAfter) * 100) + '%, at the cost of a few smoky days.', 'good', { P: 1 });
+        if (b.escaped) add(9, 'Rx burn ' + b.zoneName + ' escaped' + (num(cl.fireDanger) > 0.5 ? ' at ' + (cl.fireDangerLabel || 'High') + ' danger (3× risk)' : ' (4% base risk)'), 'bad', { T: -3 });
+        else add(5, 'Rx burn ' + b.zoneName + ': ' + fmtN(num(b.cellsTreated) * C.ACRES_PER_CELL) + ' acres, fuel ' + pc(b.fuelBefore) + ' → ' + pc(b.fuelAfter), 'good', { P: 1 });
       }
 
       // 5. fire
       var fr = ctx.fireReport, fuelStats = call('Fire', 'fuelStats', world) || {};
       if (fr) {
-        add((fr.origin === 'escape' ? 'The escaped burn' : 'A wildfire') + ' in ' + fr.startZoneName + ' burned ' + fmtN(fr.acres) + ' acres' + (num(fr.upstreamAcres) > 0 ? ' — ' + fmtN(fr.upstreamAcres) + ' of them draining to the reservoir' : '') + (num(fr.structuresLost) > 0 ? ' — and destroyed ' + fmtN(fr.structuresLost) + ' structures' : '') + ' under ' + (cl.fireDangerLabel || 'unknown') + ' danger and ' + Math.round(num(cl.windMph, 8)) + ' mph winds.', 'bad', { P: -2, E: -1 });
-        // SPEC2 §E: tactical counterfactual ("Your dozer line and two drops held the fire to 1,900 acres; without them it would have run 4,600 acres and taken 11 homes.")
+        add(10, (fr.origin === 'escape' ? 'Escaped burn ' : 'Fire ') + fr.startZoneName + ': ' + fmtN(fr.acres) + ' acres' + (num(fr.upstreamAcres) > 0 ? ', ' + fmtN(fr.upstreamAcres) + ' upstream' : '') + (num(fr.structuresLost) > 0 ? ', ' + fmtN(fr.structuresLost) + ' ' + plural(fr.structuresLost, 'home') + ' lost' : ''), 'bad', { P: -2, E: -1 });
+        // SPEC2 §E: tactical counterfactual ("Your tactics: 1,900 acres vs 4,600 unopposed, 3 vs 11 homes")
         var ft = fr.tactics, fcf = ft && ft.counterfactual;
         if (ft && fcf) {
           var whatF = describeFireTactics(ft), fSaved = num(ft.acresSaved, num(fcf.acres) - num(fr.acres)), hSaved = num(ft.structuresSaved, num(fcf.structuresLost) - num(fr.structuresLost));
-          if (whatF && (fSaved >= 25 || hSaved >= 1)) add('Your ' + whatF + ' held the fire to ' + fmtN(fr.acres) + ' acres; without ' + (whatF.indexOf(' and ') >= 0 || whatF.indexOf(',') >= 0 ? 'them' : 'it') + ' it would have run ' + fmtN(fcf.acres) + ' acres' + (num(fcf.structuresLost) > num(fr.structuresLost) ? ' and taken ' + fmtN(fcf.structuresLost) + ' ' + plural(fcf.structuresLost, 'home') + ' instead of ' + fmtN(fr.structuresLost) : '') + '.', 'good', { P: 1 });
-          else if (whatF) add('Your ' + whatF + ' did not change the outcome much: ' + fmtN(fr.acres) + ' acres burned versus ' + fmtN(fcf.acres) + ' had you done nothing' + (num(fcf.structuresLost) !== num(fr.structuresLost) ? ' (' + fmtN(fr.structuresLost) + ' vs ' + fmtN(fcf.structuresLost) + ' homes)' : '') + '.', 'info');
-          else add('No tactics were used against this fire; it ran its full ' + fmtN(fr.acres) + ' acres unopposed.', 'warn');
-          if (num(ft.unnecessaryEvacs) > 0) add('You evacuated ' + numWord(ft.unnecessaryEvacs) + ' ' + plural(ft.unnecessaryEvacs, 'neighborhood') + ' the fire never reached — residents grumble about the false alarm.', 'warn', { T: -1 });
-          if (num(ft.injuries) > 0) add('Fire reached ' + (ft.injuries === 1 ? 'a neighborhood' : 'neighborhoods') + ' that had not been evacuated — ' + fmtN(ft.injuries) + ' ' + plural(ft.injuries, 'injury', 'injuries') + ' reported.', 'bad', { P: -1 });
+          if (whatF && (fSaved >= 25 || hSaved >= 1)) add(9, 'Your tactics: ' + fmtN(fr.acres) + ' acres vs ' + fmtN(fcf.acres) + ' unopposed' + (num(fcf.structuresLost) > num(fr.structuresLost) ? ', ' + fmtN(fr.structuresLost) + ' vs ' + fmtN(fcf.structuresLost) + ' homes' : ''), 'good', { P: 1 });
+          else if (whatF) add(4, 'Tactics changed little: ' + fmtN(fr.acres) + ' acres vs ' + fmtN(fcf.acres) + ' unopposed', 'info');
+          else add(4, 'No tactics used: ' + fmtN(fr.acres) + ' acres burned unopposed', 'warn');
+          if (num(ft.unnecessaryEvacs) > 0) add(5, fmtN(ft.unnecessaryEvacs) + ' needless ' + plural(ft.unnecessaryEvacs, 'evacuation') + ' → trust −1', 'warn', { T: -1 });
+          if (num(ft.injuries) > 0) add(8, fmtN(ft.injuries) + ' ' + plural(ft.injuries, 'injury', 'injuries') + ' in unevacuated homes → safety −1', 'bad', { P: -1 });
         }
         var cmp = thinnedComparison(fr);
-        if (cmp) add('Thinning paid off: the fire burned ' + cmp.thinnedPct + '% of thinned ' + cmp.tName + ' but ' + cmp.unthinnedPct + '% of untreated ' + cmp.uName + ' (' + fmtN(cmp.thinnedAcres) + ' vs ' + fmtN(cmp.unthinnedAcres) + ' acres).', cmp.thinnedPct < cmp.unthinnedPct ? 'good' : 'info');
-        else if (Object.keys(effects().thinnedZones || {}).length === 0) add('No sector had been thinned; every burned stand carried its full fuel load (watershed average fuel ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%).', 'warn');
-        if (state.fire.policy === 'suppress_all') add('Your suppress-all policy builds fuel 60% faster than managed fire — average forest fuel now ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%, which drives both spread rate and burn severity (' + Math.round(num(fr.severityAvg) * 100) + '% average severity).', 'warn');
-        else if (num(fr.severityAvg) > 0) add('Managed-fire policy kept average fuel near ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%; burn severity averaged ' + Math.round(num(fr.severityAvg) * 100) + '%.', 'info');
+        if (cmp) add(6, 'Thinned ' + cmp.tName + ' burned ' + cmp.thinnedPct + '% vs untreated ' + cmp.uName + ' ' + cmp.unthinnedPct + '%', cmp.thinnedPct < cmp.unthinnedPct ? 'good' : 'info');
+        else if (Object.keys(effects().thinnedZones || {}).length === 0) add(3, 'No thinning anywhere; fuel averaged ' + pc(num(fuelStats.avg, 0.6)), 'warn');
+        if (state.fire.policy === 'suppress_all') add(4, 'Suppress-all: fuel ' + pc(num(fuelStats.avg, 0.6)) + ' (+60% growth) → severity ' + pc(fr.severityAvg), 'warn');
+        else if (num(fr.severityAvg) > 0) add(2, 'Managed fire: fuel ' + pc(num(fuelStats.avg, 0.6)) + ', severity ' + pc(fr.severityAvg), 'info');
       } else if (num(cl.fireDanger) > 0.5 && state.season !== SEASON.WINTER) {
         var ch = call('Fire', 'seasonIgnitionChance', state, world);
-        add('Fire danger was ' + (cl.fireDangerLabel || 'High') + (isFinite(ch) ? ' (' + Math.round(ch * 100) + '% ignition chance)' : '') + ', but no fire started this ' + sName + (state.fire.policy === 'suppress_all' ? ' — meanwhile fuel keeps accumulating under suppress-all (avg ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%)' : '') + '.', 'info');
+        add(2, 'No fire at ' + (cl.fireDangerLabel || 'High') + ' danger' + (isFinite(ch) ? ' (' + Math.round(ch * 100) + '% chance)' : '') + (state.fire.policy === 'suppress_all' ? '; fuel ' + pc(num(fuelStats.avg, 0.6)) + ' under suppress-all' : ''), 'info');
       }
 
       // 6. flood / storm
@@ -1219,69 +1221,58 @@
       if (res) {
         var mit = ctx.mitigations || [], counts = {};
         mit.forEach(function (m) { counts[m.type] = (counts[m.type] || 0) + 1; });
-        var mulchAcres = Math.round((counts.mulch || 0) * C.ACRES_PER_CELL * (1 + 2 * num((WS.Flood && WS.Flood.TOOLS && WS.Flood.TOOLS.mulch && WS.Flood.TOOLS.mulch.radius), 1)) * 1.0);
-        var parts = [];
-        if (counts.mulch) parts.push('mulch on ' + fmtN(mulchAcres) + ' acres');
-        if (counts.debris_basin) parts.push(counts.debris_basin + (counts.debris_basin === 1 ? ' debris basin' : ' debris basins'));
-        if (counts.barrier) parts.push(counts.barrier + ' log barriers');
-        if (effects().wetlandRestored) parts.push('the restored wetland');
+        var nMit = mit.length + (effects().wetlandRestored ? 1 : 0);
         var outage = num(res.contamination && res.contamination.outageDays), cfOutage = num(cf && cf.contamination && cf.contamination.outageDays);
         var turbNow = clamp(num(state.reservoir.turbidity), 0, 1), cfTurb = clamp(turbNow - num(res.contamination && res.contamination.turbidityDelta) + num(cf && cf.contamination && cf.contamination.turbidityDelta), 0, 1);
-        if (parts.length && cf) {
+        if (nMit && cf) {
           var trapped = num(res.trappedTons) || Math.max(0, num(cf.sedimentToReservoir) - num(res.sedimentToReservoir));
-          var lead = parts.join(', ').replace(/^./, function (c) { return c.toUpperCase(); });
-          if (cfTurb - turbNow >= 0.02 || cfOutage > outage) {
-            add(lead + ' trapped ' + fmtN(trapped) + ' t of sediment; without them turbidity would have hit ' + cfTurb.toFixed(2) + ' instead of ' + turbNow.toFixed(2) + (cfOutage > outage ? ' and the treatment plant would have shut ' + fmtN(cfOutage) + ' days instead of ' + fmtN(outage) : outage > 0 ? '; the plant still shut ' + fmtN(outage) + ' days' : '') + '.', 'good', { W: 1 });
-          } else if (trapped >= 20) {
-            add(lead + ' trapped ' + fmtN(trapped) + ' t of sediment before it reached the water (' + fmtN(res.sedimentToReservoir) + ' t still got through); turbidity settled at ' + turbNow.toFixed(2) + ', low enough that the treatment plant ran normally.', 'good');
-          } else {
-            add('The ' + num(ctx.storm.intensityIn).toFixed(1) + ' in storm moved ' + fmtN(res.sedimentTons) + ' t of sediment off the scar, but only ' + fmtN(res.sedimentToReservoir) + ' t reached the reservoir (' + lead.toLowerCase() + ' caught ' + fmtN(trapped) + ' t); turbidity stayed near ' + turbNow.toFixed(2) + '.', 'info');
-          }
-          if (num(cf.damageM) > num(res.damageM) + 0.05) add('Flood damage came to ' + fmtM(res.damageM) + ' (' + fmtN(res.floodedHouses) + ' homes) versus ' + fmtM(cf.damageM) + ' had nothing been placed' + (num(cf.peakCfsTown) > 0 ? ' — peak flow through town ' + fmtN(res.peakCfsTown) + ' cfs instead of ' + fmtN(cf.peakCfsTown) + ' cfs' : '') + '.', 'good');
-          else add('Flooding still caused ' + fmtM(res.damageM) + ' of damage (' + fmtN(res.floodedHouses) + ' homes); peak flow ' + fmtN(res.peakCfsReservoir) + ' cfs at the reservoir.', 'bad', { P: -1 });
+          add(trapped >= 20 ? 9 : 4, nMit + ' ' + plural(nMit, 'measure') + ' trapped ' + fmtN(trapped) + ' t; turbidity ' + turbNow.toFixed(2) + ' not ' + cfTurb.toFixed(2), trapped >= 20 ? 'good' : 'info', trapped >= 20 ? { W: 1 } : null);
+          if (cfOutage > outage) add(8, 'Plant outage ' + fmtN(outage) + ' days (' + fmtN(cfOutage) + ' without measures)', 'good');
+          else if (outage > 0) add(8, 'Plant outage ' + fmtN(outage) + ' days despite measures', 'bad');
+          if (num(cf.damageM) > num(res.damageM) + 0.05) add(8, 'Flood damage ' + fmtM(res.damageM) + ' (' + fmtN(res.floodedHouses) + ' homes) vs ' + fmtM(cf.damageM) + ' unprotected', 'good');
+          else add(8, 'Flood damage ' + fmtM(res.damageM) + ', ' + fmtN(res.floodedHouses) + ' homes; peak ' + fmtN(res.peakCfsReservoir) + ' cfs', 'bad', { P: -1 });
         } else {
-          add('With no mitigation on the scar, ' + num(ctx.storm.intensityIn).toFixed(1) + ' in of rain sent ' + fmtN(res.sedimentToReservoir) + ' t of sediment and ash into the reservoir (turbidity ' + turbNow.toFixed(2) + (outage > 0 ? ', treatment plant shut ' + fmtN(outage) + ' days' : '') + ') and caused ' + fmtM(res.damageM) + ' of flood damage.', 'bad', { W: -2, P: -1 });
+          add(10, 'No mitigation: ' + fmtN(res.sedimentToReservoir) + ' t sediment, turbidity ' + turbNow.toFixed(2) + ', ' + fmtM(res.damageM) + ' damage' + (outage > 0 ? ', outage ' + fmtN(outage) + ' days' : ''), 'bad', { W: -2, P: -1 });
         }
         // SPEC2 §E: live-tool counterfactual (same storm, same pre-storm measures, no live tools)
         var stt = res.tactics, scf = stt && stt.counterfactual;
         if (stt && scf) {
           var whatS = describeStormTactics(stt), dSaved = num(scf.damageM) - num(res.damageM), hS = num(scf.floodedHouses) - num(res.floodedHouses);
-          if (whatS && (dSaved >= 0.05 || hS >= 1)) add('Your ' + whatS + ' held flood damage to ' + fmtM(res.damageM) + ' (' + fmtN(res.floodedHouses) + ' homes); without ' + (whatS.indexOf(' and ') >= 0 || whatS.indexOf(',') >= 0 ? 'them' : 'it') + ' it would have been ' + fmtM(scf.damageM) + ' and ' + fmtN(scf.floodedHouses) + ' homes.', 'good', { P: 1 });
-          else if (whatS) add('Your ' + whatS + ' barely moved the needle: ' + fmtM(res.damageM) + ' of damage versus ' + fmtM(scf.damageM) + ' without them — sandbags laid after the water arrives work at 40%.', 'info');
-          if (stt.spillwayUsed) add('Opening the spillway early swallowed the pulse below the dam but dumped ' + fmtAF(num(res.releasedAF, 1500)) + ' of storage and sent a surge through the downstream farms.', 'warn', { W: -1 });
-          if (num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs)) > 0) add('You evacuated ' + numWord(num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs))) + ' ' + plural(num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs)), 'neighborhood') + ' the water never reached — trust dips.', 'warn', { T: -1 });
+          if (whatS && (dSaved >= 0.05 || hS >= 1)) add(9, 'Live tools held damage to ' + fmtM(res.damageM) + ' vs ' + fmtM(scf.damageM) + ', ' + fmtN(res.floodedHouses) + ' vs ' + fmtN(scf.floodedHouses) + ' homes', 'good', { P: 1 });
+          else if (whatS) add(4, 'Live tools changed little: ' + fmtM(res.damageM) + ' vs ' + fmtM(scf.damageM) + '; late sandbags work at 40%', 'info');
+          if (stt.spillwayUsed) add(6, 'Spillway release: −' + fmtAF(num(res.releasedAF, 1500)) + ' storage, surge through downstream farms', 'warn', { W: -1 });
+          var ue = num(stt.unnecessaryEvacs, num(res.unnecessaryEvacs));
+          if (ue > 0) add(5, fmtN(ue) + ' needless ' + plural(ue, 'evacuation') + ' → trust −1', 'warn', { T: -1 });
         }
         var top = at.filter(function (a) { return a && (num(a.preventedDamageM) > 0.05 || num(a.preventedSedimentTons) > 20); }).sort(function (a, b) { return num(b.preventedDamageM) + num(b.preventedSedimentTons) / 1000 - num(a.preventedDamageM) - num(a.preventedSedimentTons) / 1000; })[0];
         if (top) {
           var gains = [];
-          if (num(top.preventedDamageM) >= 0.05) gains.push(fmtM(top.preventedDamageM) + ' of damage');
-          if (num(top.preventedSedimentTons) >= 1) gains.push(fmtN(top.preventedSedimentTons) + ' t of sediment');
-          if (num(top.preventedOutageDays) >= 0.5) gains.push(Math.round(num(top.preventedOutageDays)) + ' outage days');
-          if (gains.length) add('Biggest single contribution: ' + top.label + ' prevented ' + gains.join(' and ') + (isFinite(top.pct) && num(top.preventedSedimentTons) >= 1 ? ' (' + Math.round(num(top.pct) * (num(top.pct) <= 1 ? 100 : 1)) + '% of the sediment kept out of the reservoir)' : '') + '.', 'good');
+          if (num(top.preventedDamageM) >= 0.05) gains.push('−' + fmtM(top.preventedDamageM) + ' damage');
+          if (num(top.preventedSedimentTons) >= 1) gains.push('−' + fmtN(top.preventedSedimentTons) + ' t sediment');
+          if (num(top.preventedOutageDays) >= 0.5) gains.push('−' + Math.round(num(top.preventedOutageDays)) + ' outage days');
+          if (gains.length) add(5, 'Top measure ' + top.label + ': ' + gains.slice(0, 2).join(', '), 'good');
         }
         var plume = outage > 0 || cfOutage > 0 || num(res.contamination && res.contamination.ashDelta) > 0.01 || num(res.contamination && res.contamination.turbidityDelta) > 0.03;
-        if (res.earlyWarning && plume) add('The streamgage/sensor above the intake caught the turbidity plume early, so operators switched intakes in time — contamination outage ' + (outage > 0 ? 'halved to ' + fmtN(outage) + ' days' : 'avoided') + '.', 'good');
-        else if (num(effects().sensorCoverage) === 0 && outage > 0) add('No sensor sat between the scar and the intake, so the plant learned of the plume when it arrived — outage lasted the full ' + fmtN(outage) + ' days.', 'warn');
-        if (num(res.injuriesRisk) > 0.3 && !counts.warning && !effects().warningSystem) add('Injury risk in the flooded neighborhoods reached ' + Math.round(num(res.injuriesRisk) * 100) + '% — a warning system or siren placements would have cut it 80%.', 'bad');
+        if (res.earlyWarning && plume) add(7, 'Sensor caught the plume early: outage ' + (outage > 0 ? fmtN(outage) + ' days (halved)' : 'avoided'), 'good');
+        else if (num(effects().sensorCoverage) === 0 && outage > 0) add(7, 'No sensor above the intake: full ' + fmtN(outage) + '-day outage', 'warn');
+        if (num(res.injuriesRisk) > 0.3 && !counts.warning && !effects().warningSystem) add(8, 'Injury risk ' + Math.round(num(res.injuriesRisk) * 100) + '%; a warning system cuts it 80%', 'bad');
       } else if (scarAcres() >= 300 && (state.season === SEASON.SUMMER || state.season === SEASON.SPRING) && isFinite(turnNotes.stormRisk)) {
-        add('A ' + fmtN(scarAcres()) + '-acre burn scar sits in the watershed; a damaging storm had a ' + Math.round(turnNotes.stormRisk * 100) + '% chance this season and remains likely until the scar revegetates.', 'warn');
+        add(3, fmtN(scarAcres()) + '-acre scar: ' + Math.round(turnNotes.stormRisk * 100) + '% storm chance this season, ongoing', 'warn');
       }
 
-      // 7. trust & other scoring reasons
+      // 7. the two biggest outcome moves (reason text is ≤ 12 words by WS.Scoring's contract)
       var reasons = (ctx.scoring && ctx.scoring.reasons) || [];
-      var trust = reasons.filter(function (r) { return r && r.key === 'T' && r.text; });
-      trust.slice(0, 2).forEach(function (r) { add('Trust: ' + r.text, num(r.delta) >= 0 ? 'good' : 'bad', { T: Math.round(num(r.delta) * 10) / 10 }); });
-      reasons.filter(function (r) { return r && r.key !== 'T' && r.text && Math.abs(num(r.delta)) >= 2; }).sort(function (a, b) { return Math.abs(num(b.delta)) - Math.abs(num(a.delta)); }).slice(0, 2)
-        .forEach(function (r) { add((C.OUTCOME_NAMES[r.key] || r.key) + ': ' + r.text, num(r.delta) >= 0 ? 'good' : 'bad'); });
+      reasons.filter(function (r) { return r && r.text && Math.abs(num(r.delta)) >= 2; }).sort(function (a, b) { return Math.abs(num(b.delta)) - Math.abs(num(a.delta)); }).slice(0, 2)
+        .forEach(function (r) { add(r.key === 'T' ? 4 : 3, r.text, num(r.delta) >= 0 ? 'good' : 'bad'); });
 
-      // 8. always give the player at least three sentences
-      if (out.length < 3) {
-        var d = ctx.scoring && ctx.scoring.delta;
-        if (d) { var best = C.OUTCOME_KEYS.slice().sort(function (a, b2) { return Math.abs(num(d[b2])) - Math.abs(num(d[a])); })[0]; add((C.OUTCOME_NAMES[best]) + ' moved ' + (num(d[best]) >= 0 ? '+' : '') + num(d[best]).toFixed(1) + ' this season; resilience score now ' + Math.round(num(state.resilience)) + '.', num(d[best]) >= 0 ? 'good' : 'bad'); }
-        add('Budget stands at ' + fmtM(state.budget) + '; ' + Object.keys((state.projects && state.projects.funded) || {}).length + ' projects funded so far, population ' + fmtN(state.population) + '.', 'info');
-        if (out.length < 3) add('Water quality: turbidity ' + num(state.reservoir.turbidity).toFixed(2) + ', ash ' + num(state.reservoir.ashContam).toFixed(2) + '; fuel in the forest averages ' + Math.round(num(fuelStats.avg, 0.6) * 100) + '%.', 'info');
+      // 8. never leave the season empty
+      if (out.length < 2) {
+        add(1, 'Budget ' + fmtM(state.budget) + ' · ' + Object.keys((state.projects && state.projects.funded) || {}).length + ' projects · population ' + fmtN(state.population), 'info');
+        if (out.length < 2) add(1, 'Turbidity ' + num(state.reservoir.turbidity).toFixed(2) + ' · ash ' + num(state.reservoir.ashContam).toFixed(2) + ' · fuel ' + pc(num(fuelStats.avg, 0.6)), 'info');
       }
-      return out.slice(0, 8);
+      // highest priority first, at most 4 (Array#sort is stable)
+      out.sort(function (a, b) { return b.priority - a.priority; });
+      return out.slice(0, 4);
     }
 
     /* ---------------------------------------------------- endSeason */
@@ -1302,9 +1293,9 @@
       // hydrology
       var preAF = num(state.reservoir.storageAF);
       ctx.hydro = call('Hydrology', 'runSeason', state, world, turnRng.fork('hydro')) || { season: state.season, year: state.year, inflowAF: num(state.water.inflowAF), endStorageAF: num(state.reservoir.storageAF), deliveries: state.water.delivered || {}, shortages: state.water.shortage || {}, notes: [] };
-      ui.ticker(seasonName(state.season) + ' runoff: ' + fmtAF(ctx.hydro.inflowAF) + ' in, reservoir ' + Math.round(100 * num(ctx.hydro.endStorageAF, state.reservoir.storageAF) / Math.max(1, capacity())) + '%');
+      ui.ticker('Runoff ' + fmtAF(ctx.hydro.inflowAF) + ' · Reservoir ' + Math.round(100 * num(ctx.hydro.endStorageAF, state.reservoir.storageAF) / Math.max(1, capacity())) + '%');
       await animateReservoir(preAF, num(state.reservoir.storageAF), 2500);
-      (ctx.hydro.notes || []).forEach(function (n) { if (n) log(n, 'info'); });
+      // hydrology's prose notes are no longer logged: the timeline and outcome reasons carry the same numbers in ≤ 12 words
       ctx.cropNow = cropHealthAvg();
 
       // fire
@@ -1362,7 +1353,7 @@
       pushReservoirVisual();
       refresh();
       try { await ui.showSeasonReport(report); } catch (e) { fail('season report', e); }
-      if (ctx.storm && num(state.emergencyFund) > 0.005) { log('Unspent emergency funds (' + fmtM(state.emergencyFund) + ') returned to the county.', 'info'); state.emergencyFund = 0; }
+      if (ctx.storm && num(state.emergencyFund) > 0.005) { log('Unspent emergency fund ' + fmtM(state.emergencyFund) + ' returned to county.', 'info'); state.emergencyFund = 0; }
       for (var u = 0; u < newly.length; u++) {
         var cs = ((WS.CaseStudies && WS.CaseStudies.LIST) || []).filter(function (c) { return c.id === newly[u]; })[0];
         if (cs) { if (state.seenCases.indexOf(cs.id) < 0) state.seenCases.push(cs.id); try { await ui.showCaseStudy(cs); } catch (e) { fail('case study', e); } }
@@ -1519,7 +1510,7 @@
     });
     game.setFirePolicy = guardSync('setFirePolicy', function (policy) {
       if (!state) return; if (policy !== 'managed' && policy !== 'suppress_all') return;
-      if (state.fire.policy !== policy) log('Fire policy: ' + (policy === 'managed' ? 'managed fire (let remote fires burn under monitoring)' : 'suppress every ignition') + '.', 'info');
+      if (state.fire.policy !== policy) log('Fire policy: ' + (policy === 'managed' ? 'managed fire (monitor remote starts)' : 'suppress every ignition') + '.', 'info');
       state.fire.policy = policy; ui.renderFire();
     });
     game.scheduleBurn = guardSync('scheduleBurn', function (zoneId) { return game.fundProject('prescribed_burn', zoneId); });
@@ -1706,7 +1697,7 @@
       if (ADV.hintTimer) { clearTimeout(ADV.hintTimer); ADV.hintTimer = null; }
       if (typeof WS.UI.setAdvisorHint === 'function') WS.UI.setAdvisorHint(null);
       if (ADV.alerted[id] && has('Renderer', 'setAdvisorAlert')) { call('Renderer', 'setAdvisorAlert', id, false); delete ADV.alerted[id]; }
-      var text = rec ? ((rec.headline ? rec.headline.replace(/[.!?]?$/, '.') + ' ' : '') + advFirstSentence(rec.text)) : 'Nothing to add right now — ask me again next season.';
+      var text = rec ? ((rec.headline ? rec.headline.replace(/[.!?]?$/, '.') + ' ' : '') + advFirstSentence(rec.text)) : 'Nothing new; ask again next season.';
       var talking = ADV.open === id;
       ADV.open = id; ADV.topic = topic;
       WS.UI.showBubble({
@@ -1755,7 +1746,7 @@
         try { seen = !!(ls && ls.getItem('watershed.advisorHintSeen')); } catch (e) { seen = false; }
         if (!seen && !ADV.hintTimer) {
           try { if (ls) ls.setItem('watershed.advisorHintSeen', '1'); } catch (e) { /* ignore */ }
-          WS.UI.setAdvisorHint('Click an advisor in town to hear their take');
+          WS.UI.setAdvisorHint('Click an advisor for their take');
           ADV.hintTimer = setTimeout(function () { ADV.hintTimer = null; try { WS.UI.setAdvisorHint(null); } catch (e) { /* ignore */ } }, 15000);
         }
       }
@@ -1817,6 +1808,7 @@
   /* ------------------------------------------------------------------ public API */
   WS.Game = {
     create: createGame,
+    TUTORIAL_STEPS: TUTORIAL_STEPS,
     makeUI: makeUI,
     makeRenderer: makeRenderer,
     /** createHeadless({seed, years, mode, decide, save}) → { state, world, game, runSeason(), runAll(), save(), load(str), stats() } */
