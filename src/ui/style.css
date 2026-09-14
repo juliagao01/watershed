@@ -1171,7 +1171,14 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 #title-screen { position: fixed; inset: 0; z-index: 400; background: var(--paper, #f3ead8); pointer-events: auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #title-screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #title-screen .t-inner { position: relative; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 18px; transform: translateY(-14vh); }
-#title-screen .t-word { font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(56px, 11vw, 148px); letter-spacing: 0.06em; color: var(--water, #1f6f8b); line-height: 1; display: inline-flex; text-shadow: 0 3px 0 #d9cfb3; }
+#title-screen .t-word {
+  font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(56px, 11vw, 148px); letter-spacing: 0.06em; line-height: 1; display: inline-flex;
+  /* calm drifting gradient through the letters: teal → sky → mint → lavender, no hard stops */
+  background: linear-gradient(115deg, #3f8fa8 0%, #6fb6cf 22%, #86c9b4 45%, #a6bfe0 68%, #4f9fb3 90%, #3f8fa8 100%);
+  background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 3px 0 #d9cfb3);
+  animation: t-drift 16s ease-in-out infinite alternate;
+}
 #title-screen .t-word span { display: inline-block; animation: t-bob 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * 0.14s); }
 #title-screen .t-sub { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 15px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2, #5d5346); margin-top: -4px; }
 #title-screen .t-play { margin-top: 26px; font-family: "Fredoka", "IBM Plex Sans", system-ui, sans-serif; font-weight: 600; font-size: 22px; letter-spacing: 0.08em; padding: 12px 44px; border-radius: 999px; background: var(--water, #1f6f8b); color: var(--paper, #f3ead8); border: 3px solid var(--ink, #2a241d); cursor: pointer; box-shadow: 0 4px 0 var(--ink, #2a241d); transition: transform 120ms ease, box-shadow 120ms ease; }
@@ -1181,8 +1188,9 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 #title-screen .t-hint { font-size: 12px; color: var(--ink-3, #8a7d6b); letter-spacing: 0.1em; text-transform: uppercase; }
 #title-screen.leaving { animation: t-leave 520ms ease forwards; }
 @keyframes t-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes t-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 @keyframes t-leave { to { opacity: 0; transform: scale(1.04); } }
-@media (prefers-reduced-motion: reduce) { #title-screen .t-word span { animation: none; } #title-screen.leaving { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #title-screen .t-word span { animation: none; } #title-screen .t-word { animation: none; } #title-screen.leaving { animation: none; } }
 
 /* keep condition gauges inside the panel */
 .gauges, .gauge { min-width: 0; max-width: 100%; }

@@ -1315,6 +1315,17 @@
       var q = call('CaseStudies', 'pickQuiz', state, turnRng.fork('quiz'));
       if (!q || !q.id) return;
       var res = null;
+      // the case first, then the question about it (player feedback): skipped only when this season's reveal already opened that card
+      if (!Array.isArray(quiz.shownThisSeason)) quiz.shownThisSeason = [];
+      if (typeof ui.showCaseStudy === 'function' && quiz.shownThisSeason.indexOf(q.caseId) < 0) {
+        var qcs = has('CaseStudies', 'byId') ? call('CaseStudies', 'byId', q.caseId) : null;
+        if (qcs) {
+          state.seenCases = Array.isArray(state.seenCases) ? state.seenCases : [];
+          if (state.seenCases.indexOf(qcs.id) < 0) state.seenCases.push(qcs.id);
+          try { await ui.showCaseStudy(qcs); } catch (e) { fail('case study', e); }
+          quiz.shownThisSeason.push(qcs.id);
+        }
+      }
       q.xp = { onCorrect: xpPreview(true, num(quiz.streak)), onWrong: xpPreview(false, 0) };   // lets the card show "+10 XP" / level-up
       try { res = await ui.showQuiz(q); } catch (e) { fail('field quiz', e); res = null; }
       if (!res || typeof res !== 'object' || !isFinite(num(res.choice, NaN))) return;   // dismissed: nothing recorded
@@ -1391,6 +1402,7 @@
       ctx.unlocked = newly.slice();
       if (!state.quiz || typeof state.quiz !== 'object') state.quiz = { asked: [], correct: 0, total: 0, streak: 0, best: 0, lastUnlocked: [] };
       state.quiz.lastUnlocked = newly.slice();   // the field quiz prefers a case unlocked this season
+      state.quiz.shownThisSeason = [];           // case cards already opened this season (reveals); the quiz shows its case first unless it is here
 
       // timeline + report
       var entries = buildTimeline(ctx);
@@ -1416,7 +1428,7 @@
       if (ctx.storm && num(state.emergencyFund) > 0.005) { log('Unspent emergency fund ' + fmtM(state.emergencyFund) + ' returned to county.', 'info'); state.emergencyFund = 0; }
       for (var u = 0; u < newly.length; u++) {
         var cs = ((WS.CaseStudies && WS.CaseStudies.LIST) || []).filter(function (c) { return c.id === newly[u]; })[0];
-        if (cs) { if (state.seenCases.indexOf(cs.id) < 0) state.seenCases.push(cs.id); try { await ui.showCaseStudy(cs); } catch (e) { fail('case study', e); } }
+        if (cs) { if (state.seenCases.indexOf(cs.id) < 0) state.seenCases.push(cs.id); try { await ui.showCaseStudy(cs); } catch (e) { fail('case study', e); } state.quiz.shownThisSeason.push(cs.id); }
       }
       await runFieldQuiz(turnRng);
       renderer.clearMarkers();

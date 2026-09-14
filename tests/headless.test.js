@@ -131,6 +131,26 @@ function policy(log) {
     assert(WS.CaseStudies.pickQuiz({}, null) && WS.CaseStudies.pickQuiz(null, null), 'pickQuiz tolerates an empty state and no rng');
   }
 
+  // the case study card opens before its quiz, once per season; a case the season's reveal already opened is not shown twice
+  {
+    const calls = [];   // { fn: 'case' | 'quiz', id, turn } in call order
+    const dec = policy();
+    const adapter = WS.Game.makeUI(false, dec);
+    const baseQuiz = adapter.showQuiz;
+    adapter.showCaseStudy = cs => { calls.push({ fn: 'case', id: cs && cs.id, turn: g.state.turn }); return Promise.resolve(); };
+    adapter.showQuiz = q => { calls.push({ fn: 'quiz', id: q && q.caseId, turn: g.state.turn }); return baseQuiz(q); };
+    const g = WS.Game.create({ seed: 2, years: 4, mode: 'simulated', headless: true, decide: dec, ui: adapter });
+    await g.runAll();
+    const quizzes = calls.filter(c => c.fn === 'quiz');
+    assert(quizzes.length === 16 && g.state.quiz.total === 16, 'recording adapter: a quiz every season (' + quizzes.length + ')');
+    const beforeQuiz = quizzes.every((qc, k) => { const i = calls.indexOf(qc); return calls.slice(0, i).some(c => c.fn === 'case' && c.id === qc.id && c.turn === qc.turn); });
+    assert(beforeQuiz, 'the quiz\'s case study card opens before the quiz card in the same season');
+    const perSeason = {};
+    calls.filter(c => c.fn === 'case').forEach(c => { const k = c.turn + ':' + c.id; perSeason[k] = (perSeason[k] || 0) + 1; });
+    assert(Object.keys(perSeason).every(k => perSeason[k] === 1), 'no case card is opened twice in one season (reveal + quiz)');
+    assert(quizzes.every(qc => g.state.seenCases.indexOf(qc.id) >= 0) && Array.isArray(g.state.quiz.shownThisSeason), 'quizzed cases are marked seen; state.quiz.shownThisSeason is an array');
+  }
+
   // historical mode
   {
     const h = WS.Game.createHeadless({ seed: 7, years: 4, mode: 'historical', decide: policy() });

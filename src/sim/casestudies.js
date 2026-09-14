@@ -202,55 +202,56 @@
   ];
 
   // ---------------------------------------------------------------- field quiz bank (2 questions per case; q ≤ 20 words, options ≤ 8, why ≤ 16)
-  // Figures repeat the summaries above; nothing here is more precise than its source.
+  // Every question tests a mechanism the case illustrates (soil, snow, flow, fuel, law), never a date or a number from the story.
+  // The case above is the context; the `why` states the mechanism, with a conservative figure where one is natural.
   var QUIZ = {
     cameron_peak: [
-      { q: 'Roughly how large was the 2020 Cameron Peak Fire?', options: ['About 20,000 acres', 'About 208,000 acres', 'About 2 million acres'], answer: 1, why: 'About 208,000 acres, the largest wildfire in Colorado history.' },
-      { q: 'What did storms over the Cameron Peak burn scar do to the Poudre River?', options: ['Sent ash and sediment into intakes', 'Raised the snowpack', 'Nothing measurable'], answer: 0, why: 'Ash and debris in 2021 forced utilities to stop drawing river water.' }
+      { q: 'Why does a high-severity burn make soil shed rain instead of absorbing it?', options: ['Ash seals the surface like clay', 'Vaporised plant waxes form a water-repellent layer', 'Heat bakes the soil into rock'], answer: 1, why: 'Waxes condense just below the surface; infiltration drops and runoff rises several-fold.' },
+      { q: 'What is turbidity, and why does a treatment plant stop drawing turbid river water?', options: ['Suspended particles that clog filters, shield microbes', 'Dissolved salt that corrodes pipes', 'Warm water that breeds algae'], answer: 0, why: 'Cloudy water overwhelms filters and hides pathogens from disinfection; plants switch to stored water.' }
     ],
     east_troublesome: [
-      { q: 'In October 2020, how far did East Troublesome run in about a day?', options: ['About 2 miles', 'About 17 miles', 'About 90 miles'], answer: 1, why: 'Some 17 miles, growing about 100,000 acres in a single day.' },
-      { q: 'What finally slowed the East Troublesome Fire?', options: ['Snowfall', 'A dozer line', 'The Continental Divide'], answer: 0, why: 'Snow slowed it after it jumped the Divide; about 193,000 acres burned.' }
+      { q: 'What lets a surface fire climb into the treetops and become a crown fire?', options: ['Wet meadows between the stands', 'Thick bark on mature trees', 'Ladder fuels: shrubs, saplings and low branches'], answer: 2, why: 'Ladder fuels carry flame into the canopy; thinning them lowers severity, not fire itself.' },
+      { q: 'How did a wind-driven fire cross the Continental Divide, a barrier with little fuel?', options: ['Wind lofted embers that started spot fires', 'Flames spread underground through roots', 'Heat radiated across the ridge'], answer: 0, why: 'Spotting: embers can fly a mile past dozer lines, which only remove fuel continuity.' }
     ],
     marshall: [
-      { q: 'What carried the Marshall Fire on December 30, 2021?', options: ['Dense mountain forest', 'Wind-driven grass, then homes', 'Beetle-killed lodgepole'], answer: 1, why: 'A wind-driven grass fire; homes ignited homes, more than 1,000 destroyed.' },
-      { q: 'About how many homes did the Marshall Fire destroy?', options: ['About 100', 'More than 1,000', 'About 10,000'], answer: 1, why: 'More than 1,000 homes on only about 6,000 acres: Colorado\'s most destructive.' }
+      { q: 'Why does a wind-driven grass fire spread far faster than a forest fire?', options: ['Grass holds more energy than wood', 'Fine fuels dry in hours and ignite instantly', 'Open ground funnels more oxygen'], answer: 1, why: 'Fine fuels lose moisture in hours; wind drives flame and embers ahead faster than crews move.' },
+      { q: 'How do most homes ignite during a wind-driven wildfire?', options: ['A wall of flame reaching the siding', 'Radiant heat shattering windows', 'Embers landing in vents, gutters and mulch'], answer: 2, why: 'Embers, not flame fronts, start most home fires; keep the 0–5 ft zone free of fuel.' }
     ],
     colorado_river: [
-      { q: 'Roughly how many people rely on the Colorado River?', options: ['About 4 million', 'About 40 million', 'About 400 million'], answer: 1, why: 'Roughly 40 million people across seven states and Mexico.' },
-      { q: 'What did the 1922 Colorado River Compact do?', options: ['Split the river between two basins', 'Built Hoover Dam', 'Banned irrigation in Colorado'], answer: 0, why: 'It divided about 15 million acre-feet a year between Upper and Lower Basins.' }
+      { q: 'What is an acre-foot, the unit used to divide the river?', options: ['One foot of water covering one acre', 'One acre of river channel', 'The flow past a gauge each second'], answer: 0, why: 'About 326,000 gallons, roughly what two or three households use in a year.' },
+      { q: 'Why does a hotter, dustier spring cut the river\'s late-summer supply even with normal snow?', options: ['Warm water flows more slowly', 'Early melt plus more evapotranspiration', 'Snow evaporates before it falls'], answer: 1, why: 'Dust lowers albedo, melting snow weeks early; heat raises evaporation and plant water use.' }
     ],
     shoshone: [
-      { q: 'How old is the Shoshone hydro plant\'s senior water right?', options: ['It dates to 1902', 'It dates to 1972', 'It dates to 2023'], answer: 0, why: 'Priority date 1902, about 1,250 cfs, among the river\'s most senior rights.' },
-      { q: 'Why is the Shoshone right called non-consumptive?', options: ['Water returns to the river after the turbines', 'It uses no water at all', 'It runs only in winter'], answer: 0, why: 'Water passes through turbines and returns; a call keeps 1,250 cfs flowing.' }
+      { q: 'Under prior appropriation, what happens when a senior right places a call in a dry year?', options: ['Every user shares the shortage equally', 'The state buys the senior water', 'Juniors upstream must stop diverting'], answer: 2, why: 'First in time, first in right: juniors shut headgates until the senior\'s flow arrives.' },
+      { q: 'Why does a non-consumptive hydropower right keep water in the river?', options: ['Water passes the turbines and returns downstream', 'Turbines pump in groundwater', 'Hydropower rights are always junior'], answer: 0, why: 'About 1,250 cfs, cubic feet per second, runs through the plant and back into the canyon.' }
     ],
     monitoring: [
-      { q: 'What does a SNOTEL site measure?', options: ['Snow water equivalent', 'Stream temperature', 'Boat traffic'], answer: 0, why: 'Snow water equivalent at roughly 800 mountain sites feeds April 1 forecasts.' },
-      { q: 'About how many SNOTEL sites are in Colorado?', options: ['About 10', 'More than 100', 'About 5,000'], answer: 1, why: 'More than 100 of roughly 800 western SNOTEL sites are in Colorado.' }
+      { q: 'Why does SNOTEL report snow water equivalent instead of snow depth?', options: ['Depth sensors freeze in winter', 'Depth ignores density; SWE is stored water', 'Equivalent is easier to measure'], answer: 1, why: 'Fresh powder is roughly 10% water; ripe spring snowpack nearer 40%, so depth misleads.' },
+      { q: 'A streamgage reads 800 cfs. What is that measuring?', options: ['Cubic feet stored in the channel', 'Centimetres of stage per second', 'Cubic feet of water passing each second'], answer: 2, why: 'Flow rate; one cfs for a day is about two acre-feet, the basis for administering rights.' }
     ],
     mussels: [
-      { q: 'How do zebra and quagga mussels mostly spread between lakes?', options: ['On trailered boats', 'Carried by birds', 'Through groundwater'], answer: 0, why: 'Mainly on trailered boats; Colorado has inspected boats since 2008.' },
-      { q: 'What happened at Highline Lake in 2022?', options: ['Adult zebra mussels were confirmed', 'The dam failed', 'It froze solid'], answer: 0, why: 'Colorado\'s first adult zebra mussels, 2022; the lake was drained to fight them.' }
+      { q: 'Why do zebra and quagga mussels threaten a reservoir\'s intake and pipes?', options: ['Dense colonies foul screens and narrow pipes', 'They eat the fish that clean intakes', 'Their shells dissolve concrete'], answer: 0, why: 'Biofouling: colonies of thousands per square foot choke screens; removal costs utilities millions.' },
+      { q: 'Why must a boat be drained and dried, not just scrubbed, between lakes?', options: ['Adults hide under the paint', 'Microscopic larvae ride in bilge water', 'Wet hulls attract more mussels'], answer: 1, why: 'Veligers, free-floating larvae invisible to the eye, survive days in bilge, ballast and live wells.' }
     ],
     hayman: [
-      { q: 'Where did Hayman Fire sediment end up?', options: ['Strontia Springs Reservoir', 'Lake Powell', 'The Arkansas River'], answer: 0, why: 'Sediment filled Strontia Springs; Denver Water spent about $27 million.' },
-      { q: 'What did Denver Water start doing after Hayman?', options: ['Co-funding forest thinning upstream', 'Building a new dam', 'Abandoning the South Platte'], answer: 0, why: 'From Forests to Faucets, 2010: paying for thinning beats treating water later.' }
+      { q: 'Why do reservoirs keep a dead pool below the lowest outlet?', options: ['It keeps the dam from floating', 'Space for sediment; it cannot drain by gravity', 'It cools hydropower turbines'], answer: 1, why: 'Silt settles there first; once full it steals live storage, and dredging costs tens of millions.' },
+      { q: 'Why do crews light prescribed burns only inside a weather window?', options: ['Humidity, wind and fuel moisture keep it low-severity', 'Smoke is invisible on cloudy days', 'Fire needs rain to start'], answer: 0, why: 'Damp fuels and light wind burn only the understory; wildfire picks the driest, windiest day.' }
     ],
     buffalo_creek: [
-      { q: 'What hit Buffalo Creek two months after its 1996 fire?', options: ['A flash flood', 'A second fire', 'A drought'], answer: 0, why: 'About 2 inches of rain in under an hour caused a deadly flash flood.' },
-      { q: 'Why did an ordinary storm flood Buffalo Creek?', options: ['The burn scar shed water like pavement', 'The dam gates were opened', 'Snowmelt peaked early'], answer: 0, why: 'Bare, water-repellent soil after a 12,000-acre burn sent rain straight downhill.' }
+      { q: 'Why do the first storms after a fire carry so much ash and sediment?', options: ['Rain falls harder over burn scars', 'Ash is heavier than soil', 'No litter or roots hold the bare soil'], answer: 2, why: 'Water-repellent bare ground sheds rain into rills that strip ash and soil downhill.' },
+      { q: 'How does a fresh burn scar change the flood from an ordinary thunderstorm?', options: ['Higher, faster peak from rapid runoff', 'Lower peak because ash absorbs rain', 'Same peak, arriving hours later'], answer: 0, why: 'Runoff arrives at once; post-fire peaks can be several times pre-fire for the same rain.' }
     ],
     grizzly_creek: [
-      { q: 'What closed Interstate 70 in Glenwood Canyon in summer 2021?', options: ['Debris flows off the burn scar', 'A rockslide from an earthquake', 'A record snowstorm'], answer: 0, why: 'Monsoon rain on the 2020 scar buried I-70 for about 2 weeks.' },
-      { q: 'What did Glenwood Springs do when ash fouled its creek intakes?', options: ['Switched to other supplies', 'Shut off all water', 'Boiled the river'], answer: 0, why: 'It switched sources temporarily; Grizzly Creek burned about 32,000 acres above town.' }
+      { q: 'What do a debris basin and a sandbag line each do below a burn scar?', options: ['Both stop all water completely', 'Basin traps sediment; sandbags raise the flood threshold', 'Sandbags trap boulders; basins hold rain'], answer: 1, why: 'A basin catches rock and mud upstream; sandbags add height so shallow flows pass by.' },
+      { q: 'Why does a short cloudburst, not a long soaking rain, trigger debris flows off a scar?', options: ['Intensity matters: minutes of hard rain mobilise soil', 'Long rain saturates and stabilises slopes', 'Cloudbursts carry more lightning'], answer: 0, why: 'Debris flows follow drainages once runoff exceeds a 15-minute intensity threshold, not a daily total.' }
     ],
     flood_2013: [
-      { q: 'Roughly how much rain fell on Boulder in the September 2013 flood week?', options: ['About 2 inches', 'About 17 inches', 'About 60 inches'], answer: 1, why: 'Roughly 17 inches in a week, near Boulder\'s normal annual total.' },
-      { q: 'About how many homes did the 2013 Front Range flood destroy?', options: ['About 18', 'About 1,800', 'About 180,000'], answer: 1, why: 'About 1,800 homes destroyed and at least 8 people killed.' }
+      { q: 'What does a "100-year flood" actually mean?', options: ['It happens once every century', 'A 1% chance of occurring any year', 'The largest flood ever recorded'], answer: 1, why: 'Probability, not schedule: over a 30-year mortgage the odds are about 26%.' },
+      { q: 'Why does giving a river room cut flood damage more than building walls?', options: ['Floodplains store and slow the peak', 'Walls always fail in floods', 'Rivers avoid open ground'], answer: 0, why: 'Levees confine flow, raising stage and speed; a reconnected floodplain stores water and lowers peaks.' }
     ],
     beaver_mimicry: [
-      { q: 'What does a beaver dam analog do to a headwater stream?', options: ['Slows water and raises the water table', 'Speeds water to the reservoir', 'Blocks fish for good'], answer: 0, why: 'Slowed water raises the water table and stores runoff into late summer.' },
-      { q: 'What did 2020 research find about beaver-dammed corridors during wildfires?', options: ['They stayed green while surroundings burned', 'They burned hottest', 'They dried up first'], answer: 0, why: 'A 2020 study found beaver-dammed corridors stayed green through wildfires.' }
+      { q: 'How do wetlands and beaver dams shrink a flood peak downstream?', options: ['They speed water to the reservoir', 'They evaporate the flood away', 'Storage and roughness slow water across the floodplain'], answer: 2, why: 'Ponds store runoff, willows add roughness, and a reconnected floodplain spreads flow; peaks fall, not vanish.' },
+      { q: 'Why do beaver-dammed meadows stay green and flowing through fire and late summer?', options: ['Ponds raise the water table for plants', 'Beavers cut trees that would burn', 'Wet fur cools the meadow'], answer: 0, why: 'A raised water table keeps roots wet and releases stored water slowly as baseflow.' }
     ]
   };
   LIST.forEach(function (cs) { cs.quiz = arr(QUIZ[cs.id]); });

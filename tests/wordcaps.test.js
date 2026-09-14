@@ -183,6 +183,9 @@ function stressedState(seed, world) {
       if (!(Number.isInteger(q.answer) && q.answer >= 0 && q.answer < opts.length)) violations.push('quiz ' + tag + ': answer ' + q.answer + ' out of range');
       if (new Set(opts.map(String)).size !== opts.length) violations.push('quiz ' + tag + ': duplicate options');
       check('quiz.why', tag, q.why, CAP.quiz.why);
+      // player feedback: questions test a mechanism, not a date or a count from the story
+      if (/\b(1[5-9]|20)\d{2}\b/.test(String(q.q))) violations.push('quiz ' + tag + ': question stem contains a year — "' + q.q + '"');
+      if (/\bhow many\b|\bwhich year\b/i.test(String(q.q))) violations.push('quiz ' + tag + ': question stem asks for a count or a date — "' + q.q + '"');
     });
   });
   {
@@ -199,7 +202,7 @@ function stressedState(seed, world) {
       s.quiz.asked.push(p.id);
     }
   }
-  checkGroup('field quiz: 2 per case, q ≤ 20, exactly 3 options ≤ 8, why ≤ 16, answer in range; pickQuiz keeps the caps and remaps the answer');
+  checkGroup('field quiz: 2 per case, q ≤ 20 (no year, no "how many" / "which year"), exactly 3 options ≤ 8, why ≤ 16, answer in range; pickQuiz keeps the caps and remaps the answer');
 
   /* ---------------------------------------------------------------- main.js: headless seasons with a recording UI + log attribution */
   const logs = [];   // { text, file }
