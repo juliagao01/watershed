@@ -520,7 +520,10 @@
   /* ------------------------------------------------------------------ mute button + keyboard */
   function updateButton() {
     if (!btn) return;
-    btn.textContent = st.muted ? '🔇' : '🔊';
+    /* silhouette icon (WS.Icons); plain text fallback when icons.js is not loaded */
+    var I = root.WS && root.WS.Icons;
+    if (I && typeof I.svg === 'function') btn.innerHTML = I.svg(st.muted ? 'volume-muted' : 'volume', 16);
+    else btn.textContent = st.muted ? 'off' : 'on';
     btn.setAttribute('aria-pressed', st.muted ? 'true' : 'false');
     btn.title = (st.muted ? 'Sound off' : 'Sound on') + ' — M toggles';
   }
@@ -530,9 +533,10 @@
     btn.type = 'button'; btn.id = 'sound-toggle'; btn.setAttribute('data-nosound', '1'); btn.setAttribute('aria-label', 'Toggle sound');
     var cs = btn.style;
     cs.position = 'fixed'; cs.right = '14px'; cs.bottom = 'calc(var(--bottom-h, 62px) + 22px)'; cs.width = '34px'; cs.height = '34px';
-    cs.borderRadius = '50%'; cs.border = '1px solid rgba(255,255,255,0.16)'; cs.background = 'rgba(24,28,32,0.86)'; cs.color = '#f2efe8';
-    cs.font = '16px/1 system-ui, sans-serif'; cs.padding = '0'; cs.cursor = 'pointer'; cs.zIndex = '120'; cs.display = 'flex'; cs.alignItems = 'center'; cs.justifyContent = 'center';
-    cs.boxShadow = '0 6px 18px rgba(0,0,0,0.35)'; cs.backdropFilter = 'blur(6px)'; cs.webkitBackdropFilter = 'blur(6px)'; cs.pointerEvents = 'auto'; cs.userSelect = 'none';
+    /* opaque paper disc with an ink border (matches the field-notebook UI; no translucency, no blur) */
+    cs.borderRadius = '50%'; cs.border = '2px solid #2a241d'; cs.background = '#f3ead8'; cs.color = '#2a241d';
+    cs.font = '10px/1 system-ui, sans-serif'; cs.padding = '0'; cs.cursor = 'pointer'; cs.zIndex = '120'; cs.display = 'flex'; cs.alignItems = 'center'; cs.justifyContent = 'center';
+    cs.boxShadow = '2px 2px 0 #2a241d'; cs.pointerEvents = 'auto'; cs.userSelect = 'none';
     btn.addEventListener('click', function (ev) { ev.preventDefault(); S.toggleMuted(); if (!st.muted) S.play('click'); try { btn.blur(); } catch (e) { /* ignore */ } });
     document.body.appendChild(btn);
     updateButton();

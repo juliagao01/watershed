@@ -95,6 +95,25 @@
   UI.h = h; UI.hs = hs; UI.esc = esc; UI.clear = clear; UI.fmt = { num: num, money: money, af: af, pct: pct, signed: signed, fin: fin, clamp: clamp, seasonName: seasonName, turnLabel: turnLabel };
   UI.gradeOf = gradeOf; UI.resilienceOf = resilienceOf;
   UI.els = {};
+
+  /* ------------------------------------------------------------------ icons (WS.Icons silhouettes; no emoji anywhere in #ui) */
+  /** UI.icon(nameOrEmoji, size, cls) → <svg> silhouette. Emoji from the sim data (project / tool / event `icon` fields) resolve through WS.Icons.forEmoji; unknown → 'dot'. */
+  UI.icon = function (nameOrEmoji, size, cls) {
+    var I = WS.Icons;
+    if (I && typeof I.el === 'function') { try { return I.el(I.resolve(nameOrEmoji, 'dot'), size || 16, cls); } catch (e) { /* fall through */ } }
+    return h('span', { class: 'ic-svg ' + (cls || ''), 'aria-hidden': 'true' });
+  };
+  UI.iconName = function (nameOrEmoji, fallback) { var I = WS.Icons; return I ? I.resolve(nameOrEmoji, fallback || 'dot') : (fallback || 'dot'); };
+  /** Leading emoji in free text (main.js prefixes log lines with the card icon) → stripped; returns { icon: name|null, text } */
+  var EMOJI_RE = /\p{Extended_Pictographic}/u;
+  var LEAD_EMOJI_RE = /^(\p{Extended_Pictographic}(?:[︎️‍]|[\u{1F3FB}-\u{1F3FF}])*)\s*/u;
+  UI.splitLeadEmoji = function (text) {
+    var s = String(text == null ? '' : text), m = s.match(LEAD_EMOJI_RE);
+    if (!m) return { icon: null, text: s };
+    return { icon: UI.iconName(m[1], null), text: s.slice(m[0].length) };
+  };
+  UI.stripEmoji = function (text) { return String(text == null ? '' : text).replace(/\p{Extended_Pictographic}(?:[︎️‍]|[\u{1F3FB}-\u{1F3FF}])*\s?/gu, '').trim(); };
+  UI.EMOJI_RE = EMOJI_RE;
   /** Small persisted UI preference (localStorage, guarded). pref(key) → value|null; pref(key, value) stores. */
   UI.pref = function (key, value) {
     var k = 'watershed.ui.' + key;
@@ -242,12 +261,18 @@
   /**
    * Dev helper: count the words a player can currently read inside #ui (tooltips, hidden nodes, unselected <option>s excluded).
    * A "word" is a token with ≥ 2 letters (or a / I); tokens with digits or a lone unit letter ("$9.4M", "7,384", "D2") count as numbers.
-   * Returns { words, numbers, cap, ok, byRegion:{id:count}, sample:[first 40 words] }.
+   * Returns { words, numbers, emoji, cap, ok, byRegion:{id:count}, sample:[first 40 words] }. `emoji` counts pictographic characters in ALL text
+   * nodes of #ui (hidden ones too, and <option>s): it must be 0 — silhouette icons (WS.Icons) replaced every emoji.
    */
   UI.audit = function (opts) {
     opts = opts || {};
-    var rootEl = opts.root || document.getElementById('ui'); if (!rootEl) return { words: 0, numbers: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [] };
-    var out = { words: 0, numbers: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [] };
+    var rootEl = opts.root || document.getElementById('ui'); if (!rootEl) return { words: 0, numbers: 0, emoji: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [] };
+    var out = { words: 0, numbers: 0, emoji: 0, cap: UI.WORD_CAPS.screen, ok: true, byRegion: {}, sample: [], emojiSample: [] };
+    var allText = document.createNodeIterator(rootEl, 4 /* SHOW_TEXT */), tn;
+    while ((tn = allText.nextNode())) {
+      var em = tn.nodeValue.match(/\p{Extended_Pictographic}/gu);
+      if (em) { out.emoji += em.length; if (out.emojiSample.length < 10) out.emojiSample.push(em.join('') + ' in ' + ((tn.parentNode && tn.parentNode.className) || tn.parentNode.tagName)); }
+    }
     function visible(el) {
       for (; el && el !== rootEl; el = el.parentNode) {
         if (el.nodeType !== 1) continue;
@@ -271,12 +296,13 @@
         else out.numbers++;
       });
     }
-    out.ok = out.words <= out.cap;
-    if (opts.log !== false && root.console) console.log('[UI.audit] ' + out.words + ' words / cap ' + out.cap + (out.ok ? ' ✓' : ' ✗') + ' · ' + out.numbers + ' numbers', out.byRegion);
+    out.ok = out.words <= out.cap && out.emoji === 0;
+    if (opts.log !== false && root.console) console.log('[UI.audit] ' + out.words + ' words / cap ' + out.cap + (out.ok ? ' ok' : ' FAIL') + ' · ' + out.numbers + ' numbers · ' + out.emoji + ' emoji', out.byRegion, out.emojiSample);
     return out;
   };
 
-  UI.COLORS = { W: '#4aa3df', E: '#6fbf73', P: '#e07a5f', F: '#d4a24c', T: '#e9c46a', water: '#4aa3df', fire: '#ff7a33', forest: '#6fbf73', trust: '#e9c46a', danger: '#e63946' };
+  /* field-notebook inks (see style.css tokens) */
+  UI.COLORS = { W: '#1f6f8b', E: '#3f6b3a', P: '#c1440e', F: '#a8741a', T: '#a8741a', water: '#1f6f8b', fire: '#c1440e', forest: '#3f6b3a', trust: '#a8741a', danger: '#9b1c1c', ink: '#2a241d', ink2: '#5d5346', ink3: '#8a7d6b', paper: '#f3ead8' };
   UI.OUTCOME_CLASS = { W: 'water', E: 'forest', P: 'fire', F: 'trust', T: 'trust' };
   UI.OUTCOME_SHORT = { W: 'Water', E: 'Ecosystem', P: 'Safety', F: 'Economy', T: 'Trust' };
   UI.OUTCOME_TIPS = {
@@ -286,15 +312,17 @@
     F: 'Food & Economy — crop health, farm shortages, recreation index, hydropower output, damage costs and tourism.',
     T: 'Public Trust — moves only through your decisions and their consequences (legal overrides, outreach, crises handled well or badly), regressing slowly toward neutral.'
   };
-  UI.KIND_ICONS = { info: 'ℹ', good: '✔', bad: '✖', warn: '⚠', event: '⚡', fire: '🔥', flood: '🌊', water: '💧', money: '💵', forest: '🌲', trust: '🤝' };
-  UI.SECTOR_ICONS = { households: '🏘', farms: '🌾', fire: '🚒', hydro: '⚡', recreation: '🛶', tribal: '🪶', wildlife: '🦌', downstream: '🏞' };
-  UI.SECTOR_COLORS = { households: '#4aa3df', farms: '#d4a24c', fire: '#ff7a33', hydro: '#a78bfa', recreation: '#38bdf8', tribal: '#e9c46a', wildlife: '#6fbf73', downstream: '#7dd3c0' };
-  UI.TOOL_ICONS = { mulch: '🌾', barrier: '🪵', debris_basin: '⭕', bank_stab: '🪨', intake_protect: '🛟', sensor: '📡', warning: '🚨', pin: '📍', fireStart: '🔥' };
+  /* icon NAMES (WS.Icons), never characters */
+  UI.KIND_ICONS = { info: 'info', good: 'check', bad: 'cross', warn: 'alert', event: 'bolt', fire: 'fire', flood: 'wave', water: 'drop', money: 'coins', forest: 'trees', trust: 'hands', storm: 'storm', project: 'tools', drought: 'sun' };
+  UI.SECTOR_ICONS = { households: 'houses', farms: 'bales', fire: 'engine', hydro: 'bolt', recreation: 'boat', tribal: 'feather', wildlife: 'elk', downstream: 'stream' };
+  UI.SECTOR_COLORS = { households: '#1f6f8b', farms: '#a8741a', fire: '#c1440e', hydro: '#6b4fbb', recreation: '#2e8fa8', tribal: '#8b5e1a', wildlife: '#3f6b3a', downstream: '#2f7f75' };
+  UI.TOOL_ICONS = { mulch: 'bales', barrier: 'log', debris_basin: 'basin', bank_stab: 'rock', intake_protect: 'buoy', sensor: 'gauge', warning: 'siren', pin: 'pin', fireStart: 'fire' };
   UI.OVERLAYS = ['none', 'watershed', 'fire', 'moisture', 'burn'];
   UI.OVERLAY_NAMES = { none: 'None', watershed: 'Watershed', fire: 'Fire risk', moisture: 'Moisture', burn: 'Burn scar' };
   UI.EVIDENCE_TOPICS = [['budget', 'Budget priorities'], ['allocation', 'Water allocation'], ['prescribed_burn', 'Prescribed burning'], ['fire_policy', 'Fire policy'], ['flood', 'Post-fire flood'], ['contamination', 'Water contamination'], ['drought', 'Drought response']];
 
-  var BRAND_SVG = '<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="ws-g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fd0ff"/><stop offset="1" stop-color="#2c6f9e"/></linearGradient><linearGradient id="ws-g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc14d"/><stop offset="1" stop-color="#ff6a1a"/></linearGradient></defs><path d="M12 3c-1 5-7 9-7 15a7 7 0 0 0 14 0c0-6-6-10-7-15z" fill="url(#ws-g1)"/><path d="M22 10c0 3-3 4-3 8a4 4 0 0 0 8 0c0-2-1-3-2-4 0 1-.5 2-1 2 .5-2-1-4-2-6z" fill="url(#ws-g2)"/></svg>';
+  /* brand mark: flat inks (a drop and a flame), no gradients — it sits on paper */
+  var BRAND_SVG = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M12 3c-1 5-7 9-7 15a7 7 0 0 0 14 0c0-6-6-10-7-15z" fill="#1f6f8b"/><path d="M22 10c0 3-3 4-3 8a4 4 0 0 0 8 0c0-2-1-3-2-4 0 1-.5 2-1 2 .5-2-1-4-2-6z" fill="#c1440e"/></svg>';
   UI.BRAND_SVG = BRAND_SVG;
 
   /* ------------------------------------------------------------------ SVG charts */
@@ -306,7 +334,7 @@
     var svg = hs('svg', { viewBox: '0 0 ' + w + ' ' + hh, width: w, height: hh, 'aria-hidden': 'true' });
     if (vals.length < 2) {
       /* no words in the chart: a dashed baseline (and a dot for a single reading) says "no history yet" */
-      svg.appendChild(hs('line', { x1: 0, y1: hh - 6, x2: w, y2: hh - 6, stroke: 'rgba(255,255,255,.15)', 'stroke-dasharray': '3 3' }));
+      svg.appendChild(hs('line', { x1: 0, y1: hh - 6, x2: w, y2: hh - 6, stroke: '#8a7d6b', 'stroke-dasharray': '3 3' }));
       if (vals.length === 1) svg.appendChild(hs('circle', { cx: w - 3, cy: hh - 6, class: 'dot', fill: color }));
       return svg;
     }
@@ -421,13 +449,14 @@
     m.prevFocus = document.activeElement;
     var modal = h('div', { class: 'modal' + (o.className ? ' ' + o.className : '') + (o.critical ? ' critical' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': o.title || 'Dialog', tabindex: '-1' });
     if (o.title || o.icon || o.eyebrow) {
+      /* o.icon is an icon name or an emoji from the sim data (event cards) — both resolve to a silhouette */
       modal.appendChild(h('div', { class: 'mhead' }, [
-        o.icon ? h('div', { class: 'micon' }, o.icon) : null,
-        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, o.eyebrow) : null, o.title || '']),
+        o.icon ? h('div', { class: 'micon', 'aria-hidden': 'true' }, UI.icon(o.icon, 26)) : null,
+        h('div', { class: 'mtitle' }, [o.eyebrow ? h('span', { class: 'eyebrow' }, [h('span', { class: 'stamp' }, o.eyebrow)]) : null, o.title || '']),
         (o.head && o.head.nodeType) ? h('div', { class: 'head-extra' }, o.head) : null   /* e.g. the player's portrait badge */
       ]));
     }
-    if (!o.critical) modal.appendChild(h('button', { class: 'close ghost', type: 'button', 'aria-label': 'Close', onclick: function () { close(undefined); } }, '×'));
+    if (!o.critical) modal.appendChild(h('button', { class: 'close ghost', type: 'button', 'aria-label': 'Close', onclick: function () { close(undefined); } }, UI.icon('cross', 16)));
     var body = h('div', { class: 'mbody' });
     modal.appendChild(body);
     try { if (o.render) o.render(body, close); } catch (e) { console.error('modal render failed', e); body.appendChild(h('p', { class: 'muted' }, 'Something went wrong rendering this dialog.')); }
@@ -458,8 +487,8 @@
     /* top bar */
     E.topbar = h('div', { id: 'topbar', class: 'bar panel', role: 'banner' });
     E.brand = h('div', { class: 'brand', 'data-tip': 'Watershed — a Colorado water-resilience simulation' }, [h('span', { html: BRAND_SVG }), h('div', {}, [h('span', { class: 'wordmark' }, 'WATERSHED')])]);
-    E.date = h('div', { class: 'hud-block', id: 'hud-date', 'data-tip': 'Season and year' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '📅'), h('span', { class: 'v' }, '—')]);
-    E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Budget · emergency fund. The budget refills each Winter; the fund is only spent during storm preparation.' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '💵'), h('span', { class: 'v' }, '—')]);
+    E.date = h('div', { class: 'hud-block', id: 'hud-date', 'data-tip': 'Season and year' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('calendar', 15)), h('span', { class: 'v' }, '—')]);
+    E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Budget · emergency fund. The budget refills each Winter; the fund is only spent during storm preparation.' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('coins', 15)), h('span', { class: 'v' }, '—')]);
     E.outcomes = h('div', { class: 'outcomes', id: 'hud-outcomes' });
     E.outcome = {};
     OUT_KEYS.forEach(function (k) {
@@ -474,27 +503,24 @@
     ]);
     /* top-bar buttons are icon-only: the word is the tooltip + aria-label */
     function iconBtn(id, icon, label, tip, extra) {
-      var b = h('button', Object.assign({ id: id, type: 'button', class: 'iconbtn', 'aria-label': label, 'data-tip': tip || label }, extra || {}), [h('span', { class: 'ic', 'aria-hidden': 'true' }, icon)]);
+      var b = h('button', Object.assign({ id: id, type: 'button', class: 'iconbtn', 'aria-label': label, 'data-tip': tip || label }, extra || {}), [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon(icon, 18))]);
       return b;
     }
-    E.btnOverlay = iconBtn('btn-overlay', '🧭', 'Map overlay', 'Map overlay (V) · none → watershed → fire risk → moisture → burn scar');
+    E.btnOverlay = iconBtn('btn-overlay', 'compass', 'Map overlay', 'Map overlay (V) · none → watershed → fire risk → moisture → burn scar');
     E.btnOverlay.appendChild(h('span', { class: 'mode', 'aria-hidden': 'true' }, ''));
     E.btnOverlay.addEventListener('click', function () { UI.cycleOverlay(); });
     /* "Advisors" opens the full Evidence Board on demand (topic popover). The in-town 3D advisors are the everyday path. */
-    E.btnEvidence = iconBtn('btn-advisors', '🗣', 'Advisors', 'Advisors · the Evidence Board', { 'aria-haspopup': 'menu' });
+    E.btnEvidence = iconBtn('btn-advisors', 'advisors', 'Advisors', 'Advisors · the Evidence Board', { 'aria-haspopup': 'menu' });
     E.btnEvidence.addEventListener('click', function (e) { e.stopPropagation(); UI.toggleEvidenceMenu(); });
     E.btnAdvisors = E.btnEvidence;
-    E.btnCases = iconBtn('btn-cases', '📚', 'Case studies', 'Case studies · real Colorado fires, floods and water fights');
+    E.btnCases = iconBtn('btn-cases', 'book', 'Case studies', 'Case studies · real Colorado fires, floods and water fights');
     E.btnCases.addEventListener('click', function () { if (UI.showCases) UI.showCases(); });
-    E.btnSave = iconBtn('btn-save', '💾', 'Save', 'Save to this browser');
-    E.btnSave.addEventListener('click', function () { UI.callGame('save', [], function (r) { UI.toast(r === false ? 'Save failed' : 'Game saved', r === false ? 'bad' : 'good'); UI.refresh(); }); });
-    E.btnLoad = iconBtn('btn-load', '📂', 'Load', 'Load the saved game');
-    E.btnLoad.addEventListener('click', function () { UI.callGame('load', [], function (r) { UI.toast(r === false ? 'No saved game found' : 'Game loaded', r === false ? 'warn' : 'good'); UI.refresh(); }); });
-    E.btnHelp = iconBtn('btn-help', '?', 'Help', 'Help · controls, phases, scoring');
+    /* Save / Load buttons removed (player feedback): autosave keeps running inside the game; game.save/load stay callable. */
+    E.btnHelp = iconBtn('btn-help', 'question', 'Help', 'Help · controls, phases, scoring');
     E.btnHelp.addEventListener('click', function () { if (UI.showHelp) UI.showHelp(); });
-    E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnSave, E.btnLoad, E.btnHelp]);
+    E.btnrow = h('div', { class: 'btnrow' }, [E.btnOverlay, E.btnEvidence, E.btnCases, E.btnHelp]);
     /* crisis chip: shown in the top bar while a fire/storm is fought live */
-    E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, '🚨'), h('span', { class: 'txt' }, '')]);
+    E.crisisChip = h('div', { id: 'crisis-chip', class: 'crisis-chip', hidden: true, role: 'status', 'aria-live': 'polite' }, [h('span', { class: 'siren', 'aria-hidden': 'true' }, UI.icon('siren', 15)), h('span', { class: 'txt' }, '')]);
     /* player portrait chip (far left): portrait + name + title; click flies the camera to the player figure */
     E.playerChip = h('button', { id: 'player-chip', class: 'player-chip', type: 'button', hidden: true, 'data-tip': 'Your character — click to fly to where they are' });
     E.playerChip.addEventListener('click', function () { UI.callGame('focusPlayer'); });
@@ -511,7 +537,7 @@
 
     /* fire banner */
     E.fireBanner = h('div', { id: 'fire-banner', class: 'fire-banner', hidden: true, role: 'status', 'aria-live': 'polite' }, [
-      h('span', { class: 'flame', 'aria-hidden': 'true' }, '🔥'), h('div', { class: 'grow' }, [h('div', { class: 't' }, 'Wildfire'), h('div', { class: 'd' }, '')])
+      h('span', { class: 'flame', 'aria-hidden': 'true' }, UI.icon('fire', 20)), h('div', { class: 'grow' }, [h('div', { class: 't' }, 'Wildfire'), h('div', { class: 'd' }, '')])
     ]);
     ui.appendChild(E.fireBanner);
 
@@ -519,12 +545,12 @@
     E.panelLeft = h('section', { id: 'panel-left', class: 'panel side left', 'aria-label': 'Conditions' }, [
       h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Conditions'), h('div', { class: 'row' }, [
         h('span', { class: 'small dim', id: 'cond-season' }, ''),
-        h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse conditions', onclick: function () { UI.togglePanel('left', false); } }, '◀')
+        h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse conditions', onclick: function () { UI.togglePanel('left', false); } }, UI.icon('chevron-left', 14))
       ])]),
       E.conditions = h('div', { class: 'body', id: 'conditions' })
     ]);
     ui.appendChild(E.panelLeft);
-    E.toggleLeft = h('button', { class: 'panel-toggle left', type: 'button', 'aria-label': 'Show conditions', onclick: function () { UI.togglePanel('left'); } }, '📈 Conditions');
+    E.toggleLeft = h('button', { class: 'panel-toggle left', type: 'button', 'aria-label': 'Show conditions', onclick: function () { UI.togglePanel('left'); } }, [UI.icon('chart', 15), ' Conditions']);
     ui.appendChild(E.toggleLeft);
 
     /* right: actions */
@@ -537,12 +563,12 @@
     }));
     if (UI._tab === 'log') UI._tab = 'projects';
     E.panelRight = h('section', { id: 'panel-right', class: 'panel side right', 'aria-label': 'Actions' }, [
-      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('div', { class: 'row' }, [h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, '▶')])]),
+      h('div', { class: 'head' }, [h('span', { class: 'title' }, 'Actions'), h('div', { class: 'row' }, [h('button', { class: 'ghost tiny', type: 'button', 'aria-label': 'Collapse actions', onclick: function () { UI.togglePanel('right', false); } }, UI.icon('chevron-right', 14))])]),
       E.tabbar,
       E.tabBody = h('div', { class: 'body', id: 'tab-body', role: 'tabpanel' })
     ]);
     ui.appendChild(E.panelRight);
-    E.toggleRight = h('button', { class: 'panel-toggle right', type: 'button', 'aria-label': 'Show actions', onclick: function () { UI.togglePanel('right'); } }, '🛠 Actions');
+    E.toggleRight = h('button', { class: 'panel-toggle right', type: 'button', 'aria-label': 'Show actions', onclick: function () { UI.togglePanel('right'); } }, [UI.icon('tools', 15), ' Actions']);
     ui.appendChild(E.toggleRight);
 
     /* placement toolbar */
@@ -557,10 +583,10 @@
 
     /* bottom bar */
     E.phaseChip = h('span', { id: 'phase-chip', class: 'chip phase-chip' }, [h('i', { class: 'dot' }), h('span', { class: 'txt' }, 'Boot')]);
-    E.primary = h('button', { id: 'primary-btn', class: 'primary', type: 'button', disabled: true }, [h('span', { class: 'spin' }), h('span', { class: 'lbl' }, 'End Season ▶')]);
+    E.primary = h('button', { id: 'primary-btn', class: 'primary', type: 'button', disabled: true }, [h('span', { class: 'spin' }), h('span', { class: 'lbl' }, 'End Season'), h('span', { class: 'lic', 'aria-hidden': 'true' }, UI.icon('play', 14))]);
     E.primary.addEventListener('click', function () { UI.primaryAction(); });
     E.speedBtns = {};
-    E.speed = h('div', { class: 'row speed', id: 'speed', 'data-tip': 'Speed (keys 1–4)' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⏩'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Speed' }, [1, 2, 4].map(function (n) {
+    E.speed = h('div', { class: 'row speed', id: 'speed', 'data-tip': 'Speed (keys 1–4)' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('speed', 14)), h('div', { class: 'seg', role: 'group', 'aria-label': 'Speed' }, [1, 2, 4].map(function (n) {
       var b = h('button', { type: 'button', 'data-speed': n, 'aria-label': n + 'x speed', onclick: function () { UI.setSpeed(n); } }, n + '×');
       E.speedBtns[n] = b; return b;
     }))]);
@@ -660,7 +686,7 @@
           if (UI.game && typeof UI.game.askAdvisor === 'function') UI.callGame('askAdvisor', [ch.id]);
           else UI.callGame('openEvidence', [UI.EVIDENCE_TOPICS[0][0]]);
         } }, [
-          face ? UI.portrait(face, 24) : h('span', { class: 'av', style: { background: ch.color || '#4aa3df' }, 'aria-hidden': 'true' }, ch.avatarEmoji || '🧑'),
+          face ? UI.portrait(face, 24) : h('span', { class: 'av', style: { background: ch.color || '#1f6f8b' }, 'aria-hidden': 'true' }, UI.icon(ch.avatarEmoji || 'person', 14)),
           h('div', { class: 'grow' }, [h('div', { class: 'an' }, ch.name || 'Advisor'), ch.role ? h('div', { class: 'ar' }, ch.role) : null])
         ]));
       });
@@ -731,20 +757,22 @@
   };
   UI.updatePrimary = function () {
     var E = UI.els, p = UI._phase, s = st(); if (!E.primary) return;
-    var label = 'End Season ▶', enabled = false, warn = false;
-    if (p === PH.PLAN) { label = 'End Season ▶'; enabled = true; }
-    else if (p === PH.FLOOD_PREP) { label = 'Brace for storm ⛈'; enabled = true; warn = true; }
-    else if (p === PH.LIVE) label = 'Season in progress…';
-    else if (p === PH.FLOOD) label = 'Storm underway…';
-    else if (p === PH_FIRE) label = 'Fighting fire 🔥';
-    else if (p === PH_STORM) label = 'Storm defense 🌊';
-    else if (p === PH.EVENT) label = 'Decide…';
-    else if (p === PH.REPORT) label = 'Reviewing…';
-    else if (p === PH.END) label = 'Game over';
-    else label = 'Starting…';
-    if (UI._primaryOverride) { if (UI._primaryOverride.label) label = UI._primaryOverride.label; if (UI._primaryOverride.enabled != null) enabled = !!UI._primaryOverride.enabled; }
+    var label = 'End Season', icon = 'play', enabled = false, warn = false;
+    if (p === PH.PLAN) { label = 'End Season'; enabled = true; }
+    else if (p === PH.FLOOD_PREP) { label = 'Brace for storm'; icon = 'storm'; enabled = true; warn = true; }
+    else if (p === PH.LIVE) { label = 'Season in progress…'; icon = 'clock'; }
+    else if (p === PH.FLOOD) { label = 'Storm underway…'; icon = 'wave'; }
+    else if (p === PH_FIRE) { label = 'Fighting fire'; icon = 'fire'; }
+    else if (p === PH_STORM) { label = 'Storm defense'; icon = 'wave'; }
+    else if (p === PH.EVENT) { label = 'Decide…'; icon = 'question'; }
+    else if (p === PH.REPORT) { label = 'Reviewing…'; icon = 'notebook'; }
+    else if (p === PH.END) { label = 'Game over'; icon = 'flag'; }
+    else { label = 'Starting…'; icon = 'clock'; }
+    if (UI._primaryOverride) { if (UI._primaryOverride.label) { var sp = UI.splitLeadEmoji(UI._primaryOverride.label); label = UI.stripEmoji(sp.text); if (sp.icon) icon = sp.icon; } if (UI._primaryOverride.enabled != null) enabled = !!UI._primaryOverride.enabled; }
     if (E.ui.classList.contains('busy')) enabled = false;
     E.primary.querySelector('.lbl').textContent = label;
+    var lic = E.primary.querySelector('.lic');
+    if (lic && lic.dataset.icon !== icon) { clear(lic).appendChild(UI.icon(icon, 14)); lic.dataset.icon = icon; }
     E.primary.disabled = !enabled;
     E.primary.classList.toggle('warn', warn);
     E.primary.title = p === PH.PLAN ? 'Space: end the ' + seasonName(s.season) + ' planning phase and run the season' : '';
@@ -766,18 +794,18 @@
   };
   UI.toast = function (text, kind) {
     var E = UI.els; if (!E.toasts) return;
-    var full = String(text == null ? '' : text), brief = UI.cap(full, UI.WORD_CAPS.toast);
-    var t = h('div', { class: 'toast ' + (kind || 'info'), role: 'status', 'data-tip': brief !== full ? full : null, 'aria-label': full }, [h('span', { 'aria-hidden': 'true' }, (UI.KIND_ICONS[kind] || 'ℹ') + ' '), brief]);
+    var full = UI.stripEmoji(text), brief = UI.cap(full, UI.WORD_CAPS.toast);
+    var t = h('div', { class: 'toast ' + (kind || 'info'), role: 'status', 'data-tip': brief !== full ? full : null, 'aria-label': full }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon(UI.KIND_ICONS[kind] || 'info', 14)), h('span', { class: 'txt' }, brief)]);
     E.toasts.appendChild(t);
     while (E.toasts.children.length > 5) E.toasts.removeChild(E.toasts.firstChild);
     var ttl = kind === 'bad' ? 7000 : 4500;
     setTimeout(function () { t.classList.add('leaving'); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 240); }, ttl);
     return t;
   };
-  /** Ticker shows numbers only ("Runoff 7,384 AF · Reservoir 86% · 🔥 52"); `text` becomes the tooltip + live-region message. */
+  /** Ticker shows numbers only ("Runoff 7,384 AF · Reservoir 86% · [fire] 52"); `text` becomes the tooltip + live-region message. */
   UI.ticker = function (text) {
     var E = UI.els; if (!E.ticker) return;
-    var msg = String(text == null ? '' : text);
+    var msg = UI.stripEmoji(text);
     if (msg) { E.ticker.setAttribute('data-tip', msg); if (E.tickerMsg) E.tickerMsg.textContent = msg; }
     UI.renderTicker();
     var tx = E.ticker.querySelector('.txt');
@@ -790,11 +818,11 @@
     var pctFull = cap > 0 ? clamp(fin(rv.storageAF) / cap * 100, 0, 100) : 0;
     var tx = E.ticker.querySelector('.txt'); clear(tx);
     append(tx, [
-      h('span', { class: 'ti', 'data-tip': 'Runoff this season (inflow)' }, [h('i', { 'aria-hidden': 'true' }, '💧'), ' ', af(w.inflowAF)]),
+      h('span', { class: 'ti', 'data-tip': 'Runoff this season (inflow)' }, [h('i', { 'aria-hidden': 'true' }, UI.icon('drop', 13)), ' ', af(w.inflowAF)]),
       h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
-      h('span', { class: 'ti', 'data-tip': 'Reservoir · ' + af(rv.storageAF) + ' of ' + af(cap) }, [h('i', { 'aria-hidden': 'true' }, '🏔'), ' ', Math.round(pctFull) + '%']),
+      h('span', { class: 'ti', 'data-tip': 'Reservoir · ' + af(rv.storageAF) + ' of ' + af(cap) }, [h('i', { 'aria-hidden': 'true' }, UI.icon('dam', 13)), ' ', Math.round(pctFull) + '%']),
       h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'),
-      h('span', { class: 'ti', 'data-tip': 'Fire danger · ' + (cl.fireDangerLabel || '') }, [h('i', { 'aria-hidden': 'true' }, '🔥'), ' ', Math.round(clamp(cl.fireDanger, 0, 1) * 100)])
+      h('span', { class: 'ti', 'data-tip': 'Fire danger · ' + (cl.fireDangerLabel || '') }, [h('i', { 'aria-hidden': 'true' }, UI.icon('fire', 13)), ' ', Math.round(clamp(cl.fireDanger, 0, 1) * 100)])
     ]);
   };
   /** info: { acres, zones:[names]|zoneNames|zoneIds, crewFocus, name, perimeterCells, threatened:[names] } or null */
@@ -836,7 +864,7 @@
     E.date.setAttribute('aria-label', 'Year ' + fin(s.year, 1) + (s.years ? ' of ' + s.years : '') + ', ' + seasonStr);
     var bv = E.budget.querySelector('.v');
     clear(bv); bv.classList.toggle('neg', fin(s.budget) < 0);
-    append(bv, [money(s.budget), h('span', { class: 'em', 'aria-hidden': 'true' }, ' · 🧯 ' + money(s.emergencyFund))]);
+    append(bv, [money(s.budget), h('span', { class: 'em', 'aria-hidden': 'true' }, [' · ', UI.icon('extinguisher', 12), ' ' + money(s.emergencyFund)])]);
     E.budget.setAttribute('aria-label', 'Budget ' + money(s.budget) + ', emergency fund ' + money(s.emergencyFund));
     var o = s.outcomes || {};
     OUT_KEYS.forEach(function (k) {
@@ -896,9 +924,12 @@
   function gauge(opts) {
     var label = UI.cap(opts.label, UI.WORD_CAPS.label);
     var g = h('div', { class: 'gauge' + (opts.cls ? ' ' + opts.cls : ''), 'data-cond': opts.id, role: 'group', 'aria-label': (opts.a11y || label) });
-    g.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, opts.icon || '▪'));
+    g.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon(opts.icon || 'dot', 20)));
     g.appendChild(h('div', { class: 'v num' }, opts.value));
-    g.appendChild(h('div', { class: 'k' }, [h('span', { class: 'lbl' }, label), opts.tip ? UI.info(opts.tip) : null, opts.status ? h('span', { class: 'st ' + (opts.status.cls || ''), 'data-tip': opts.status.tip || null, 'aria-label': opts.status.tip || null, role: opts.status.tip ? 'img' : null }, opts.status.glyph) : null]));
+    /* status.glyph = icon name (check / cross / wind) + optional text (e.g. wind speed) */
+    var stNode = null;
+    if (opts.status) stNode = h('span', { class: 'st ' + (opts.status.cls || ''), 'data-tip': opts.status.tip || null, 'aria-label': opts.status.tip || null, role: opts.status.tip ? 'img' : null }, [UI.icon(opts.status.glyph || 'dot', 13), opts.status.text != null ? ' ' + opts.status.text : null]);
+    g.appendChild(h('div', { class: 'k' }, [h('span', { class: 'lbl' }, label), opts.tip ? UI.info(opts.tip) : null, stNode]));
     if (opts.spark) g.appendChild(h('div', { class: 'spark', 'aria-hidden': 'true' }, opts.spark));
     if (opts.bar) g.appendChild(h('div', { class: 'bar' }, opts.bar));
     return g;
@@ -929,31 +960,31 @@
     /* snowpack */
     var sp = fin(cl.snowpackPct, 100), swe = fin(cl.snowSWEin, 0);
     core.appendChild(gauge({
-      id: 'snowpack', icon: '❄', label: 'Snowpack',
+      id: 'snowpack', icon: 'snowflake', label: 'Snowpack',
       tip: 'Snowpack · ' + Math.round(sp) + '% of average · SWE ' + num(swe, 1) + ' in (avg ' + fin((C.HYDRO || {}).AVG_SNOW_SWE_IN, 18) + '). About 70–80% of Colorado\'s streamflow starts as snowmelt, so this is the best early forecast of supply.' + uncTip,
       a11y: 'Snowpack ' + Math.round(sp) + ' percent of average',
-      spark: UI.sparkline(historyValues('snowpackPct'), { color: '#bfe1f7', min: 0 }),
+      spark: UI.sparkline(historyValues('snowpackPct'), { color: '#4b8fa8', min: 0 }),
       value: uncertain ? [h('span', { class: 'range' }, rangeText(sp, unc, function (v) { return Math.round(v) + '%'; }))] : [Math.round(sp) + '%']
     }));
     /* precipitation */
     more.appendChild(gauge({
-      id: 'precip', icon: '🌧', label: 'Precip',
+      id: 'precip', icon: 'cloud-rain', label: 'Precip',
       tip: 'Precipitation this season, inches. Intense rain on a burn scar produces flash floods and debris flows.',
-      spark: UI.sparkline(historyValues('precipIn'), { color: '#7dd3c0', min: 0 }),
+      spark: UI.sparkline(historyValues('precipIn'), { color: '#2f7f75', min: 0 }),
       value: [num(cl.precipIn, 1), unit('in')]
     }));
     /* temperature anomaly */
     var ta = fin(cl.tempAnomF);
     more.appendChild(gauge({
-      id: 'temp', icon: '🌡', label: 'Temp',
+      id: 'temp', icon: 'thermometer', label: 'Temp',
       tip: 'Temperature vs the seasonal average, °F' + (ta > 3 ? ' (hot)' : ta < -2 ? ' (cool)' : ' (near normal)') + '. Warm seasons melt snow early, dry fuels and soils, raise crop demand and evaporate storage.',
-      spark: UI.sparkline(historyValues('tempAnomF'), { color: ta > 2 ? '#ff7a33' : '#e9c46a' }),
+      spark: UI.sparkline(historyValues('tempAnomF'), { color: ta > 2 ? '#c1440e' : '#a8741a' }),
       value: [signed(ta, 1) + '°']
     }));
     /* reservoir */
     var spct = cap > 0 ? stor / cap * 100 : 0, dead = fin((C.HYDRO || {}).RESERVOIR_DEAD_POOL_AF, 4000);
     core.appendChild(gauge({
-      id: 'reservoir', icon: '🏔', label: 'Reservoir',
+      id: 'reservoir', icon: 'dam', label: 'Reservoir',
       tip: 'Reservoir · ' + af(stor) + ' of ' + af(cap) + ' (' + Math.round(spct) + '% full). 1 AF ≈ 326,000 gallons. The bottom ' + dead.toLocaleString() + ' AF is dead pool and cannot be delivered.',
       a11y: 'Reservoir ' + Math.round(spct) + ' percent full, ' + af(stor),
       spark: UI.sparkline(historyValues('storageAF'), { color: UI.COLORS.water, min: 0, max: cap }),
@@ -963,38 +994,38 @@
     /* soil moisture */
     var sm = clamp(cl.soilMoisturePct, 0, 100);
     more.appendChild(gauge({
-      id: 'soil', icon: '🌱', label: 'Soil',
+      id: 'soil', icon: 'soil', label: 'Soil',
       tip: 'Soil moisture, % of field capacity. Dry soils soak up the first snowmelt, stress crops and forests, and let fire spread faster.',
-      spark: UI.sparkline(historyValues('soilMoisturePct'), { color: '#a5843c', min: 0, max: 100 }),
+      spark: UI.sparkline(historyValues('soilMoisturePct'), { color: '#8a6a2a', min: 0, max: 100 }),
       value: [Math.round(sm) + '%'],
       bar: h('div', { class: 'meter thin' }, h('i', { class: 'turbid', style: { width: sm + '%' } }))
     }));
     /* streamflow: ✓ / ✗ against the minimum-flow right */
     var cfs = fin(cl.streamflowCfs), minf = fin((C.HYDRO || {}).MIN_FLOW_CFS, 14), flowOk = cfs >= minf;
     core.appendChild(gauge({
-      id: 'flow', icon: '🌊', label: 'Streamflow', cls: flowOk ? '' : 'bad',
+      id: 'flow', icon: 'stream', label: 'Streamflow', cls: flowOk ? '' : 'bad',
       tip: 'Streamflow below the dam, cfs. The instream-flow right needs ' + minf + ' cfs for fish and the riparian corridor; hydropower and rafting also depend on releases.' + uncTip,
       a11y: 'Streamflow ' + Math.round(cfs) + ' cfs, minimum flow ' + minf + ' cfs ' + (flowOk ? 'met' : 'not met'),
-      spark: UI.sparkline(historyValues('streamflowCfs'), { color: '#38bdf8', min: 0 }),
+      spark: UI.sparkline(historyValues('streamflowCfs'), { color: '#1f6f8b', min: 0 }),
       value: [uncertain ? h('span', { class: 'range' }, rangeText(cfs, unc, function (v) { return Math.round(v).toString(); })) : Math.round(cfs).toLocaleString(), unit('cfs')],
-      status: { glyph: flowOk ? '✓' : '✗', cls: flowOk ? 'ok' : 'bad', tip: (flowOk ? 'Minimum flow met · ' : 'Below minimum flow · ') + minf + ' cfs' }
+      status: { glyph: flowOk ? 'check' : 'cross', cls: flowOk ? 'ok' : 'bad', tip: (flowOk ? 'Minimum flow met · ' : 'Below minimum flow · ') + minf + ' cfs' }
     }));
     /* fire danger + wind */
     var lvl = dangerLevel(cl.fireDanger, cl.fireDangerLabel), wind = Math.round(fin(cl.windMph)), wdir = cl.windDirRad != null ? compass(cl.windDirRad) : '';
     core.appendChild(gauge({
-      id: 'danger', icon: '🔥', label: 'Fire danger',
+      id: 'danger', icon: 'fire', label: 'Fire danger',
       tip: 'Fire danger ' + num(clamp(cl.fireDanger, 0, 1) * 100, 0) + '/100 · wind ' + wind + ' mph' + (wdir ? ' from the ' + wdir : '') + '. Heat, dryness, soil moisture, wind and fuel build-up combined.',
       a11y: 'Fire danger ' + (cl.fireDangerLabel || DANGER_LABELS[lvl]) + ', wind ' + wind + ' miles per hour' + (wdir ? ' from the ' + wdir : ''),
       spark: UI.sparkline(historyValues('fireDanger'), { color: UI.COLORS.fire, min: 0, max: 1 }),
       value: [UI.cap(cl.fireDangerLabel || DANGER_LABELS[lvl], 2), unit(num(clamp(cl.fireDanger, 0, 1) * 100, 0))],
-      status: { glyph: '🌬 ' + wind, cls: 'wind' + (wind > 20 ? ' bad' : ''), tip: 'Wind ' + wind + ' mph' + (wdir ? ' from the ' + wdir : '') },
+      status: { glyph: 'wind', text: wind, cls: 'wind' + (wind > 20 ? ' bad' : ''), tip: 'Wind ' + wind + ' mph' + (wdir ? ' from the ' + wdir : '') },
       bar: h('div', { class: 'dial', role: 'img', 'aria-label': 'Fire danger level ' + (lvl + 1) + ' of 5' }, [0, 1, 2, 3, 4].map(function (i) { return h('i', { class: i <= lvl ? 'on l' + (lvl + 1) : '' }); }))
     }));
     /* drought */
     var dc = String(cl.drought || 'None'), di = ['D0', 'D1', 'D2', 'D3', 'D4'].indexOf(dc);
     var dname = ['', 'abnormally dry', 'moderate', 'severe', 'extreme', 'exceptional'][di + 1] || 'none';
     core.appendChild(gauge({
-      id: 'drought', icon: '☀', label: 'Drought',
+      id: 'drought', icon: 'drought', label: 'Drought',
       tip: 'Drought ' + dc + (dname && dname !== 'none' ? ' · ' + dname : '') + '. U.S. Drought Monitor: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme, D4 exceptional.',
       a11y: 'Drought ' + (dc === 'None' ? 'none' : dc + ', ' + dname),
       value: [dc === 'None' ? '—' : dc],
@@ -1002,19 +1033,19 @@
     }));
     /* population */
     more.appendChild(gauge({
-      id: 'pop', icon: '👥', label: 'People',
+      id: 'pop', icon: 'people', label: 'People',
       tip: 'Population ' + Math.round(fin(s.population)).toLocaleString() + (s.growthRate != null ? ', growing ' + num(fin(s.growthRate) * 100, 1) + '%/yr' : '') + '. Each home adds ~' + fin((C.HYDRO || {}).GPCD, 118) + ' gallons per person per day.',
-      spark: UI.sparkline(historyValues('population'), { color: '#c9c4b8' }),
+      spark: UI.sparkline(historyValues('population'), { color: '#5d5346' }),
       value: [Math.round(fin(s.population)).toLocaleString()]
     }));
     /* water quality */
     var turb = clamp(rv.turbidity, 0, 1), ash = clamp(rv.ashContam, 0, 1), alg = clamp(rv.algae, 0, 1);
     var qLabel = turb < 0.15 && ash < 0.1 ? 'Clear' : (ash > 0.4 || turb > 0.6 ? 'Polluted' : 'Turbid');
     core.appendChild(gauge({
-      id: 'quality', icon: '🧪', label: 'Water quality', cls: qLabel === 'Polluted' ? 'bad' : '',
+      id: 'quality', icon: 'flask', label: 'Water quality', cls: qLabel === 'Polluted' ? 'bad' : '',
       tip: 'Water quality · turbidity ' + Math.round(turb * 100) + ' · ash ' + Math.round(ash * 100) + (alg > 0.2 ? ' · algae ' + Math.round(alg * 100) : '') + '. Ash carries nutrients, metals and carbon that treatment plants struggle with.',
       a11y: 'Water quality ' + qLabel + ', turbidity ' + Math.round(turb * 100) + ', ash ' + Math.round(ash * 100),
-      spark: UI.sparkline(historyValues('turbidity'), { color: '#a5843c', min: 0, max: 1 }),
+      spark: UI.sparkline(historyValues('turbidity'), { color: '#8a6a2a', min: 0, max: 1 }),
       value: [qLabel],
       bar: h('div', { class: 'stack' }, [
         h('div', { class: 'meter thin', 'data-tip': 'Turbidity ' + Math.round(turb * 100) + '/100' }, h('i', { class: 'turbid', style: { width: turb * 100 + '%' } })),
@@ -1022,14 +1053,15 @@
       ])
     }));
     box.appendChild(core);
-    /* "more readings" = an icon row (🌧 🌡 🌱 👥); the words are the tooltip */
+    /* "more readings" = an icon row (rain · thermometer · sprout · people); the words are the tooltip */
+    var caret = h('span', { class: 'caret', 'aria-hidden': 'true' }, UI.icon(moreOpen ? 'chevron-up' : 'chevron-down', 12));
     var moreBtn = h('button', { class: 'ghost tiny cond-more-btn', type: 'button', id: 'cond-more-btn', 'aria-expanded': moreOpen ? 'true' : 'false', 'aria-controls': 'cond-more', 'aria-label': 'More readings: precipitation, temperature, soil moisture, population', 'data-tip': 'More readings · precipitation, temperature, soil, population' }, [
-      h('span', { class: 'ics', 'aria-hidden': 'true' }, '🌧 🌡 🌱 👥'), h('span', { class: 'caret', 'aria-hidden': 'true' }, moreOpen ? '▴' : '▾')
+      h('span', { class: 'ics', 'aria-hidden': 'true' }, ['cloud-rain', 'thermometer', 'soil', 'people'].map(function (n) { return UI.icon(n, 13); })), caret
     ]);
     moreBtn.addEventListener('click', function () {
       var open = more.hidden; more.hidden = !open;
       moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      moreBtn.querySelector('.caret').textContent = open ? '▴' : '▾';
+      clear(caret).appendChild(UI.icon(open ? 'chevron-up' : 'chevron-down', 12));
       UI.pref('condMore', open);
     });
     box.appendChild(moreBtn);
@@ -1044,7 +1076,13 @@
   /* ------------------------------------------------------------------ Tactical HUD (live fire / storm), crisis chip, alerts */
   var TAC = UI._tac = { spec: null, order: '', tools: {}, zoneKey: '', built: false, on: false };
   var ZONE_TOOLS = { engine: 1, evacuate: 1 }, INSTANT_TOOLS = { spillway: 1, mutual_aid: 1 };
-  var ZONE_TYPE_ICONS = { neighborhood: '🏘', farm: '🌾', civic: '🏛', forest: '🌲', reservoir: '💧', wetland: '🌿', town: '🏙' };
+  var ZONE_TYPE_ICONS = { neighborhood: 'houses', farm: 'bales', civic: 'building', forest: 'trees', reservoir: 'drop', wetland: 'wetland', town: 'houses' };
+  /** Replace an element's children with one icon when the icon name changed (cheap diff for the ~2×/s tactical updates). */
+  function setIcon(el, name, size) {
+    if (!el) return; name = UI.iconName(name, 'dot');
+    if (el.dataset.icon === name) return;
+    clear(el).appendChild(UI.icon(name, size || 16)); el.dataset.icon = name;
+  }
   function setText(el, s) { s = String(s == null ? '' : s); if (el && el.textContent !== s) el.textContent = s; }
   function setAttr(el, k, v) {
     if (!el) return;
@@ -1087,10 +1125,10 @@
   function buildTactical() {
     var E = UI.els, box = E.tactical; if (!box || TAC.built) return;
     clear(box);
-    E.tacIcon = h('span', { class: 'mode-ic', 'aria-hidden': 'true' }, '🔥');
+    E.tacIcon = h('span', { class: 'mode-ic', 'aria-hidden': 'true' }); setIcon(E.tacIcon, 'fire', 22);
     E.tacTitle = h('div', { class: 't' }, ''); E.tacSub = h('div', { class: 'sub' }, '');
     E.tacStepN = h('span', { class: 'n num' }, ''); E.tacStepBar = h('i', { style: { width: '0%' } });
-    E.tacPause = h('button', { id: 'tac-pause', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Pause', 'data-tip': 'Pause / resume (Space)' }, '⏸');
+    E.tacPause = h('button', { id: 'tac-pause', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Pause', 'data-tip': 'Pause / resume (Space)' }); setIcon(E.tacPause, 'pause', 14);
     E.tacPause.addEventListener('click', function () { UI.tacticalTogglePause(); });
     E.tacSpeedBtns = {};
     E.tacSpeed = h('div', { class: 'seg', id: 'tac-speed', role: 'group', 'aria-label': 'Speed' }, [1, 2].map(function (n) {
@@ -1099,17 +1137,18 @@
     }));
     box.appendChild(h('div', { class: 'thead' }, [
       E.tacIcon, h('div', { class: 'tt' }, [E.tacTitle, E.tacSub]),
-      h('div', { class: 'stepc', 'data-tip': 'Step · so far / longest this crisis can run', 'aria-label': 'Step' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, '⏱'), E.tacStepN, h('div', { class: 'meter thin' }, E.tacStepBar)]),
+      h('div', { class: 'stepc', 'data-tip': 'Step · so far / longest this crisis can run', 'aria-label': 'Step' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('clock', 13)), E.tacStepN, h('div', { class: 'meter thin' }, E.tacStepBar)]),
       h('div', { class: 'ctrl' }, [E.tacPause, E.tacSpeed])
     ]));
-    E.tacPointsLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }, '👷'); E.tacPointsN = h('span', { class: 'n num' }, ''); E.tacPointsBar = h('i', { style: { width: '0%' } });
+    E.tacPointsLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }); setIcon(E.tacPointsLabel, 'crew', 14); E.tacPointsN = h('span', { class: 'n num' }, ''); E.tacPointsBar = h('i', { style: { width: '0%' } });
     E.tacPoints = h('div', { class: 'points', id: 'tac-points', role: 'group', 'aria-label': 'Points' }, [h('div', { class: 'row between' }, [E.tacPointsLabel, E.tacPointsN]), h('div', { class: 'meter' }, E.tacPointsBar)]);
     E.tacTools = h('div', { class: 'tools', id: 'tac-tools', role: 'group', 'aria-label': 'Tools (keys 1–5)' });
     E.tacZoneSel = h('select', { id: 'tac-zone-select', 'aria-label': 'Neighborhood' });
     E.tacZoneSel.addEventListener('change', function () { var v = Number(E.tacZoneSel.value); if (isFinite(v)) UI.callGame('highlightZone', [v]); });
-    E.tacZoneApply = h('button', { class: 'primary tiny', id: 'tac-zone-apply', type: 'button' }, 'Apply');
+    E.tacZoneApplyIc = h('span', { class: 'ic', 'aria-hidden': 'true' }); E.tacZoneApplyTxt = h('span', {}, 'Apply');
+    E.tacZoneApply = h('button', { class: 'primary tiny', id: 'tac-zone-apply', type: 'button' }, [E.tacZoneApplyIc, E.tacZoneApplyTxt]);
     E.tacZoneApply.addEventListener('click', function () { UI.tacticalApplyZone(); });
-    E.tacZoneLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }, '🏘');
+    E.tacZoneLabel = h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('houses', 15));
     E.tacZone = h('div', { class: 'zone-row', id: 'tac-zone', hidden: true }, [E.tacZoneLabel, E.tacZoneSel, E.tacZoneApply]);
     E.tacHint = h('div', { class: 'hint', id: 'tac-hint' }, '');
     E.tacHeadline = h('div', { class: 'headline' }, '');
@@ -1128,7 +1167,7 @@
       clear(E.tacTools); TAC.tools = {}; TAC.order = order;
       tools.forEach(function (t, i) {
         t = t || {}; var type = t.type || ('tool' + i);
-        var r = { btn: null, ic: h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), n: h('span', { class: 'n' }, ''), cost: h('b', {}, ''), rem: h('span', { class: 'rem' }, '') };
+        var r = { btn: null, ic: h('span', { class: 'ic', 'aria-hidden': 'true' }), n: h('span', { class: 'n' }, ''), cost: h('b', {}, ''), rem: h('span', { class: 'rem' }), remKey: '' };
         r.btn = h('button', { class: 'tool', type: 'button', 'data-tool': type, 'aria-pressed': 'false' }, [
           i < 9 ? h('kbd', { class: 'key', 'aria-hidden': 'true' }, String(i + 1)) : null, r.ic, r.n, h('span', { class: 'c' }, [r.cost, r.rem])
         ]);
@@ -1139,10 +1178,15 @@
     tools.forEach(function (t) {
       t = t || {}; var r = TAC.tools[t.type]; if (!r) return;
       var shortName = UI.shortName(UI.TOOL_SHORT, t.type, t.name, UI.WORD_CAPS.tool);
-      setText(r.ic, t.icon || '▪'); setText(r.n, shortName); setText(r.cost, t.cost || '');
+      setIcon(r.ic, t.icon || UI.TOOL_ICONS[t.type] || 'dot', 18); setText(r.n, shortName); setText(r.cost, t.cost || '');
       var cd = fin(t.cooldown, 0), remaining = t.remaining;
-      var remText = cd > 0 ? ' · ⏱ ' + Math.ceil(cd) : (remaining != null && isFinite(Number(remaining)) ? ' · ×' + Math.max(0, Math.round(remaining)) : '');
-      setText(r.rem, remText);
+      /* cooldown = clock icon + steps; uses = ×n */
+      var remKey = cd > 0 ? 'cd:' + Math.ceil(cd) : (remaining != null && isFinite(Number(remaining)) ? 'x:' + Math.max(0, Math.round(remaining)) : '');
+      if (remKey !== r.remKey) {
+        r.remKey = remKey; clear(r.rem);
+        if (cd > 0) append(r.rem, [' · ', UI.icon('clock', 11), ' ' + Math.ceil(cd)]);
+        else if (remKey) append(r.rem, ' · ×' + Math.max(0, Math.round(remaining)));
+      }
       var disabled = !!t.disabled || cd > 0 || (remaining != null && fin(remaining) <= 0);
       r.btn.classList.toggle('selected', !!t.selected);
       r.btn.classList.toggle('disabled', disabled);
@@ -1174,7 +1218,8 @@
       if (!zones.length) E.tacZoneSel.appendChild(h('option', { value: '' }, 'No ' + ztype + 's'));
     }
     setAttr(E.tacZoneSel, 'aria-label', ztype === 'neighborhood' ? 'Neighborhood' : ztype);
-    setText(E.tacZoneApply, (sel.icon ? sel.icon + ' ' : '') + (sel.type === 'evacuate' ? 'Evacuate' : sel.type === 'engine' ? 'Station' : 'Apply'));
+    setIcon(E.tacZoneApplyIc, sel.icon || UI.TOOL_ICONS[sel.type] || 'check', 13);
+    setText(E.tacZoneApplyTxt, sel.type === 'evacuate' ? 'Evacuate' : sel.type === 'engine' ? 'Station' : 'Apply');
     E.tacZoneApply.disabled = !zones.length;
   }
   /** Threat panel = ≤ 8-word headline (full text in the tooltip), number rows, and one chip per threatened zone. */
@@ -1187,12 +1232,12 @@
       function (el, r) { r = r || {}; var lbl = UI.cap(r.label, 2); setText(el.firstChild, lbl); setAttr(el, 'data-tip', lbl !== String(r.label || '') ? String(r.label) : null); setText(el.lastChild, r.value); el.classList.toggle('bad', !!r.bad); });
     var list = Array.isArray(th.threatened) ? th.threatened : [];
     syncChildren(E.tacThreatened, list,
-      function () { return h('div', { class: 'tz chip', role: 'listitem' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, ''), h('span', { class: 'n' }, ''), h('span', { class: 'd num' }, '')]); },
+      function () { return h('div', { class: 'tz chip', role: 'listitem' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }), h('span', { class: 'n' }, ''), h('span', { class: 'd num' }, '')]); },
       function (el, z) {
         z = z || {}; var kids = el.children, storm = !!(TAC.spec && TAC.spec.mode === 'storm');
         var name = z.name || UI.zoneName(z.zoneId) || 'Zone';
         var d = Number(z.distance != null ? z.distance : z.distanceCells);
-        setText(kids[0], z.burning ? (storm ? '🌊' : '🔥') : (ZONE_TYPE_ICONS[z.type] || '📍')); setText(kids[1], UI.cap(name, 2));
+        setIcon(kids[0], z.burning ? (storm ? 'wave' : 'fire') : (ZONE_TYPE_ICONS[z.type] || 'pin'), 12); setText(kids[1], UI.cap(name, 2));
         setText(kids[2], z.burning ? '' : (isFinite(d) ? (d <= 0 ? '0' : String(Math.round(d))) : ''));
         el.classList.toggle('is-burning', !!z.burning); el.classList.toggle('danger', !!z.burning);
         var tip = name + (z.type ? ' · ' + z.type : '') + (z.burning ? (storm ? ' · water is in the streets' : ' · fire is inside') : (isFinite(d) ? ' · ' + Math.round(d) + ' cells (' + Math.round(d * fin(C.CELL_M, 100)) + ' m) from the ' + (storm ? 'water' : 'fire line') : ''));
@@ -1202,20 +1247,20 @@
   function renderTacHead() {
     var E = UI.els, s = TAC.spec || {}, mode = s.mode === 'storm' ? 'storm' : 'fire';
     E.tactical.classList.toggle('fire', mode === 'fire'); E.tactical.classList.toggle('storm', mode === 'storm');
-    setText(E.tacIcon, mode === 'storm' ? '⛈' : '🔥');
-    var title = String(s.title || (mode === 'storm' ? 'Storm defense' : 'Wildfire response'));
+    setIcon(E.tacIcon, mode === 'storm' ? 'storm' : 'fire', 22);
+    var title = UI.stripEmoji(s.title || (mode === 'storm' ? 'Storm defense' : 'Wildfire response'));
     setText(E.tacTitle, UI.cap(title, 4)); setAttr(E.tacTitle, 'data-tip', UI.cap(title, 4) !== title ? title : null);
     var sub = String(s.subtitle || ''); setText(E.tacSub, UI.cap(sub, 4)); setAttr(E.tacSub, 'data-tip', UI.cap(sub, 4) !== sub ? sub : null);
     var step = fin(s.step), max = fin(s.maxSteps);
     setText(E.tacStepN, max > 0 ? Math.round(step) + ' / ' + Math.round(max) : String(Math.round(step)));
     var w = (max > 0 ? clamp(step / max * 100, 0, 100) : 0) + '%'; if (E.tacStepBar.style.width !== w) E.tacStepBar.style.width = w;
     var paused = !!s.paused;
-    setText(E.tacPause, paused ? '▶' : '⏸'); E.tacPause.classList.toggle('paused', paused); setAttr(E.tacPause, 'aria-pressed', paused ? 'true' : 'false'); setAttr(E.tacPause, 'aria-label', paused ? 'Resume' : 'Pause');
+    setIcon(E.tacPause, paused ? 'play' : 'pause', 14); E.tacPause.classList.toggle('paused', paused); setAttr(E.tacPause, 'aria-pressed', paused ? 'true' : 'false'); setAttr(E.tacPause, 'aria-label', paused ? 'Resume' : 'Pause');
     var sp = Number(s.speed) === 2 ? 2 : 1;
     for (var k in E.tacSpeedBtns) E.tacSpeedBtns[k].classList.toggle('active', Number(k) === sp);
     if (E.speedBtns) for (var k2 in E.speedBtns) E.speedBtns[k2].classList.toggle('active', Number(k2) === sp);
     var p = s.points || {}, pLabel = p.label || (mode === 'storm' ? 'Emergency fund' : 'Crew points');
-    setText(E.tacPointsLabel, p.unit === '$M' || mode === 'storm' ? '💵' : '👷');
+    setIcon(E.tacPointsLabel, p.unit === '$M' || mode === 'storm' ? 'coins' : 'crew', 14);
     setAttr(E.tacPoints, 'aria-label', pLabel); setAttr(E.tacPoints, 'data-tip', pLabel);
     var pv = fin(p.value), pm = fin(p.max);
     setText(E.tacPointsN, fmtPoints(pv, p.unit) + (pm > 0 ? ' / ' + fmtPoints(pm, p.unit) : ''));
@@ -1230,7 +1275,7 @@
     }
     var hintBrief = UI.cap(hint, UI.WORD_CAPS.tacHeadline);
     setText(E.tacHint, hintBrief); setAttr(E.tacHint, 'data-tip', hintBrief !== String(hint) ? String(hint) : null);
-    var chip = s.chip || s.alarm || s.title || (mode === 'storm' ? 'FLASH FLOOD' : 'WILDFIRE');
+    var chip = UI.stripEmoji(s.chip || s.alarm || s.title || (mode === 'storm' ? 'FLASH FLOOD' : 'WILDFIRE'));
     setText(E.crisisChip.querySelector('.txt'), chip); E.crisisChip.hidden = false;
     E.topbar.classList.toggle('crisis-fire', mode === 'fire'); E.topbar.classList.toggle('crisis-storm', mode === 'storm');
   }
@@ -1307,7 +1352,7 @@
   var alertQ = [], alertBusy = false;
   UI.alert = function (text, kind) {
     var E = UI.els; if (!E.alert) return;
-    alertQ.push({ text: String(text == null ? '' : text), kind: kind || 'info' });
+    alertQ.push({ text: UI.stripEmoji(text), kind: kind || 'info' });
     if (alertQ.length > 6) alertQ.splice(0, alertQ.length - 6);
     pumpAlert();
   };
@@ -1315,8 +1360,8 @@
     if (alertBusy || !alertQ.length) return;
     var a = alertQ.shift(), E = UI.els; alertBusy = true;
     clear(E.alert);
-    var icon = UI.KIND_ICONS[a.kind] || (a.kind === 'storm' ? '⛈' : '');
-    var card = h('div', { class: 'alert-card ' + a.kind }, [icon ? h('span', { class: 'ic', 'aria-hidden': 'true' }, icon) : null, h('span', { class: 'txt' }, a.text)]);
+    var icon = UI.KIND_ICONS[a.kind] || null;
+    var card = h('div', { class: 'alert-card ' + a.kind }, [icon ? h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon(icon, 26)) : null, h('span', { class: 'txt' }, a.text)]);
     E.alert.appendChild(card); E.alert.hidden = false;
     setTimeout(function () {
       card.classList.add('leaving');
@@ -1342,18 +1387,18 @@
     if (prev && prev !== spec && typeof prev.onClose === 'function' && BUB.visible && prev.id !== spec.id) { try { prev.onClose('replaced'); } catch (e) { console.error(e); } }
     BUB.spec = spec;
     clear(el);
-    var color = spec.color || '#4aa3df';
+    var color = spec.color || '#1f6f8b';
     el.style.setProperty('--adv', color);
     el.dataset.advisor = spec.id || '';
     el.appendChild(h('span', { class: 'tail', 'aria-hidden': 'true' }));
-    /* 40 px portrait (WS.Faces) replaces the emoji dot; the emoji stays as a fallback when no face is known */
+    /* 40 px portrait (WS.Faces); when no face is known the advisor's emoji resolves to a silhouette on a coloured disc */
     var face = UI.faceOf(spec);
     el.appendChild(h('div', { class: 'who' }, [
-      face ? UI.portrait(face, 40, { expression: spec.expression }) : (spec.avatarEmoji ? h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, spec.avatarEmoji) : null),
+      face ? UI.portrait(face, 40, { expression: spec.expression }) : h('span', { class: 'av', style: { background: color }, 'aria-hidden': 'true' }, UI.icon(spec.avatarEmoji || 'person', 20)),
       h('div', { class: 'grow' }, [h('div', { class: 'name' }, spec.name || 'Advisor'), spec.role ? h('div', { class: 'role' }, spec.role) : null]),
-      h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: function () { UI.hideBubble(); } }, '×')
+      h('button', { class: 'x', type: 'button', 'aria-label': 'Close', onclick: function () { UI.hideBubble(); } }, UI.icon('cross', 12))
     ]));
-    el.appendChild(h('div', { class: 'txt' }, String(spec.text == null ? '' : spec.text)));
+    el.appendChild(h('div', { class: 'txt' }, UI.stripEmoji(spec.text)));
     var actions = Array.isArray(spec.actions) ? spec.actions.filter(Boolean) : [];
     if (actions.length) {
       el.appendChild(h('div', { class: 'acts' }, actions.map(function (a, i) {
@@ -1406,9 +1451,9 @@
     var el = UI.els.advisorHint; if (!el) return;
     if (text == null || text === false || text === '') { el.classList.remove('in'); el.hidden = true; return; }
     clear(el);
-    el.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, '🗣'));
-    el.appendChild(h('span', { class: 'txt' }, String(text)));
-    el.appendChild(h('button', { class: 'x', type: 'button', 'aria-label': 'Dismiss hint', onclick: function () { UI.setAdvisorHint(null); } }, '×'));
+    el.appendChild(h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('advisors', 14)));
+    el.appendChild(h('span', { class: 'txt' }, UI.stripEmoji(text)));
+    el.appendChild(h('button', { class: 'x', type: 'button', 'aria-label': 'Dismiss hint', onclick: function () { UI.setAdvisorHint(null); } }, UI.icon('cross', 11)));
     el.hidden = false;
     el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
   };
@@ -1417,10 +1462,12 @@
   function logEntryNode(e, idx) {
     var text = typeof e === 'string' ? e : (e && (e.text || e.label || e.message)) || '';
     var kind = (e && e.kind) || 'info';
+    /* main.js prefixes event log lines with the card's emoji: it becomes the row icon */
+    var lead = UI.splitLeadEmoji(text);
     return h('div', { class: 'entry ' + kind, 'data-i': idx }, [
-      h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.KIND_ICONS[kind] || 'ℹ'),
+      h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon(lead.icon || UI.KIND_ICONS[kind] || 'info', 13)),
       h('span', { class: 'when' }, turnLabel(e)),
-      h('span', { class: 'grow' }, String(text))
+      h('span', { class: 'grow' }, UI.stripEmoji(lead.text))
     ]);
   }
   UI.logEntryNode = logEntryNode;
@@ -1432,7 +1479,7 @@
     var list = h('div', { class: 'log' });
     var n = limit || 200, start = Math.max(0, log.length - n);
     for (var i = log.length - 1; i >= start; i--) list.appendChild(logEntryNode(log[i], i));
-    box.appendChild(h('div', { class: 'row between', style: { marginBottom: '6px' } }, [h('span', { class: 'label' }, log.length + ' entries · newest first'), h('button', { class: 'tiny ghost', type: 'button', onclick: function () { if (UI.showLog) UI.showLog(); } }, 'Timeline ↗')]));
+    box.appendChild(h('div', { class: 'row between', style: { marginBottom: '6px' } }, [h('span', { class: 'label' }, log.length + ' entries · newest first'), h('button', { class: 'tiny ghost', type: 'button', onclick: function () { if (UI.showLog) UI.showLog(); } }, ['Timeline ', UI.icon('chevron-right', 11)])]));
     box.appendChild(list);
   };
 })();

@@ -11,8 +11,8 @@
   #devbar { position: fixed; top: 96px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 4px; max-width: 900px; justify-content: center; }
   #devbar button { font: 12px/1.2 system-ui, sans-serif; padding: 4px 8px; background: #fbf6ea; color: #1b1f22; border: 1px solid #8a7a4a; border-radius: 6px; cursor: pointer; }
   body.modal-open #devbar, body.modal-open #devout { display: none; } /* keep the dev strip off the modals */
-  #devout { position: fixed; top: 178px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 600px; }
-  #devaudit { position: fixed; top: 204px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 6px; max-width: 700px; }
+  #devout { position: fixed; top: 178px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: #111; padding: 4px 8px; border-radius: 6px; max-width: 600px; }
+  #devaudit { position: fixed; top: 204px; left: 50%; transform: translateX(-50%); z-index: 5; font: 12px ui-monospace, monospace; color: #fff; background: #111; padding: 4px 8px; border-radius: 6px; max-width: 700px; }
   #devaudit.ok { color: #c9f2cc; } #devaudit.bad { color: #ffb3ba; }
   body.modal-open #devaudit { display: none; }
 </style>
@@ -24,6 +24,7 @@
 <div id="devaudit">audit…</div>
 <script src="../src/core/constants.js"></script>
 <script src="../src/core/rng.js"></script>
+<script src="../src/ui/icons.js"></script>
 <script src="../src/ui/faces.js"></script>
 <script src="../src/ui/hud.js"></script>
 <script src="../src/ui/panels.js"></script>
@@ -173,12 +174,34 @@
   WS.UI.setPhase('plan');
   /* word audit (UI.audit): visible words in #ui, target ≤ UI.WORD_CAPS.screen on the plan screen with Projects open at 1440×900 */
   var auditEl = document.getElementById('devaudit');
+  /* opacity audit: every panel / bar / modal / tooltip / chip / menu background must be fully opaque (alpha 1) and nothing may use backdrop-filter */
+  function opacityAudit() {
+    var sel = '#ui .panel, #ui .modal, #ui #tooltip, #ui .toast, #ui .menu, #ui .chip, #ui .coach, #ui .bubble, #ui .alert-card, #ui .tool, #ui .tile, #ui .card, #ui .stat, #ui .choice, #ui .fire-banner, #ui .advisor-hint, #ui .crisis-chip, #sound-toggle';
+    var bad = [], n = 0;
+    document.querySelectorAll(sel).forEach(function (el) {
+      var cs = getComputedStyle(el), bg = cs.backgroundColor, m = bg.match(/rgba?\(([^)]+)\)/);
+      var alpha = m ? (m[1].split(',')[3] != null ? parseFloat(m[1].split(',')[3]) : 1) : 1;
+      var bf = cs.backdropFilter || cs.webkitBackdropFilter || 'none';
+      n++;
+      if (bg === 'transparent' || alpha < 1) { /* chamfered .panel paints its paper in ::before; check that instead */
+        if (el.classList.contains('panel')) { var pb = getComputedStyle(el, '::before').backgroundColor, pm = pb.match(/rgba?\(([^)]+)\)/); var pa = pm && pm[1].split(',')[3] != null ? parseFloat(pm[1].split(',')[3]) : 1; if (pa < 1 || pb === 'transparent') bad.push((el.id || el.className) + ' ::before ' + pb); }
+        else bad.push((el.id || el.className) + ' ' + bg);
+      }
+      if (bf !== 'none' && bf !== '') bad.push((el.id || el.className) + ' backdrop-filter ' + bf);
+    });
+    return { checked: n, bad: bad };
+  }
+  window.opacityAudit = opacityAudit;
   function runAudit(label) {
-    var a = WS.UI.audit({ log: false });
+    var a = WS.UI.audit({ log: false }), op = opacityAudit();
     var regions = Object.keys(a.byRegion).sort(function (x, y) { return a.byRegion[y] - a.byRegion[x]; }).slice(0, 6).map(function (k) { return k + ' ' + a.byRegion[k]; }).join(' · ');
-    auditEl.textContent = (label || 'audit') + ': ' + a.words + ' words / cap ' + a.cap + (a.ok ? ' ✓' : ' ✗') + ' · ' + a.numbers + ' numbers · ' + window.innerWidth + '×' + window.innerHeight + ' · ' + regions;
-    auditEl.className = a.ok ? 'ok' : 'bad';
+    var ok = a.ok && a.emoji === 0 && op.bad.length === 0;
+    auditEl.textContent = (label || 'audit') + ': ' + a.words + ' words / cap ' + a.cap + (a.words <= a.cap ? ' ok' : ' FAIL') + ' · ' + a.numbers + ' numbers · emoji ' + a.emoji + (a.emoji === 0 ? ' ok' : ' FAIL ' + a.emojiSample.join(', ')) + ' · opaque ' + (op.bad.length ? 'FAIL ' + op.bad.join(', ') : op.checked + ' ok') + ' · ' + window.innerWidth + '×' + window.innerHeight + ' · ' + regions;
+    auditEl.className = ok ? 'ok' : 'bad';
     console.log('[dev] ' + auditEl.textContent);
+    console.assert(a.emoji === 0, 'UI.audit().emoji must be 0', a.emojiSample);
+    console.assert(op.bad.length === 0, 'opaque backgrounds', op.bad);
+    a.opacity = op;
     return a;
   }
   window.runAudit = runAudit;
@@ -188,6 +211,28 @@
   var bar = document.getElementById('devbar');
   function btn(label, fn) { var b = document.createElement('button'); b.textContent = label; b.onclick = fn; bar.appendChild(b); }
   btn('Audit', function () { runAudit(WS.UI._tab); });
+  /* ---- v6: style tokens + icon gallery ---- */
+  btn('Palette + icons', function () {
+    WS.UI.modal({ icon: 'map', eyebrow: 'Style check', title: 'Field-notebook palette · ' + WS.Icons.NAMES.length + ' silhouettes', className: 'wide', render: function (body) {
+      var cs = getComputedStyle(document.documentElement);
+      var tokens = ['paper', 'paper-2', 'paper-3', 'line', 'rule', 'ink', 'ink-2', 'ink-3', 'water', 'fire', 'forest', 'trust', 'danger', 'water-tint', 'fire-tint', 'forest-tint', 'trust-tint', 'danger-tint'];
+      var h3 = document.createElement('h3'); h3.textContent = 'Tokens'; body.appendChild(h3);
+      var row = document.createElement('div'); row.className = 'swatches-row';
+      tokens.forEach(function (t) { var v = cs.getPropertyValue('--' + t).trim(); var d = document.createElement('div'); d.className = 'sw'; d.style.setProperty('--c', v); d.innerHTML = '<i></i>'; var s = document.createElement('span'); s.textContent = t + ' ' + v; d.appendChild(s); row.appendChild(d); });
+      body.appendChild(row);
+      var h3b = document.createElement('h3'); h3b.textContent = 'Icons (WS.Icons.NAMES)'; body.appendChild(h3b);
+      var grid = document.createElement('div'); grid.className = 'icon-gallery';
+      WS.Icons.NAMES.forEach(function (n) { var d = document.createElement('div'); d.className = 'ig'; d.appendChild(WS.Icons.el(n, 28)); var s = document.createElement('span'); s.textContent = n; d.appendChild(s); grid.appendChild(d); });
+      body.appendChild(grid);
+      var h3c = document.createElement('h3'); h3c.textContent = 'Emoji → icon (every emoji in the sim data)'; body.appendChild(h3c);
+      var grid2 = document.createElement('div'); grid2.className = 'icon-gallery';
+      var em = Object.keys(WS.Icons.EMOJI), unmapped = [];
+      em.forEach(function (e) { var n = WS.Icons.forEmoji(e); if (!n || !WS.Icons.has(n)) unmapped.push(e); var d = document.createElement('div'); d.className = 'ig'; d.appendChild(WS.Icons.el(n || 'dot', 24)); var s = document.createElement('span'); s.textContent = e.codePointAt(0).toString(16) + ' → ' + n; d.appendChild(s); grid2.appendChild(d); });
+      body.appendChild(grid2);
+      var p = document.createElement('p'); p.className = 'small dim'; p.textContent = em.length + ' emoji mapped' + (unmapped.length ? ' · UNMAPPED: ' + unmapped.join(' ') : ' · all resolve to a drawn icon'); body.appendChild(p);
+      say('icons ' + WS.Icons.NAMES.length + ' · emoji ' + em.length + (unmapped.length ? ' · unmapped ' + unmapped.length : ''));
+    } });
+  });
   btn('Tab: water', function () { WS.UI.setTab('water'); runAudit('water'); });
   btn('Tab: fire', function () { WS.UI.setTab('fire'); runAudit('fire'); });
   btn('Tab: projects', function () { WS.UI.setTab('projects'); runAudit('projects'); });
