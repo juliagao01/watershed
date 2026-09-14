@@ -464,7 +464,7 @@ table.tbl tr:last-child td { border-bottom: 0; }
 .modal-root { position: absolute; inset: 0; display: none; z-index: 50; }
 .modal-root.open { display: flex; align-items: center; justify-content: center; padding: 24px; }
 /* halftone scrim: every pixel is either solid ink or clear (no translucency) — a printed screen over the map */
-.modal-backdrop { position: absolute; inset: 0; background: radial-gradient(var(--ink) 0.8px, transparent 1.1px) 0 0 / 3px 3px; animation: fade 180ms var(--ease); }
+.modal-backdrop { position: absolute; inset: 0; background: var(--paper-2, #eadfc8); background-image: var(--contour); animation: fade 180ms var(--ease); }
 @keyframes fade { from { opacity: 0; } }
 .modal {
   position: relative; width: min(680px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
@@ -1183,3 +1183,13 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 @keyframes t-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 @keyframes t-leave { to { opacity: 0; transform: scale(1.04); } }
 @media (prefers-reduced-motion: reduce) { #title-screen .t-word span { animation: none; } #title-screen.leaving { animation: none; } }
+
+/* keep condition gauges inside the panel */
+.gauges, .gauge { min-width: 0; max-width: 100%; }
+.gauge .v, .gauge .k { min-width: 0; overflow: hidden; }
+.gauge .spark { min-width: 0; justify-self: end; }
+.spark svg { width: 84px; max-width: 100%; }
+.gauge .bar, .gauge .stack, .gauge .drought { width: 100%; max-width: 100%; box-sizing: border-box; }
+.gauge .stack, .gauge .drought { display: flex; gap: 3px; }
+.gauge .stack i, .gauge .drought i { flex: 1 1 0; min-width: 0; width: auto; }
+#panel-left .body, #conditions { overflow-x: hidden; }
