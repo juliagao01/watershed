@@ -59,7 +59,7 @@
     var alloc = {}, zero = {};
     C.SECTORS.forEach(function (s) { alloc[s] = 1; zero[s] = 0; });
     return {
-      seed: opts.seed, mode: opts.mode || 'simulated', years: opts.years || C.YEARS_DEFAULT, turn: 0, year: 1, season: 0, phase: PH.BOOT,
+      seed: opts.seed, mode: opts.mode || 'simulated', years: opts.years || C.YEARS_DEFAULT, difficulty: 'normal', turn: 0, year: 1, season: 0, phase: PH.BOOT,
       budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
       climate: { snowpackPct: 100, snowSWEin: 18, precipIn: 3.2, tempAnomF: 0, soilMoisturePct: 45, fireDanger: 0.2, fireDangerLabel: 'Moderate', streamflowCfs: 60, windDirRad: 0.8, windMph: 8, drought: 'None', description: '', uncertainty: 0.15 },
@@ -286,12 +286,16 @@
     function build(o) {
       var seed = (o.seed == null) ? 1 : o.seed;
       world = has('World', 'generate') ? call('World', 'generate', seed) : null;
-      state = has('State', 'create') ? call('State', 'create', { seed: seed, years: o.years || C.YEARS_DEFAULT, mode: o.mode || 'simulated' }) : null;
+      var difficulty = (C.DIFFICULTY && C.DIFFICULTY[o.difficulty]) ? o.difficulty : 'normal';
+      state = has('State', 'create') ? call('State', 'create', { seed: seed, years: o.years || C.YEARS_DEFAULT, mode: o.mode || 'simulated', difficulty: difficulty }) : null;
       if (!state) state = fallbackState({ seed: seed, years: o.years, mode: o.mode });
       if (!state.years) state.years = o.years || C.YEARS_DEFAULT;
       if (!state.timeline) state.timeline = [];
       if (!state.flags) state.flags = {};
       if (!state.stats) state.stats = {};
+      state.difficulty = difficulty;
+      // difficulty: the starting budget scales with the level (the yearly top-up is scaled in beginSeason; annualBudget stays the $8.5M base)
+      state.budget = Math.round(num(state.budget, 8.5) * C.diff(state, 'budget') * 100) / 100;
       state.tutorial = !!o.tutorial;
       state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
@@ -388,9 +392,10 @@
       if (state.turn > 0 && state.season === SEASON.WINTER) {
         var growth = num(state.population) / C.HYDRO.BASE_POPULATION - 1;
         // growth revenue: half the annual budget per 100% population growth (proportional to the $8.5M base)
-        var bonus = Math.max(0, num(state.annualBudget, 8.5) * 0.5 * growth);
-        state.budget = num(state.budget) + num(state.annualBudget, 8.5) + bonus;
-        log('New year: budget +' + fmtM(num(state.annualBudget, 8.5) + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
+        var annual = num(state.annualBudget, 8.5) * C.diff(state, 'budget');   // difficulty scales the yearly top-up
+        var bonus = Math.max(0, annual * 0.5 * growth);
+        state.budget = num(state.budget) + annual + bonus;
+        log('New year: budget +' + fmtM(annual + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
         call('Projects', 'tick', state, world);
         call('Fire', 'updateAnnual', state, world);
         state.population = Math.round(num(state.population, C.HYDRO.BASE_POPULATION) * (1 + num(state.growthRate, 0.012)));
@@ -892,7 +897,7 @@
       // state.emergencyFund (county reserve, state declaration, federal grant) + any explicit grant flag.
       var grant = 0;
       if (state.flags) { if (typeof state.flags.federalGrantM === 'number') grant += num(state.flags.federalGrantM); else if (state.flags.federalGrant === true || state.flags.federalFunding === true) grant += 2; }
-      var base = 2.0 + 0.5 * num(eff.stockpileBonus, 0);
+      var base = (2.0 + 0.5 * num(eff.stockpileBonus, 0)) * C.diff(state, 'emergencyFund');   // difficulty scales the county baseline
       state.emergencyFund = Math.round((base + grant + Math.max(0, num(state.emergencyFund))) * 100) / 100;
       state.mitigations = [];
       placement = { storm: storm, prep: prep, tools: toolList(prep), selected: null, freeLeft: num(eff.stockpileBonus, 0), done: null, fundStart: state.emergencyFund };
@@ -1661,7 +1666,8 @@
     game.restart = function (o) {
       o = o || {};
       var seed = o.seed != null ? o.seed : (state ? state.seed : 1);
-      build({ seed: seed, years: o.years || (state && state.years) || C.YEARS_DEFAULT, mode: o.mode || (state && state.mode) || 'simulated', tutorial: o.tutorial != null ? o.tutorial : false });
+      build({ seed: seed, years: o.years || (state && state.years) || C.YEARS_DEFAULT, mode: o.mode || (state && state.mode) || 'simulated', tutorial: o.tutorial != null ? o.tutorial : false,
+              difficulty: o.difficulty || (state && state.difficulty) || 'normal', player: o.player || (state && state.player) || null });
       if (!headless) { game.initRenderer(); ui.init(game); }
       return game.start();
     };
@@ -1888,9 +1894,9 @@
     createHeadless: function (o) {
       o = o || {};
       // `player` (or decide.intro() → { player }) stands in for the browser intro creator (SPEC3 §C)
-      var dec = o.decide || {}, player = o.player || null;
-      if (!player && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = (ir && ir.player) || null; } catch (e) { player = null; } }
-      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player });
+      var dec = o.decide || {}, player = o.player || null, difficulty = o.difficulty || null;
+      if ((!player || !difficulty) && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = player || (ir && ir.player) || null; difficulty = difficulty || (ir && ir.difficulty) || null; } catch (e) { /* keep options */ } }
+      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player, difficulty: difficulty || 'normal' });
       var drv = {
         game: g,
         runSeason: function () { return g.runSeason().then(function (r) { drv.state = g.state; drv.world = g.world; return r; }); },
@@ -1921,6 +1927,7 @@
           intro = intro || {};
           var seed = (intro.seed === '' || intro.seed == null) ? Math.floor(Math.random() * 1e6) : (isFinite(+intro.seed) ? +intro.seed : intro.seed);
           game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false,
+                       difficulty: intro.difficulty || 'normal',   // setup modal's difficulty picker
                        player: (intro.player && typeof intro.player === 'object') ? intro.player : null });   // SPEC3 §C: the intro's character creator
           game.initRenderer(host);   // re-inits the renderer for the real world and (re)subscribes cell click + paint exactly once
           await game.ui.init(game);

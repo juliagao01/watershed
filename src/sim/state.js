@@ -10,6 +10,7 @@
 
   function sectorObj(v) { var o = {}; for (var i = 0; i < C.SECTORS.length; i++) o[C.SECTORS[i]] = v; return o; }
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
+  function difficultyOf(v) { return (C.DIFFICULTY && C.DIFFICULTY[v]) ? v : 'normal'; }
   function isPlain(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v); }
 
   /* ---- SPEC3 §C: player avatar ---- */
@@ -44,7 +45,7 @@
     var years = Math.max(1, Math.min(40, Math.round(num(opts.years, C.YEARS_DEFAULT))));
     var mode = (opts.mode === 'historical') ? 'historical' : 'simulated';
     return {
-      seed: seed, mode: mode, years: years, turn: 0, year: 1, season: C.SEASON.WINTER, phase: C.PHASES.BOOT,
+      seed: seed, mode: mode, years: years, difficulty: difficultyOf(opts.difficulty), turn: 0, year: 1, season: C.SEASON.WINTER, phase: C.PHASES.BOOT,
       budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, trustDelta: 0,
       population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
@@ -108,7 +109,7 @@
     defaultPlayer: defaultPlayer,
     normalizePlayer: normalizePlayer,
 
-    /** create({seed, years, mode}) -> state */
+    /** create({seed, years, mode, difficulty}) -> state */
     create: function (opts) {
       var s = defaults(opts);
       s.phase = C.PHASES.BOOT;
@@ -128,8 +129,9 @@
       if (str && typeof str === 'object') parsed = str;
       else { try { parsed = JSON.parse(String(str), reviver); } catch (e) { parsed = null; } }
       if (!isPlain(parsed)) return defaults({});
-      var s = fill(defaults({ seed: parsed.seed, years: parsed.years, mode: parsed.mode }), parsed);
+      var s = fill(defaults({ seed: parsed.seed, years: parsed.years, mode: parsed.mode, difficulty: parsed.difficulty }), parsed);
       // derived / invariants
+      s.difficulty = difficultyOf(s.difficulty);   // pre-difficulty saves play as 'normal'
       s.turn = Math.max(0, Math.round(num(s.turn, 0)));
       s.year = 1 + Math.floor(s.turn / 4);
       s.season = s.turn % 4;

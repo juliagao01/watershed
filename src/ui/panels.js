@@ -449,6 +449,7 @@
      Opaque paper page: the wordmark in a rounded font, a drop that falls into expanding ripples, Play. */
   UI.showTitle = function () {
     return new Promise(function (resolve) {
+      UI.applyPrefs();
       var word = 'WATERSHED';
       var cv = h('canvas', { 'aria-hidden': 'true' });
       var letters = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
@@ -463,7 +464,7 @@
 
       /* --- ripple animation ------------------------------------------------- */
       var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1), W = 0, H = 0;
-      var reduced = false; try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
+      var reduced = reducedMotion();
       var ripples = [], drops = [], t0 = 0, raf = 0, nextDrop = 0, alive = true;
       var ink = '#1f6f8b', paper = '#f3ead8', line = '#d9cfb3';
       function resize() { W = el.clientWidth || innerWidth; H = el.clientHeight || innerHeight; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
@@ -524,8 +525,150 @@
     });
   };
 
+  /* ================================================================== MENU PAGE (title → menu → setup)
+     Opaque paper page in the title style: static contour lines, a smaller wordmark, three stacked paper buttons.
+     Settings and Credits open as modals over the page and return to it; Start Game resolves 'start'. */
+  function reducedMotion() {
+    try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true; } catch (e) { /* ignore */ }
+    return !!(document.documentElement && document.documentElement.classList.contains('reduce-motion'));
+  }
+  UI.reducedMotion = reducedMotion;
+  /** static HiDPI copy of the title page's contour lines */
+  function paintContours(cv, el) {
+    var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1);
+    var W = el.clientWidth || innerWidth, H = el.clientHeight || innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H); ctx.strokeStyle = '#d9cfb3'; ctx.lineWidth = 1;
+    for (var c = 0; c < 9; c++) { var yy = 40 + c * (H / 9); ctx.beginPath(); for (var x = 0; x <= W; x += 24) { var y = yy + Math.sin(x * 0.012 + c * 1.7) * 9 + Math.sin(x * 0.03 + c) * 3; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke(); }
+  }
+  /** Camera pan speed (0.6–1.6): applied when the renderer's controls expose a speed field; otherwise only stored. */
+  UI.applyPanSpeed = function (v) {
+    v = Number(v); if (!isFinite(v)) return false;
+    v = clamp(v, 0.6, 1.6);
+    var c = WS.Renderer && WS.Renderer._ctx && WS.Renderer._ctx.controls;
+    if (!c) return false;
+    if ('panSpeed' in c) c.panSpeed = v; else if (typeof c.setPanSpeed === 'function') c.setPanSpeed(v); else if ('speed' in c) c.speed = v; else return false;
+    return true;
+  };
+  /** Applies the persisted page-wide preferences (html.reduce-motion, camera pan speed). Safe to call any time. */
+  UI.applyPrefs = function () {
+    try { document.documentElement.classList.toggle('reduce-motion', UI.pref('reduceMotion') === true); } catch (e) { /* ignore */ }
+    UI.applyPanSpeed(UI.pref('panSpeed'));
+  };
+
+  /** showMenu() → Promise<'start'>. Keys: ↑/↓ (or ←/→) move, Enter picks, 1/2/3 pick directly, Esc does nothing. */
+  UI.showMenu = function () {
+    UI.applyPrefs();
+    return new Promise(function (resolve) {
+      var host = UI.els.ui || document.body;
+      var cv = h('canvas', { 'aria-hidden': 'true' });
+      var word = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
+        'WATERSHED'.split('').map(function (ch) { return h('span', { 'aria-hidden': 'true' }, ch); }));
+      var items = [
+        { id: 'start', icon: 'play', label: 'Start Game', tip: 'Choose years, climate, seed, difficulty and your character', run: function () { finish('start'); } },
+        { id: 'settings', icon: 'tools', label: 'Settings', tip: 'Sound, tutorial hints, motion, camera', run: function () { UI.showSettings().then(refocus); } },
+        { id: 'credits', icon: 'book', label: 'Credits', tip: 'Who and what made Watershed', run: function () { UI.showCredits().then(refocus); } }
+      ];
+      var sel = 0, alive = true;
+      var btns = items.map(function (it, i) {
+        var b = h('button', { type: 'button', class: 'm-btn', id: 'menu-' + it.id, 'data-tip': it.tip, 'aria-label': it.label + ' (' + (i + 1) + ')' }, [
+          h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(it.icon, 24)), h('span', { class: 'lbl' }, it.label), h('span', { class: 'key', 'aria-hidden': 'true' }, String(i + 1))]);
+        b.addEventListener('click', function () { sel = i; mark(); it.run(); });
+        b.addEventListener('focus', function () { sel = i; mark(); });
+        return b;
+      });
+      var el = h('div', { id: 'menu-screen', role: 'dialog', 'aria-label': 'Watershed menu' }, [
+        cv,
+        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1 2 3')])
+      ]);
+      host.appendChild(el); document.body.classList.add('menu-open');
+      function mark() { btns.forEach(function (b, i) { b.classList.toggle('sel', i === sel); }); }
+      function refocus() { if (!alive) return; mark(); try { btns[sel].focus(); } catch (e) { /* ignore */ } }
+      function onKey(e) {
+        if (!alive || UI.modalIsOpen()) return;   /* Settings / Credits own the keyboard while open */
+        var k = e.key, handled = true;
+        if (k === 'ArrowDown' || k === 'ArrowRight') { sel = (sel + 1) % btns.length; refocus(); }
+        else if (k === 'ArrowUp' || k === 'ArrowLeft') { sel = (sel + btns.length - 1) % btns.length; refocus(); }
+        else if (k === 'Home') { sel = 0; refocus(); }
+        else if (k === 'End') { sel = btns.length - 1; refocus(); }
+        else if (k === 'Enter') { items[sel].run(); }
+        else if (k === '1' || k === '2' || k === '3') { sel = +k - 1; refocus(); items[sel].run(); }
+        else handled = false;   /* Esc and everything else: nothing */
+        if (handled) { e.preventDefault(); e.stopPropagation(); }   /* 1–3 must not reach the game's speed keys */
+      }
+      function resize() { paintContours(cv, el); }
+      function finish(v) {
+        if (!alive) return; alive = false;
+        document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', resize);
+        el.classList.add('leaving');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); document.body.classList.remove('menu-open'); resolve(v); }, reducedMotion() ? 0 : 420);
+      }
+      document.addEventListener('keydown', onKey, true); window.addEventListener('resize', resize);
+      resize(); mark();
+      setTimeout(refocus, 30);
+    });
+  };
+
+  /* ================================================================== SETTINGS (≤ 40 visible words) */
+  UI.showSettings = function () {
+    var S = WS.Sound || null;
+    return UI.modal({
+      icon: 'tools', eyebrow: 'Menu', title: 'Settings', className: 'narrow settings',
+      render: function (body) {
+        function row(label, ic, ctl, tip) { return h('div', { class: 'srow', 'data-tip': tip || null }, [h('span', { class: 'k' }, [icon(ic, 13), ' ', label]), h('span', { class: 'c' }, ctl)]); }
+        function toggle(id, on, label, onChange) { var cb = h('input', { type: 'checkbox', id: id, checked: on ? true : null, 'aria-label': label }); cb.addEventListener('change', function () { onChange(!!cb.checked); }); return cb; }
+        /* sound: volume + mute, persisted by sound.js */
+        var vol0 = (S && typeof S.getVolume === 'function') ? clamp(Number(S.getVolume()), 0, 1) : 0.8;
+        var vol = h('input', { type: 'range', id: 'set-volume', min: 0, max: 100, step: 5, value: Math.round(vol0 * 100), 'aria-label': 'Sound volume', disabled: S ? null : true });
+        var volV = h('span', { class: 'v num' }, Math.round(vol0 * 100) + '%');
+        vol.addEventListener('input', function () { var v = clamp(Number(vol.value), 0, 100); volV.textContent = v + '%'; if (S && typeof S.setVolume === 'function') S.setVolume(v / 100); });
+        body.appendChild(row('Sound', 'volume', [vol, volV], S ? 'Volume · remembered in this browser' : 'Sound unavailable'));
+        body.appendChild(row('Mute', 'volume-muted', toggle('set-mute', !!(S && typeof S.isMuted === 'function' && S.isMuted()), 'Mute', function (on) { if (S && typeof S.setMuted === 'function') S.setMuted(on); }), 'Silence all game audio'));
+        /* tutorial hints: also the setup modal's default */
+        body.appendChild(row('Tutorial hints', 'grad', toggle('set-tutorial', UI.pref('tutorial') !== false, 'Tutorial hints', function (on) { UI.pref('tutorial', on); }), 'Coach marks on the first turn · the setup default'));
+        /* reduced motion: html.reduce-motion, honoured like prefers-reduced-motion */
+        body.appendChild(row('Reduced motion', 'pause', toggle('set-motion', UI.pref('reduceMotion') === true, 'Reduced motion', function (on) { UI.pref('reduceMotion', on); UI.applyPrefs(); }), 'Turns page animations off'));
+        /* camera pan speed 0.6–1.6× */
+        var ps0 = clamp(Number(UI.pref('panSpeed')) || 1, 0.6, 1.6);
+        var ps = h('input', { type: 'range', id: 'set-pan', min: 60, max: 160, step: 10, value: Math.round(ps0 * 100), 'aria-label': 'Camera pan speed' });
+        var psV = h('span', { class: 'v num' }, ps0.toFixed(1) + '×');
+        ps.addEventListener('input', function () { var v = clamp(Number(ps.value), 60, 160) / 100; psV.textContent = v.toFixed(1) + '×'; UI.pref('panSpeed', v); UI.applyPanSpeed(v); });
+        body.appendChild(row('Camera pan speed', 'compass', [ps, psV], 'Drag and keyboard pan · 0.6× to 1.6×'));
+        /* forget the remembered character */
+        var reset = h('button', { type: 'button', class: 'tiny', id: 'set-reset-player', 'data-tip': 'Forget the remembered name and face', disabled: UI.pref('player') ? null : true }, [icon('refresh', 12), ' Reset saved character']);
+        reset.addEventListener('click', function () { UI.pref('player', null); reset.disabled = true; UI.toast('Character reset', 'info'); });
+        body.appendChild(row('', 'idcard', reset, null));
+      },
+      foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Done')); }
+    });
+  };
+
+  /* ================================================================== CREDITS (≤ 120 visible words; the numbers list is a disclosure) */
+  UI.showCredits = function () {
+    var srcs = (C.SOURCES && C.SOURCES.length) ? C.SOURCES : [];
+    return UI.modal({
+      icon: 'book', eyebrow: 'Menu', title: 'Credits', className: 'narrow credits',
+      render: function (body) {
+        body.appendChild(h('p', { class: 'lead' }, 'Watershed — a Colorado water-resilience game'));
+        body.appendChild(h('ul', { class: 'small' }, [
+          h('li', {}, 'Built with Three.js (r128)'),
+          h('li', {}, 'IBM Plex Sans / Mono and Fredoka via Google Fonts'),
+          h('li', {}, 'Synthesized audio')
+        ]));
+        body.appendChild(h('h3', {}, 'Where the numbers come from'));
+        var list = h('ul', { class: 'small sources', id: 'credits-sources', hidden: true }, srcs.map(function (r) {
+          return h('li', { 'data-tip': r.note || null }, [h('b', {}, String(r.label || '')), r.value ? ' · ' + r.value : '']);
+        }));
+        body.appendChild(disclosureButton('Show list', list, { controls: 'credits-sources' })); body.appendChild(list);
+        body.appendChild(h('p', { class: 'small', style: { marginTop: '12px' } }, 'Inspired by the Cameron Peak, East Troublesome and Marshall fires and the Colorado River.'));
+        body.appendChild(h('p', { class: 'small muted num' }, 'Version ' + (C.VERSION || '—')));
+      },
+      foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Close')); }
+    });
+  };
+
   UI.showIntro = function () {
-    return UI.showTitle().then(function () { return UI._showSetup(); });
+    return UI.showTitle().then(function () { return UI.showMenu(); }).then(function () { return UI._showSetup(); });
   };
   UI._showSetup = function () {
     return UI.modal({
@@ -538,12 +681,13 @@
           h('div', { class: 'tag', 'data-tip': 'You run the Bitterbrush Creek watershed: a snow-fed reservoir, a mountain town, four farms, a century of unburned forest and neighbours with senior water rights. What burns above the reservoir ends up in the tap — and when a fire or flood hits, you fight it live.' },
             UI.cap('Run a Colorado watershed: snow, fire, floods, water rights.', UI.WORD_CAPS.intro))
         ]));
-        var years = 6, mode = 'simulated', tutorial = true;
-        /* three pickers: years · climate · seed (segmented buttons; explanations in tooltips) */
+        var years = 6, mode = 'simulated', tutorial = UI.pref('tutorial') !== false;   /* Settings → Tutorial hints is the default */
+        var diffPref = UI.pref('difficulty'), difficulty = (C.DIFFICULTY && C.DIFFICULTY[diffPref]) ? diffPref : 'normal';
+        /* four pickers: years · climate · difficulty · seed (segmented buttons; explanations in tooltips). opts: [value, label, tip, icon?] */
         function segPick(name, opts, current, onPick) {
           var seg = h('div', { class: 'seg', role: 'group', 'aria-label': name });
           var btns = opts.map(function (o) {
-            var b = h('button', { type: 'button', class: o[0] === current ? 'active' : '', 'aria-pressed': o[0] === current ? 'true' : 'false', 'data-tip': o[2] || null, 'aria-label': o[1] + (o[2] ? ' · ' + o[2] : '') }, o[1]);
+            var b = h('button', { type: 'button', class: o[0] === current ? 'active' : '', 'aria-pressed': o[0] === current ? 'true' : 'false', 'data-tip': o[2] || null, 'aria-label': o[1] + (o[2] ? ' · ' + o[2] : '') }, o[3] ? [icon(o[3], 12), ' ', o[1]] : o[1]);
             b.addEventListener('click', function () { btns.forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('active'); b.setAttribute('aria-pressed', 'true'); onPick(o[0]); });
             seg.appendChild(b); return b;
           });
@@ -553,19 +697,22 @@
           segPick('Game length', [[4, '4', 'Quick game'], [6, '6', 'Recommended'], [8, '8', 'Full arc']], years, function (v) { years = v; })]);
         var modeOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [icon('sun', 11), ' Climate']),
           segPick('Climate', [['simulated', 'Simulated', 'Seeded weather; varies by seed'], ['historical', 'Historical', 'Approximate Colorado snowpack sequence']], mode, function (v) { mode = v; })]);
+        var diffOpts = (C.DIFFICULTY ? (C.DIFFICULTY_ORDER || Object.keys(C.DIFFICULTY)) : []).map(function (k) { var d = C.DIFFICULTY[k]; return [k, d.label, d.desc, d.icon]; });
+        var diffOpt = diffOpts.length ? h('div', { class: 'opt', id: 'intro-difficulty' }, [h('span', { class: 'k' }, [icon('scales', 11), ' Difficulty']),
+          segPick('Difficulty', diffOpts, difficulty, function (v) { difficulty = v; })]) : null;
         var seedInput = h('input', { type: 'text', id: 'intro-seed', value: String(Math.floor(Math.random() * 90000) + 10000), 'aria-label': 'Seed', maxlength: 24, 'data-tip': 'Same seed, same world and weather' });
         var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [icon('dice', 11), ' Seed']), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', 'data-tip': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, icon('dice', 14))])]);
         /* "Your character": live 128 px portrait, name, pickers, Randomise, presets. Remembered in localStorage (guarded by UI.pref). */
         var remembered = UI.pref('player');
         var creator = UI.characterCreator({ name: (remembered && remembered.name) || 'Director Rivera', face: (remembered && remembered.face) || (WS.Faces && WS.Faces.PRESETS && WS.Faces.PRESETS[0].face) || null });
         body.appendChild(creator.el);
-        body.appendChild(h('div', { class: 'opts three' }, [yearsOpt, modeOpt, seedOpt]));
-        var tutLabel = h('label', { class: 'tut small', 'data-tip': 'Coach marks on the first turn (skippable)' }, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), icon('grad', 13), ' Tutorial']);
+        body.appendChild(h('div', { class: 'opts ' + (diffOpt ? 'four' : 'three') }, [yearsOpt, modeOpt, diffOpt, seedOpt]));
+        var tutLabel = h('label', { class: 'tut small', 'data-tip': 'Coach marks on the first turn (skippable)' }, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: tutorial ? true : null, onchange: function (e) { tutorial = !!e.target.checked; } }), icon('grad', 13), ' Tutorial']);
         body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', gap: '16px', marginTop: '16px' } }, [tutLabel, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
           var raw = (seedInput.value || '').trim(); var seed = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : (raw || String(Date.now()));
           var player = creator.get();
-          UI.pref('player', player);
-          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player });
+          UI.pref('player', player); UI.pref('difficulty', difficulty); UI.pref('tutorial', tutorial);
+          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player, difficulty: difficulty });
         } }, ['Begin ', icon('play', 13)])]));
       }
     });
@@ -991,6 +1138,10 @@
       icon: 'flag', eyebrow: 'After ' + fin(s.years, fin(summary.years, 6)) + ' years', title: 'How the watershed fared', className: 'wide end', critical: true,
       render: function (body) {
         body.appendChild(h('div', { class: 'end-score' }, [h('div', { class: 'big' }, Math.round(R)), h('div', { class: 'grade' }, [h('div', { class: 'g' }, g.letter || '—'), h('div', { class: 'title' }, g.title || 'Colorado Resilience Score')])]));
+        /* difficulty: level + the score bonus it carries (also a tile below) */
+        var dkey = summary.difficulty || s.difficulty || 'normal', dd = (C.DIFFICULTY && C.DIFFICULTY[dkey]) || null;
+        var dbonus = isFinite(Number(summary.difficultyBonus)) ? Number(summary.difficultyBonus) : (dd ? fin(dd.scoreBonus) : 0);
+        if (dd && dbonus) body.appendChild(h('div', { class: 'end-diff', 'data-tip': dd.label + ' · ' + signed(dbonus, 0) + ' added to the score (base ' + Math.round(fin(summary.baseR, R - dbonus)) + ')' }, [icon(dd.icon || 'dot', 13), ' Difficulty bonus ', h('b', { class: 'num' }, signed(dbonus, 0))]));
         body.appendChild(h('div', { class: 'end-bars' }, OUT_KEYS.map(function (k) {
           var v = clamp(oc[k], 0, 100);
           return h('div', { class: 'eb', 'data-tip': (OUT_NAMES[k] || k) + ' · weight ' + Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%' }, [h('span', { class: 'label' }, UI.OUTCOME_SHORT[k] || k), h('div', { class: 'meter' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: v + '%' } })), h('span', { class: 'n' }, Math.round(v))]);
@@ -1003,6 +1154,7 @@
           stat('Sediment', Math.round(fin(stats.sedimentTons)).toLocaleString(), 't'),
           stat('Outage', Math.round(fin(stats.contaminationOutageDays)), 'd'),
           stat('People', Math.round(fin(s.population)).toLocaleString()),
+          dd ? h('div', { class: 'stat', id: 'end-difficulty', 'data-tip': 'Difficulty · ' + dd.label + ' — ' + dd.desc + (dbonus ? ' · bonus ' + signed(dbonus, 0) : '') }, [h('span', { class: 'k' }, 'Difficulty'), h('span', { class: 'v' }, [icon(dd.icon || 'dot', 16), ' ', dd.label, dbonus ? h('span', { class: 'unit num' }, signed(dbonus, 0)) : null])]) : null,
           knowledgeTile(summary.quiz || s.quiz)
         ]));
         /* highlights: ≤ 3 icon rows of ≤ 10 words; lessons behind Details */

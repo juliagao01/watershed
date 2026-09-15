@@ -400,8 +400,9 @@
     risk += peakTownCfs / 12000 * (eff.warningSystem ? 0.3 : 1);
     res.floodedCells = Int32Array.from(fl);
     res.floodedHouses = houses; res.floodedResidential = nRes; res.floodedFarm = nFarm; res.floodedCivic = nCiv;
-    res.damageM = Math.round(dmg * 100) / 100;
-    res.injuriesRisk = clamp(risk, 0, 1);
+    var dmgMult = C.diff(state, 'damage');   // difficulty: flood damage $ and injury odds
+    res.damageM = Math.round(dmg * dmgMult * 100) / 100;
+    res.injuriesRisk = clamp(risk * dmgMult, 0, 1);
     res.spillwayUsed = spillway; res.releasedAF = spillway ? SPILLWAY_AF : 0;
 
     // --- arrival frames + flood timeline (aligned with res.frames) ---
@@ -557,7 +558,7 @@
     var scarF = scar > 0 ? Math.pow(clamp(scarAcres / 3000, 0, 1), 0.6) : 0.05;
     var cl = (state && state.climate) || {};
     var wet = clamp(1 + 0.3 * (fin(cl.precipIn, 3) - 3) / 3, 0.7, 1.4);
-    return clamp(base * Math.max(0.05, scarF) * wet * 1.4, 0, 0.7);   // v2: x1.4 — a scar should almost always get tested within two seasons
+    return clamp(base * Math.max(0.05, scarF) * wet * 1.4 * C.diff(state, 'storm'), 0, 0.7);   // difficulty scales storm odds; v2: x1.4 — a scar should almost always get tested within two seasons
   }
 
   function prepare(state, world, storm) {

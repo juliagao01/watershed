@@ -214,11 +214,13 @@
       return { letter: g[0], title: g[1], R: Math.round(R * 10) / 10 };
     },
 
-    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz } */
+    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz, difficulty, difficultyBonus, baseR }
+     *  R = resilience + the difficulty's scoreBonus (clamped 0..100); the grade uses the adjusted score. */
     finalSummary: function (state) {
       state = state || {};
       var o = state.outcomes || {}, stats = state.stats || {}, fire = state.fire || {}, flags = state.flags || {}, hist = Array.isArray(state.history) ? state.history : [];
-      var R = Scoring.resilience(o), g = Scoring.grade(R), highlights = [], lessons = [];
+      var baseR = Scoring.resilience(o), bonus = C.diff(state, 'scoreBonus');
+      var R = Math.round(clamp(baseR + bonus, 0, 100) * 10) / 10, g = Scoring.grade(R), highlights = [], lessons = [];
       var fires = Array.isArray(fire.fires) ? fire.fires : [], biggest = null;
       for (var i = 0; i < fires.length; i++) if (fires[i] && (!biggest || fin(fires[i].acres, 0) > fin(biggest.acres, 0))) biggest = fires[i];
       var minStore = null;
@@ -254,7 +256,8 @@
         stats: { floodDamageM: fin(stats.floodDamageM, 0), sedimentTons: fin(stats.sedimentTons, 0), contaminationOutageDays: fin(stats.contaminationOutageDays, 0),
           cropLossPct: fin(stats.cropLossPct, 0), hydroMWh: fin(stats.hydroMWh, 0), recreationVisits: fin(stats.recreationVisits, 0),
           totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed },
-        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) } };
+        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) },
+        difficulty: (C.DIFFICULTY && C.DIFFICULTY[state.difficulty]) ? state.difficulty : 'normal', difficultyBonus: bonus, baseR: baseR };
     }
   };
 })();

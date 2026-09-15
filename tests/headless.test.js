@@ -102,6 +102,67 @@ function policy(log) {
     assert(c.state.seed === a.state.seed, 'driver.load(str) restores the saved seed');
   }
 
+  /* ---------------------------------------------------------------- difficulty levels: C.DIFFICULTY / C.diff, budgets, saves, seams, final score */
+  {
+    const D = C.DIFFICULTY, KEYS = ['budget', 'emergencyFund', 'ignition', 'storm', 'crew', 'climateSigma', 'damage', 'scoreBonus'];
+    assert(D && ['easy', 'normal', 'hard'].every(k => D[k] && D[k].label && D[k].desc && KEYS.every(m => typeof D[k][m] === 'number')), 'C.DIFFICULTY has easy / normal / hard with label, desc and every multiplier');
+    assert(KEYS.every(m => D.normal[m] === (m === 'scoreBonus' ? 0 : 1)), 'normal is the identity (all ×1, bonus 0)');
+    assert(C.diff({}, 'budget') === 1 && C.diff(null, 'ignition') === 1 && C.diff({ difficulty: 'bogus' }, 'storm') === 1 && C.diff({}, 'scoreBonus') === 0 && C.diff({ difficulty: 'hard' }, 'scoreBonus') === 6 && C.diff({ difficulty: 'easy' }, 'budget') === 1.25 && C.diffDef({}).label === 'Normal', 'C.diff(state, key) → multiplier; 1 when missing (0 for scoreBonus); C.diffDef falls back to normal');
+    assert(WS.State.create({ seed: 1, years: 4 }).difficulty === 'normal' && WS.State.create({ seed: 1, years: 4, difficulty: 'hard' }).difficulty === 'hard' && WS.State.create({ seed: 1, years: 4, difficulty: 'nope' }).difficulty === 'normal', "state.difficulty defaults to 'normal' and rejects unknown levels");
+    const runs = {};
+    for (const d of ['easy', 'normal', 'hard']) {
+      runs[d] = WS.Game.createHeadless({ seed: 4, years: 2, difficulty: d, decide: policy() });
+      assert(runs[d].state.difficulty === d, 'createHeadless({ difficulty: ' + d + ' }) → state.difficulty = ' + d);
+    }
+    const start = k => runs[k].state.budget;
+    const r2 = v => Math.round(v * 100) / 100;
+    assert(Math.abs(start('normal') - 8.5) < 1e-9 && Math.abs(start('easy') - r2(8.5 * 1.25)) < 1e-9 && Math.abs(start('hard') - r2(8.5 * 0.8)) < 1e-9, 'starting budget scales with the level: easy ' + start('easy') + ' / normal ' + start('normal') + ' / hard ' + start('hard'));
+    // four seasons = through year 1 and into the year-2 Winter top-up
+    const topup = {};
+    for (const d of ['easy', 'normal', 'hard']) {
+      for (let i = 0; i < 4; i++) await runs[d].runSeason();
+      const line = runs[d].state.log.filter(l => /^New year: budget \+\$/.test(l.text)).pop();
+      topup[d] = line ? parseFloat(line.text.match(/\+\$([\d.]+)M/)[1]) : NaN;
+    }
+    assert(topup.easy > topup.normal && topup.normal > topup.hard && Math.abs(topup.normal - 8.5) < 0.3, 'year-2 budget top-up easy > normal > hard ($' + topup.easy + 'M / $' + topup.normal + 'M / $' + topup.hard + 'M)');
+    assert(runs.easy.state.budget > runs.normal.state.budget && runs.normal.state.budget > runs.hard.state.budget, 'budget after year 1: easy ' + runs.easy.state.budget.toFixed(1) + ' > normal ' + runs.normal.state.budget.toFixed(1) + ' > hard ' + runs.hard.state.budget.toFixed(1));
+    // save → load keeps the level (createHeadless({ save }), driver.load(str)); a pre-difficulty save loads as normal
+    const blob = runs.hard.save();
+    assert(WS.Game.createHeadless({ seed: 4, years: 2, decide: policy(), save: blob }).state.difficulty === 'hard', 'createHeadless({ save }) restores difficulty = hard');
+    assert(WS.Game.createHeadless({ seed: 4, years: 2, difficulty: 'easy', decide: policy() }).load(blob).state.difficulty === 'hard', 'driver.load(str) replaces the level with the saved one');
+    const old = JSON.parse(blob), ost = JSON.parse(old.state); delete ost.difficulty; old.state = JSON.stringify(ost);
+    assert(WS.Game.createHeadless({ seed: 4, years: 2, decide: policy(), save: JSON.stringify(old) }).state.difficulty === 'normal', "a save without difficulty loads as 'normal'");
+    // the seams: ignition chance, storm risk, crew points, snowpack sigma, flood damage all read state.difficulty
+    const sN = runs.normal.state, wN = runs.normal.world;
+    const probe = (level, fn) => { const a = fn(); sN.difficulty = level; const b = fn(); sN.difficulty = 'normal'; return [a, b]; };
+    const season0 = sN.season, fires0 = sN.fire.fires;
+    sN.season = 2; sN.fire.fires = [{ acres: 1 }];   // summer, past the fire-less late-game floor
+    const ig = probe('hard', () => WS.Fire.seasonIgnitionChance(sN, wN));
+    assert(ig[1] > ig[0] && (ig[1] >= 0.68 - 1e-9 || Math.abs(ig[1] - ig[0] * 1.4) < 1e-9), 'hard ignition chance = 1.4× normal (capped at 0.68): ' + ig[0].toFixed(3) + ' → ' + ig[1].toFixed(3));
+    const sr = probe('easy', () => WS.Flood.stormRisk(sN, wN));
+    assert(sr[1] < sr[0] && Math.abs(sr[1] - sr[0] * 0.7) < 1e-9, 'easy storm risk = 0.7× normal: ' + sr[0].toFixed(3) + ' → ' + sr[1].toFixed(3));
+    const forest = ((wN && wN.zones) || []).filter(z => z && z.type === 'forest' && z.cells && z.cells.length)[0], cell = forest ? forest.cells[forest.cells.length >> 1] : null;
+    if (cell != null && typeof WS.Fire.maybeIgnite === 'function') {
+      const crew = probe('hard', () => { const sim = WS.Fire.maybeIgnite(sN, wN, WS.RNG.create('diff:crew'), { cell: cell }); return sim ? WS.Fire.startTactics(sim, sN, wN) : null; });
+      if (crew[0] && crew[1]) assert(crew[1].crewPts === Math.round(crew[0].crewPts * 0.8) && Math.abs(crew[1].regenPerStep - crew[0].regenPerStep * 0.8) < 1e-9, 'hard crew points start ×0.8 (' + crew[0].crewPts + ' → ' + crew[1].crewPts + ') and regen ×0.8');
+      else skip('crew multiplier', 'a forced ignition at cell ' + cell);
+    } else skip('crew multiplier', 'Fire.maybeIgnite + a forest zone');
+    sN.season = season0; sN.fire.fires = fires0;
+    // snowpack sigma: the same rng stream in Winter gives a wider spread of snow years on hard than on easy
+    const spread = level => { const st = WS.State.create({ seed: 11, years: 2, difficulty: level }); st.turn = 4; st.season = 0; st.year = 2; const xs = []; for (let i = 0; i < 24; i++) { const s2 = JSON.parse(JSON.stringify(st)); WS.Hydrology.generateSeasonClimate(s2, wN, WS.RNG.create('snow' + i)); xs.push(s2.climate.model.snowYear); } const m = xs.reduce((a, b) => a + b, 0) / xs.length; return Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / xs.length); };
+    const sdE = spread('easy'), sdN = spread('normal'), sdH = spread('hard');
+    assert(sdE < sdN && sdN < sdH, 'snowpack spread easy < normal < hard (σ ' + sdE.toFixed(1) + ' / ' + sdN.toFixed(1) + ' / ' + sdH.toFixed(1) + ' pts over 24 draws)');
+    // final score: +6 on hard, −4 on easy, 0 on normal; grade uses the adjusted score; state.finalSummary carries it
+    for (const d of ['easy', 'normal', 'hard']) await runs[d].runAll();
+    const fsH = WS.Scoring.finalSummary(runs.hard.state), fsN = WS.Scoring.finalSummary(runs.normal.state), fsE = WS.Scoring.finalSummary(runs.easy.state);
+    const rH = WS.Scoring.resilience(runs.hard.state.outcomes), rE = WS.Scoring.resilience(runs.easy.state.outcomes);
+    assert(fsH.difficulty === 'hard' && fsH.difficultyBonus === 6 && Math.abs(fsH.R - Math.min(100, rH + 6)) < 1e-6 && fsH.grade.R === fsH.R && fsH.grade.letter === WS.Scoring.grade(fsH.R).letter && Math.abs(fsH.baseR - rH) < 1e-9, 'hard finalSummary: difficulty "hard", +6 applied (' + rH.toFixed(1) + ' → ' + fsH.R + '), grade from the adjusted score');
+    assert(fsN.difficulty === 'normal' && fsN.difficultyBonus === 0 && Math.abs(fsN.R - WS.Scoring.resilience(runs.normal.state.outcomes)) < 1e-9, 'normal finalSummary: difficulty "normal", no bonus');
+    assert(fsE.difficulty === 'easy' && fsE.difficultyBonus === -4 && Math.abs(fsE.R - Math.max(0, rE - 4)) < 1e-6, 'easy finalSummary: −4 applied (' + rE.toFixed(1) + ' → ' + fsE.R + ')');
+    assert(runs.hard.state.finalSummary && runs.hard.state.finalSummary.difficulty === 'hard' && /^Score \d/.test(fsH.highlights[0]), 'state.finalSummary carries the difficulty; the first highlight shows the adjusted score');
+    assert(runs.hard.isEnded() && runs.easy.isEnded() && runs.normal.isEnded(), 'all three difficulty runs ended cleanly');
+  }
+
   // field quiz: decide.quiz answers, the score in state / finalSummary, and pickQuiz's no-repeat rule
   {
     let seen = 0;

@@ -79,7 +79,8 @@
     if (!e || typeof e !== 'object') e = {};
     return {
       thinnedZones: e.thinnedZones || {}, fuelBreakZones: e.fuelBreakZones || {}, hardenedZones: e.hardenedZones || {},
-      warningSystem: !!e.warningSystem, shelters: !!e.shelters
+      warningSystem: !!e.warningSystem, shelters: !!e.shelters,
+      lossMult: C.diff(state, 'damage')   // difficulty: structure-loss odds
     };
   }
 
@@ -255,7 +256,7 @@
     var seasonMult = season === C.SEASON.SUMMER ? 1.0 : season === C.SEASON.FALL ? 0.8 : 0.6;
     var windMult = clamp(1 + 0.012 * (fin(cl.windMph, 8) - 8), 0.8, 1.4);
     var dr = cl.drought; var droughtMult = dr === 'D4' ? 1.35 : dr === 'D3' ? 1.25 : dr === 'D2' ? 1.15 : 1;
-    p = clamp(p * seasonMult * windMult * droughtMult * IGNITION_MULT, 0, IGNITION_CAP);
+    p = clamp(p * seasonMult * windMult * droughtMult * IGNITION_MULT * C.diff(state, 'ignition'), 0, IGNITION_CAP);   // difficulty scales ignition odds
     // a game that has had no fire by its second summer gets one soon: the roll is bumped to >= 55%
     var fires = (state && state.fire && state.fire.fires) || [];
     if (fires.length === 0 && fin(state && state.year, 1) >= 2 && season === C.SEASON.SUMMER) p = Math.max(p, LATE_GAME_MIN_CHANCE);
@@ -413,8 +414,9 @@
     var nSt = 0;
     if (world) { try { nSt = ensureMaps(world).nStations; } catch (e) { nSt = 0; } }
     var suppressAll = !!(state && state.fire && state.fire.policy === 'suppress_all');
+    var crewMult = C.diff(state, 'crew');   // difficulty: crew points start and regen
     var T = {
-      crewPts: CREW_START + CREW_PER_STATION * nSt, crewMax: CREW_MAX, regenPerStep: suppressAll ? REGEN_SUPPRESS : REGEN,
+      crewPts: Math.round((CREW_START + CREW_PER_STATION * nSt) * crewMult), crewMax: CREW_MAX, regenPerStep: (suppressAll ? REGEN_SUPPRESS : REGEN) * crewMult,
       breaks: new Uint8Array(NN), digTimer: new Uint8Array(NN), wet: new Float32Array(NN),
       engines: {}, evacuated: {}, drops: 0, dropCooldown: 0, mutualAidUsed: false, used: {}, log: [],
       digging: 0, wetCells: 0, digLost: 0, stations: nSt
@@ -691,7 +693,8 @@
     var z = bd.zoneId;
     var hardened = z != null && z >= 0 && !!eff.hardenedZones[z];
     var engine = !!(T && z != null && z >= 0 && T.engines[z]);
-    return (hardened && engine) ? 0.08 : (hardened || engine) ? Math.min(HARDENED_LOSS, ENGINE_LOSS) : BASE_LOSS;
+    var rate = (hardened && engine) ? 0.08 : (hardened || engine) ? Math.min(HARDENED_LOSS, ENGINE_LOSS) : BASE_LOSS;
+    return Math.min(0.95, rate * fin(eff.lossMult, 1));
   }
   function houseLost(fs, bd, bi, eff, T) { return u01(fs.seed, 0, bi, 200) < houseLossRate(bd, eff, T); }
 

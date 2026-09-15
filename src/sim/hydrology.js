@@ -250,7 +250,7 @@
         m.lastSnowYear = m.snowYear;
         m.ensoPhase += (2 * Math.PI) / (4 + 3 * r.next()) + r.gauss(0, 0.15);
         m.enso = 0.10 * Math.sin(m.ensoPhase);
-        var phi = 0.35, sigma = 0.25;
+        var phi = 0.35, sigma = 0.25 * C.diff(state, 'climateSigma');   // difficulty widens / narrows snowpack variance
         m.ar = phi * m.ar + sigma * Math.sqrt(1 - phi * phi) * r.gauss(0, 1);
         var snow = historical ? HISTORICAL.values[hIdx] * (1 + r.gauss(0, 0.04)) : 100 * (1 + m.ar + m.enso);
         snow = clamp(snow, 30, 200);

@@ -488,6 +488,8 @@
     E.topbar = h('div', { id: 'topbar', class: 'bar panel', role: 'banner' });
     E.brand = h('div', { class: 'brand', 'data-tip': 'Watershed — a Colorado water-resilience simulation' }, [h('span', { html: BRAND_SVG }), h('div', {}, [h('span', { class: 'wordmark' }, 'WATERSHED')])]);
     E.date = h('div', { class: 'hud-block', id: 'hud-date', 'data-tip': 'Season and year' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('calendar', 15)), h('span', { class: 'v' }, '—')]);
+    /* difficulty chip: icon only, the label + description live in the tooltip / aria-label */
+    E.diff = h('span', { id: 'hud-diff', class: 'chip tiny diff', hidden: true, role: 'img', 'aria-label': 'Difficulty' });
     E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Budget · emergency fund. The budget refills each Winter; the fund is only spent during storm preparation.' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('coins', 15)), h('span', { class: 'v' }, '—')]);
     E.outcomes = h('div', { class: 'outcomes', id: 'hud-outcomes' });
     E.outcome = {};
@@ -526,7 +528,7 @@
     E.playerChip.addEventListener('click', function () { UI.callGame('focusPlayer'); });
     E.playerChipKey = '';
     E.topbar.appendChild(E.playerChip);
-    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
+    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.diff); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
     ui.appendChild(E.topbar);
 
     /* evidence topic menu (popover) */
@@ -862,6 +864,11 @@
     var seasonStr = seasonName(s.season);
     E.date.querySelector('.v').textContent = 'Y' + fin(s.year, 1) + (s.years ? '/' + s.years : '') + ' · ' + seasonStr;
     E.date.setAttribute('aria-label', 'Year ' + fin(s.year, 1) + (s.years ? ' of ' + s.years : '') + ', ' + seasonStr);
+    var dd = (C.DIFFICULTY && C.DIFFICULTY[s.difficulty]) || null;
+    if (E.diff) {
+      E.diff.hidden = !dd;
+      if (dd) { clear(E.diff); E.diff.appendChild(UI.icon(dd.icon || 'dot', 12)); E.diff.className = 'chip tiny diff ' + ({ easy: 'forest', normal: 'water', hard: 'fire' }[s.difficulty] || ''); E.diff.setAttribute('data-tip', 'Difficulty · ' + dd.label + ' — ' + dd.desc); E.diff.setAttribute('aria-label', 'Difficulty ' + dd.label); }
+    }
     var bv = E.budget.querySelector('.v');
     clear(bv); bv.classList.toggle('neg', fin(s.budget) < 0);
     append(bv, [money(s.budget), h('span', { class: 'em', 'aria-hidden': 'true' }, [' · ', UI.icon('extinguisher', 12), ' ' + money(s.emergencyFund)])]);

@@ -1235,3 +1235,63 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 .player-chip .xpbar { height: 4px; background: var(--paper-3); border: 1px solid var(--ink); margin-top: 3px; width: 110px; max-width: 100%; }
 .player-chip .xpbar i { display: block; height: 100%; background: var(--trust); }
 .chip.xp { background: var(--trust); color: var(--paper); border-color: var(--ink); margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---- menu page (title → menu → setup); lives inside #ui under the modal root so Settings / Credits open over it ---- */
+#ui #menu-screen { position: absolute; inset: 0; z-index: 45; background: var(--paper); pointer-events: auto; display: flex; align-items: center; justify-content: center; overflow: hidden; animation: fade 320ms var(--ease); }
+#menu-screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#menu-screen .m-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; transform: translateY(-3vh); width: min(400px, calc(100vw - 32px)); }
+#menu-screen .t-word {
+  font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(38px, 6vw, 72px); letter-spacing: 0.06em; line-height: 1; display: inline-flex;
+  background: linear-gradient(115deg, #3f8fa8 0%, #6fb6cf 22%, #86c9b4 45%, #a6bfe0 68%, #4f9fb3 90%, #3f8fa8 100%);
+  background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 #d9cfb3);
+}
+#menu-screen .t-word span { display: inline-block; }
+#menu-screen .m-sub { font-size: 13px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2); margin-top: -6px; }
+#menu-screen .m-list { display: flex; flex-direction: column; gap: 14px; width: 100%; margin-top: 14px; }
+#menu-screen .m-btn {
+  display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 14px; width: 100%; padding: 12px 16px; text-align: left; white-space: nowrap;
+  font-family: "Fredoka", "IBM Plex Sans", system-ui, sans-serif; font-weight: 600; font-size: 21px; letter-spacing: 0.04em;
+  background: var(--paper); color: var(--ink); border: 3px solid var(--ink); border-radius: 0; box-shadow: 5px 5px 0 var(--ink);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+#menu-screen .m-btn .ic { width: 44px; height: 44px; border: 2px solid var(--ink); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--paper-2); color: var(--ink); }
+#menu-screen .m-btn .lbl { min-width: 0; }
+#menu-screen .m-btn .key { font-family: var(--mono); font-weight: 500; font-size: 12px; color: var(--ink-3); border: 1.5px solid var(--ink-3); padding: 1px 7px; border-radius: 3px; letter-spacing: 0; }
+#menu-screen .m-btn:hover:not(:disabled), #menu-screen .m-btn.sel, #menu-screen .m-btn:focus-visible { background: var(--water-tint); transform: translate(-2px, -2px); box-shadow: 7px 7px 0 var(--ink); outline: none; }
+#menu-screen .m-btn.sel .key, #menu-screen .m-btn:hover .key { color: var(--water); border-color: var(--water); }
+#menu-screen .m-btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--ink); }
+#menu-screen #menu-start .ic { background: var(--water); color: var(--paper); }
+#menu-screen .t-hint { font-size: 12px; color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 6px; }
+#ui #menu-screen.leaving { animation: t-leave 420ms ease forwards; }
+@media (prefers-reduced-motion: reduce) { #ui #menu-screen, #ui #menu-screen.leaving { animation: none; } }
+
+/* ---- Settings → reduced motion: html.reduce-motion is honoured exactly like prefers-reduced-motion ---- */
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { animation: none !important; transition: none !important; }
+
+/* settings modal: label · control rows */
+.modal.settings .srow { display: grid; grid-template-columns: 148px 1fr; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.modal.settings .srow:last-child { border-bottom: 0; }
+.modal.settings .srow[data-tip] { cursor: help; }
+.modal.settings .srow .k { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 13px; }
+.modal.settings .srow .c { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.modal.settings .srow .c input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.modal.settings .srow .c .v { flex: 0 0 auto; min-width: 42px; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+
+/* credits modal */
+.modal.credits .sources li[data-tip] { cursor: help; }
+.modal.credits .sources b { font-weight: 600; }
+.modal.credits .muted { color: var(--ink-3); }
+
+/* setup: four pickers (years · climate · difficulty · seed) */
+.opts.four { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+@media (max-width: 980px) { .opts.four { grid-template-columns: repeat(2, minmax(140px, 1fr)); } }
+.opt .seg button .ic-svg { flex: 0 0 auto; }
+#intro-difficulty .seg button { padding: 6px 9px; }
+
+/* difficulty chip (top bar, icon only) and end-screen line */
+#hud-diff { cursor: help; padding: 3px 5px; gap: 0; }
+.end-diff { display: flex; justify-content: center; align-items: center; gap: 5px; margin: -6px 0 10px; font-size: 12.5px; color: var(--ink-2); cursor: help; }
+.end-diff b { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+#end-difficulty .v { font-size: 15px; }
+body.menu-open #sound-toggle { display: none !important; }   /* the floating sound button waits behind the menu page (Settings has volume + mute) */

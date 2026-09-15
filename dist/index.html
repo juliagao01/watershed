@@ -1240,6 +1240,66 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 .player-chip .xpbar i { display: block; height: 100%; background: var(--trust); }
 .chip.xp { background: var(--trust); color: var(--paper); border-color: var(--ink); margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
 
+/* ---- menu page (title → menu → setup); lives inside #ui under the modal root so Settings / Credits open over it ---- */
+#ui #menu-screen { position: absolute; inset: 0; z-index: 45; background: var(--paper); pointer-events: auto; display: flex; align-items: center; justify-content: center; overflow: hidden; animation: fade 320ms var(--ease); }
+#menu-screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#menu-screen .m-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; transform: translateY(-3vh); width: min(400px, calc(100vw - 32px)); }
+#menu-screen .t-word {
+  font-family: "Fredoka", "Baloo 2", "Nunito", "IBM Plex Sans", system-ui, sans-serif; font-weight: 700; font-size: clamp(38px, 6vw, 72px); letter-spacing: 0.06em; line-height: 1; display: inline-flex;
+  background: linear-gradient(115deg, #3f8fa8 0%, #6fb6cf 22%, #86c9b4 45%, #a6bfe0 68%, #4f9fb3 90%, #3f8fa8 100%);
+  background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 #d9cfb3);
+}
+#menu-screen .t-word span { display: inline-block; }
+#menu-screen .m-sub { font-size: 13px; letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2); margin-top: -6px; }
+#menu-screen .m-list { display: flex; flex-direction: column; gap: 14px; width: 100%; margin-top: 14px; }
+#menu-screen .m-btn {
+  display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 14px; width: 100%; padding: 12px 16px; text-align: left; white-space: nowrap;
+  font-family: "Fredoka", "IBM Plex Sans", system-ui, sans-serif; font-weight: 600; font-size: 21px; letter-spacing: 0.04em;
+  background: var(--paper); color: var(--ink); border: 3px solid var(--ink); border-radius: 0; box-shadow: 5px 5px 0 var(--ink);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+#menu-screen .m-btn .ic { width: 44px; height: 44px; border: 2px solid var(--ink); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--paper-2); color: var(--ink); }
+#menu-screen .m-btn .lbl { min-width: 0; }
+#menu-screen .m-btn .key { font-family: var(--mono); font-weight: 500; font-size: 12px; color: var(--ink-3); border: 1.5px solid var(--ink-3); padding: 1px 7px; border-radius: 3px; letter-spacing: 0; }
+#menu-screen .m-btn:hover:not(:disabled), #menu-screen .m-btn.sel, #menu-screen .m-btn:focus-visible { background: var(--water-tint); transform: translate(-2px, -2px); box-shadow: 7px 7px 0 var(--ink); outline: none; }
+#menu-screen .m-btn.sel .key, #menu-screen .m-btn:hover .key { color: var(--water); border-color: var(--water); }
+#menu-screen .m-btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--ink); }
+#menu-screen #menu-start .ic { background: var(--water); color: var(--paper); }
+#menu-screen .t-hint { font-size: 12px; color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 6px; }
+#ui #menu-screen.leaving { animation: t-leave 420ms ease forwards; }
+@media (prefers-reduced-motion: reduce) { #ui #menu-screen, #ui #menu-screen.leaving { animation: none; } }
+
+/* ---- Settings → reduced motion: html.reduce-motion is honoured exactly like prefers-reduced-motion ---- */
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { animation: none !important; transition: none !important; }
+
+/* settings modal: label · control rows */
+.modal.settings .srow { display: grid; grid-template-columns: 148px 1fr; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.modal.settings .srow:last-child { border-bottom: 0; }
+.modal.settings .srow[data-tip] { cursor: help; }
+.modal.settings .srow .k { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 13px; }
+.modal.settings .srow .c { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.modal.settings .srow .c input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.modal.settings .srow .c .v { flex: 0 0 auto; min-width: 42px; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+
+/* credits modal */
+.modal.credits .sources li[data-tip] { cursor: help; }
+.modal.credits .sources b { font-weight: 600; }
+.modal.credits .muted { color: var(--ink-3); }
+
+/* setup: four pickers (years · climate · difficulty · seed) */
+.opts.four { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+@media (max-width: 980px) { .opts.four { grid-template-columns: repeat(2, minmax(140px, 1fr)); } }
+.opt .seg button .ic-svg { flex: 0 0 auto; }
+#intro-difficulty .seg button { padding: 6px 9px; }
+
+/* difficulty chip (top bar, icon only) and end-screen line */
+#hud-diff { cursor: help; padding: 3px 5px; gap: 0; }
+.end-diff { display: flex; justify-content: center; align-items: center; gap: 5px; margin: -6px 0 10px; font-size: 12.5px; color: var(--ink-2); cursor: help; }
+.end-diff b { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+#end-difficulty .v { font-size: 15px; }
+body.menu-open #sound-toggle { display: none !important; }   /* the floating sound button waits behind the menu page (Settings has volume + mute) */
+
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1312,6 +1372,14 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       { label: 'Fire tactics', value: 'Crew points; mutual aid $1.5M', note: 'For scale: a large air-tanker drop costs roughly $10,000-20,000, a dozer line about $2,000-5,000 per 100 m; the mutual-aid fee stands in for a county cost-share on a multi-day incident.' }
     ],
 
+    // difficulty levels: multipliers applied where the base numbers live (see C.diff); scoreBonus is added to the final score
+    DIFFICULTY: {
+      easy:   { label: 'Easy',   desc: 'More money, calmer weather, fewer fires.',   icon: 'leaf', budget: 1.25, emergencyFund: 1.5, ignition: 0.7, storm: 0.7, crew: 1.3, climateSigma: 0.8,  damage: 0.8, scoreBonus: -4 },
+      normal: { label: 'Normal', desc: 'The watershed as designed.',                  icon: 'drop', budget: 1,    emergencyFund: 1,   ignition: 1,   storm: 1,   crew: 1,   climateSigma: 1,    damage: 1,   scoreBonus: 0 },
+      hard:   { label: 'Hard',   desc: 'Tight budgets, wild weather, hotter fires.',  icon: 'fire', budget: 0.8,  emergencyFund: 0.7, ignition: 1.4, storm: 1.3, crew: 0.8, climateSigma: 1.25, damage: 1.2, scoreBonus: 6 }
+    },
+    DIFFICULTY_ORDER: ['easy', 'normal', 'hard'],
+
     // rendering conventions (shared by all render modules)
     RENDER: {
       CELL: 1.0,          // scene units per cell
@@ -1351,6 +1419,15 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       y: (elev - C.RENDER.ELEV_BASE) * C.RENDER.ELEV_SCALE,
       z: (y - C.N / 2 + 0.5) * C.RENDER.CELL
     };
+  };
+  /** diffDef(state) → the difficulty definition for state.difficulty ('normal' when missing / unknown). */
+  C.diffDef = function (state) { var k = state && state.difficulty; return (C.DIFFICULTY && C.DIFFICULTY[k]) || C.DIFFICULTY.normal; };
+  /** diff(state, key) → multiplier for `key` at the state's difficulty; 1 when missing (0 for scoreBonus). */
+  C.diff = function (state, key) {
+    var d = C.DIFFICULTY && C.DIFFICULTY[state && state.difficulty];
+    var v = d ? d[key] : undefined;
+    if (typeof v === 'number' && isFinite(v)) return v;
+    return key === 'scoreBonus' ? 0 : 1;
   };
   C.elevToScene = function (elev) { return (elev - C.RENDER.ELEV_BASE) * C.RENDER.ELEV_SCALE; };
   C.sceneToCell = function (sx, sz) {
@@ -2206,6 +2283,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 
   function sectorObj(v) { var o = {}; for (var i = 0; i < C.SECTORS.length; i++) o[C.SECTORS[i]] = v; return o; }
   function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : d; }
+  function difficultyOf(v) { return (C.DIFFICULTY && C.DIFFICULTY[v]) ? v : 'normal'; }
   function isPlain(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v); }
 
   /* ---- SPEC3 §C: player avatar ---- */
@@ -2240,7 +2318,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var years = Math.max(1, Math.min(40, Math.round(num(opts.years, C.YEARS_DEFAULT))));
     var mode = (opts.mode === 'historical') ? 'historical' : 'simulated';
     return {
-      seed: seed, mode: mode, years: years, turn: 0, year: 1, season: C.SEASON.WINTER, phase: C.PHASES.BOOT,
+      seed: seed, mode: mode, years: years, difficulty: difficultyOf(opts.difficulty), turn: 0, year: 1, season: C.SEASON.WINTER, phase: C.PHASES.BOOT,
       budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, trustDelta: 0,
       population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
@@ -2304,7 +2382,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     defaultPlayer: defaultPlayer,
     normalizePlayer: normalizePlayer,
 
-    /** create({seed, years, mode}) -> state */
+    /** create({seed, years, mode, difficulty}) -> state */
     create: function (opts) {
       var s = defaults(opts);
       s.phase = C.PHASES.BOOT;
@@ -2324,8 +2402,9 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       if (str && typeof str === 'object') parsed = str;
       else { try { parsed = JSON.parse(String(str), reviver); } catch (e) { parsed = null; } }
       if (!isPlain(parsed)) return defaults({});
-      var s = fill(defaults({ seed: parsed.seed, years: parsed.years, mode: parsed.mode }), parsed);
+      var s = fill(defaults({ seed: parsed.seed, years: parsed.years, mode: parsed.mode, difficulty: parsed.difficulty }), parsed);
       // derived / invariants
+      s.difficulty = difficultyOf(s.difficulty);   // pre-difficulty saves play as 'normal'
       s.turn = Math.max(0, Math.round(num(s.turn, 0)));
       s.year = 1 + Math.floor(s.turn / 4);
       s.season = s.turn % 4;
@@ -3149,7 +3228,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
         m.lastSnowYear = m.snowYear;
         m.ensoPhase += (2 * Math.PI) / (4 + 3 * r.next()) + r.gauss(0, 0.15);
         m.enso = 0.10 * Math.sin(m.ensoPhase);
-        var phi = 0.35, sigma = 0.25;
+        var phi = 0.35, sigma = 0.25 * C.diff(state, 'climateSigma');   // difficulty widens / narrows snowpack variance
         m.ar = phi * m.ar + sigma * Math.sqrt(1 - phi * phi) * r.gauss(0, 1);
         var snow = historical ? HISTORICAL.values[hIdx] * (1 + r.gauss(0, 0.04)) : 100 * (1 + m.ar + m.enso);
         snow = clamp(snow, 30, 200);
@@ -3589,7 +3668,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     if (!e || typeof e !== 'object') e = {};
     return {
       thinnedZones: e.thinnedZones || {}, fuelBreakZones: e.fuelBreakZones || {}, hardenedZones: e.hardenedZones || {},
-      warningSystem: !!e.warningSystem, shelters: !!e.shelters
+      warningSystem: !!e.warningSystem, shelters: !!e.shelters,
+      lossMult: C.diff(state, 'damage')   // difficulty: structure-loss odds
     };
   }
 
@@ -3765,7 +3845,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var seasonMult = season === C.SEASON.SUMMER ? 1.0 : season === C.SEASON.FALL ? 0.8 : 0.6;
     var windMult = clamp(1 + 0.012 * (fin(cl.windMph, 8) - 8), 0.8, 1.4);
     var dr = cl.drought; var droughtMult = dr === 'D4' ? 1.35 : dr === 'D3' ? 1.25 : dr === 'D2' ? 1.15 : 1;
-    p = clamp(p * seasonMult * windMult * droughtMult * IGNITION_MULT, 0, IGNITION_CAP);
+    p = clamp(p * seasonMult * windMult * droughtMult * IGNITION_MULT * C.diff(state, 'ignition'), 0, IGNITION_CAP);   // difficulty scales ignition odds
     // a game that has had no fire by its second summer gets one soon: the roll is bumped to >= 55%
     var fires = (state && state.fire && state.fire.fires) || [];
     if (fires.length === 0 && fin(state && state.year, 1) >= 2 && season === C.SEASON.SUMMER) p = Math.max(p, LATE_GAME_MIN_CHANCE);
@@ -3923,8 +4003,9 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var nSt = 0;
     if (world) { try { nSt = ensureMaps(world).nStations; } catch (e) { nSt = 0; } }
     var suppressAll = !!(state && state.fire && state.fire.policy === 'suppress_all');
+    var crewMult = C.diff(state, 'crew');   // difficulty: crew points start and regen
     var T = {
-      crewPts: CREW_START + CREW_PER_STATION * nSt, crewMax: CREW_MAX, regenPerStep: suppressAll ? REGEN_SUPPRESS : REGEN,
+      crewPts: Math.round((CREW_START + CREW_PER_STATION * nSt) * crewMult), crewMax: CREW_MAX, regenPerStep: (suppressAll ? REGEN_SUPPRESS : REGEN) * crewMult,
       breaks: new Uint8Array(NN), digTimer: new Uint8Array(NN), wet: new Float32Array(NN),
       engines: {}, evacuated: {}, drops: 0, dropCooldown: 0, mutualAidUsed: false, used: {}, log: [],
       digging: 0, wetCells: 0, digLost: 0, stations: nSt
@@ -4201,7 +4282,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var z = bd.zoneId;
     var hardened = z != null && z >= 0 && !!eff.hardenedZones[z];
     var engine = !!(T && z != null && z >= 0 && T.engines[z]);
-    return (hardened && engine) ? 0.08 : (hardened || engine) ? Math.min(HARDENED_LOSS, ENGINE_LOSS) : BASE_LOSS;
+    var rate = (hardened && engine) ? 0.08 : (hardened || engine) ? Math.min(HARDENED_LOSS, ENGINE_LOSS) : BASE_LOSS;
+    return Math.min(0.95, rate * fin(eff.lossMult, 1));
   }
   function houseLost(fs, bd, bi, eff, T) { return u01(fs.seed, 0, bi, 200) < houseLossRate(bd, eff, T); }
 
@@ -4921,8 +5003,9 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     risk += peakTownCfs / 12000 * (eff.warningSystem ? 0.3 : 1);
     res.floodedCells = Int32Array.from(fl);
     res.floodedHouses = houses; res.floodedResidential = nRes; res.floodedFarm = nFarm; res.floodedCivic = nCiv;
-    res.damageM = Math.round(dmg * 100) / 100;
-    res.injuriesRisk = clamp(risk, 0, 1);
+    var dmgMult = C.diff(state, 'damage');   // difficulty: flood damage $ and injury odds
+    res.damageM = Math.round(dmg * dmgMult * 100) / 100;
+    res.injuriesRisk = clamp(risk * dmgMult, 0, 1);
     res.spillwayUsed = spillway; res.releasedAF = spillway ? SPILLWAY_AF : 0;
 
     // --- arrival frames + flood timeline (aligned with res.frames) ---
@@ -5078,7 +5161,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var scarF = scar > 0 ? Math.pow(clamp(scarAcres / 3000, 0, 1), 0.6) : 0.05;
     var cl = (state && state.climate) || {};
     var wet = clamp(1 + 0.3 * (fin(cl.precipIn, 3) - 3) / 3, 0.7, 1.4);
-    return clamp(base * Math.max(0.05, scarF) * wet * 1.4, 0, 0.7);   // v2: x1.4 — a scar should almost always get tested within two seasons
+    return clamp(base * Math.max(0.05, scarF) * wet * 1.4 * C.diff(state, 'storm'), 0, 0.7);   // difficulty scales storm odds; v2: x1.4 — a scar should almost always get tested within two seasons
   }
 
   function prepare(state, world, storm) {
@@ -6841,11 +6924,13 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       return { letter: g[0], title: g[1], R: Math.round(R * 10) / 10 };
     },
 
-    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz } */
+    /** finalSummary(state) → { R, grade, outcomes, highlights, lessons, stats, quiz, difficulty, difficultyBonus, baseR }
+     *  R = resilience + the difficulty's scoreBonus (clamped 0..100); the grade uses the adjusted score. */
     finalSummary: function (state) {
       state = state || {};
       var o = state.outcomes || {}, stats = state.stats || {}, fire = state.fire || {}, flags = state.flags || {}, hist = Array.isArray(state.history) ? state.history : [];
-      var R = Scoring.resilience(o), g = Scoring.grade(R), highlights = [], lessons = [];
+      var baseR = Scoring.resilience(o), bonus = C.diff(state, 'scoreBonus');
+      var R = Math.round(clamp(baseR + bonus, 0, 100) * 10) / 10, g = Scoring.grade(R), highlights = [], lessons = [];
       var fires = Array.isArray(fire.fires) ? fire.fires : [], biggest = null;
       for (var i = 0; i < fires.length; i++) if (fires[i] && (!biggest || fin(fires[i].acres, 0) > fin(biggest.acres, 0))) biggest = fires[i];
       var minStore = null;
@@ -6881,7 +6966,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
         stats: { floodDamageM: fin(stats.floodDamageM, 0), sedimentTons: fin(stats.sedimentTons, 0), contaminationOutageDays: fin(stats.contaminationOutageDays, 0),
           cropLossPct: fin(stats.cropLossPct, 0), hydroMWh: fin(stats.hydroMWh, 0), recreationVisits: fin(stats.recreationVisits, 0),
           totalAcres: fin(fire.totalAcres, 0), structuresLost: fin(fire.structuresLost, 0), fires: fires.length, years: yearsPlayed },
-        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) } };
+        quiz: { correct: Math.round(fin(quiz.correct, 0)), total: Math.round(fin(quiz.total, 0)), best: Math.round(fin(quiz.best, 0)) },
+        difficulty: (C.DIFFICULTY && C.DIFFICULTY[state.difficulty]) ? state.difficulty : 'normal', difficultyBonus: bonus, baseR: baseR };
     }
   };
 })();
@@ -14737,6 +14823,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     E.topbar = h('div', { id: 'topbar', class: 'bar panel', role: 'banner' });
     E.brand = h('div', { class: 'brand', 'data-tip': 'Watershed — a Colorado water-resilience simulation' }, [h('span', { html: BRAND_SVG }), h('div', {}, [h('span', { class: 'wordmark' }, 'WATERSHED')])]);
     E.date = h('div', { class: 'hud-block', id: 'hud-date', 'data-tip': 'Season and year' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('calendar', 15)), h('span', { class: 'v' }, '—')]);
+    /* difficulty chip: icon only, the label + description live in the tooltip / aria-label */
+    E.diff = h('span', { id: 'hud-diff', class: 'chip tiny diff', hidden: true, role: 'img', 'aria-label': 'Difficulty' });
     E.budget = h('div', { class: 'hud-block', id: 'hud-budget', 'data-tip': 'Budget · emergency fund. The budget refills each Winter; the fund is only spent during storm preparation.' }, [h('span', { class: 'ic', 'aria-hidden': 'true' }, UI.icon('coins', 15)), h('span', { class: 'v' }, '—')]);
     E.outcomes = h('div', { class: 'outcomes', id: 'hud-outcomes' });
     E.outcome = {};
@@ -14775,7 +14863,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     E.playerChip.addEventListener('click', function () { UI.callGame('focusPlayer'); });
     E.playerChipKey = '';
     E.topbar.appendChild(E.playerChip);
-    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
+    E.topbar.appendChild(E.brand); E.topbar.appendChild(E.date); E.topbar.appendChild(E.diff); E.topbar.appendChild(E.budget); E.topbar.appendChild(E.crisisChip); E.topbar.appendChild(E.outcomes); E.topbar.appendChild(E.score); E.topbar.appendChild(E.btnrow);
     ui.appendChild(E.topbar);
 
     /* evidence topic menu (popover) */
@@ -15111,6 +15199,11 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var seasonStr = seasonName(s.season);
     E.date.querySelector('.v').textContent = 'Y' + fin(s.year, 1) + (s.years ? '/' + s.years : '') + ' · ' + seasonStr;
     E.date.setAttribute('aria-label', 'Year ' + fin(s.year, 1) + (s.years ? ' of ' + s.years : '') + ', ' + seasonStr);
+    var dd = (C.DIFFICULTY && C.DIFFICULTY[s.difficulty]) || null;
+    if (E.diff) {
+      E.diff.hidden = !dd;
+      if (dd) { clear(E.diff); E.diff.appendChild(UI.icon(dd.icon || 'dot', 12)); E.diff.className = 'chip tiny diff ' + ({ easy: 'forest', normal: 'water', hard: 'fire' }[s.difficulty] || ''); E.diff.setAttribute('data-tip', 'Difficulty · ' + dd.label + ' — ' + dd.desc); E.diff.setAttribute('aria-label', 'Difficulty ' + dd.label); }
+    }
     var bv = E.budget.querySelector('.v');
     clear(bv); bv.classList.toggle('neg', fin(s.budget) < 0);
     append(bv, [money(s.budget), h('span', { class: 'em', 'aria-hidden': 'true' }, [' · ', UI.icon('extinguisher', 12), ' ' + money(s.emergencyFund)])]);
@@ -16189,6 +16282,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
      Opaque paper page: the wordmark in a rounded font, a drop that falls into expanding ripples, Play. */
   UI.showTitle = function () {
     return new Promise(function (resolve) {
+      UI.applyPrefs();
       var word = 'WATERSHED';
       var cv = h('canvas', { 'aria-hidden': 'true' });
       var letters = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
@@ -16203,7 +16297,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
 
       /* --- ripple animation ------------------------------------------------- */
       var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1), W = 0, H = 0;
-      var reduced = false; try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { /* ignore */ }
+      var reduced = reducedMotion();
       var ripples = [], drops = [], t0 = 0, raf = 0, nextDrop = 0, alive = true;
       var ink = '#1f6f8b', paper = '#f3ead8', line = '#d9cfb3';
       function resize() { W = el.clientWidth || innerWidth; H = el.clientHeight || innerHeight; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
@@ -16264,8 +16358,150 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     });
   };
 
+  /* ================================================================== MENU PAGE (title → menu → setup)
+     Opaque paper page in the title style: static contour lines, a smaller wordmark, three stacked paper buttons.
+     Settings and Credits open as modals over the page and return to it; Start Game resolves 'start'. */
+  function reducedMotion() {
+    try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true; } catch (e) { /* ignore */ }
+    return !!(document.documentElement && document.documentElement.classList.contains('reduce-motion'));
+  }
+  UI.reducedMotion = reducedMotion;
+  /** static HiDPI copy of the title page's contour lines */
+  function paintContours(cv, el) {
+    var ctx = cv.getContext('2d'), dpr = Math.min(2, window.devicePixelRatio || 1);
+    var W = el.clientWidth || innerWidth, H = el.clientHeight || innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H); ctx.strokeStyle = '#d9cfb3'; ctx.lineWidth = 1;
+    for (var c = 0; c < 9; c++) { var yy = 40 + c * (H / 9); ctx.beginPath(); for (var x = 0; x <= W; x += 24) { var y = yy + Math.sin(x * 0.012 + c * 1.7) * 9 + Math.sin(x * 0.03 + c) * 3; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke(); }
+  }
+  /** Camera pan speed (0.6–1.6): applied when the renderer's controls expose a speed field; otherwise only stored. */
+  UI.applyPanSpeed = function (v) {
+    v = Number(v); if (!isFinite(v)) return false;
+    v = clamp(v, 0.6, 1.6);
+    var c = WS.Renderer && WS.Renderer._ctx && WS.Renderer._ctx.controls;
+    if (!c) return false;
+    if ('panSpeed' in c) c.panSpeed = v; else if (typeof c.setPanSpeed === 'function') c.setPanSpeed(v); else if ('speed' in c) c.speed = v; else return false;
+    return true;
+  };
+  /** Applies the persisted page-wide preferences (html.reduce-motion, camera pan speed). Safe to call any time. */
+  UI.applyPrefs = function () {
+    try { document.documentElement.classList.toggle('reduce-motion', UI.pref('reduceMotion') === true); } catch (e) { /* ignore */ }
+    UI.applyPanSpeed(UI.pref('panSpeed'));
+  };
+
+  /** showMenu() → Promise<'start'>. Keys: ↑/↓ (or ←/→) move, Enter picks, 1/2/3 pick directly, Esc does nothing. */
+  UI.showMenu = function () {
+    UI.applyPrefs();
+    return new Promise(function (resolve) {
+      var host = UI.els.ui || document.body;
+      var cv = h('canvas', { 'aria-hidden': 'true' });
+      var word = h('div', { class: 't-word', role: 'heading', 'aria-level': '1', 'aria-label': 'Watershed' },
+        'WATERSHED'.split('').map(function (ch) { return h('span', { 'aria-hidden': 'true' }, ch); }));
+      var items = [
+        { id: 'start', icon: 'play', label: 'Start Game', tip: 'Choose years, climate, seed, difficulty and your character', run: function () { finish('start'); } },
+        { id: 'settings', icon: 'tools', label: 'Settings', tip: 'Sound, tutorial hints, motion, camera', run: function () { UI.showSettings().then(refocus); } },
+        { id: 'credits', icon: 'book', label: 'Credits', tip: 'Who and what made Watershed', run: function () { UI.showCredits().then(refocus); } }
+      ];
+      var sel = 0, alive = true;
+      var btns = items.map(function (it, i) {
+        var b = h('button', { type: 'button', class: 'm-btn', id: 'menu-' + it.id, 'data-tip': it.tip, 'aria-label': it.label + ' (' + (i + 1) + ')' }, [
+          h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(it.icon, 24)), h('span', { class: 'lbl' }, it.label), h('span', { class: 'key', 'aria-hidden': 'true' }, String(i + 1))]);
+        b.addEventListener('click', function () { sel = i; mark(); it.run(); });
+        b.addEventListener('focus', function () { sel = i; mark(); });
+        return b;
+      });
+      var el = h('div', { id: 'menu-screen', role: 'dialog', 'aria-label': 'Watershed menu' }, [
+        cv,
+        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1 2 3')])
+      ]);
+      host.appendChild(el); document.body.classList.add('menu-open');
+      function mark() { btns.forEach(function (b, i) { b.classList.toggle('sel', i === sel); }); }
+      function refocus() { if (!alive) return; mark(); try { btns[sel].focus(); } catch (e) { /* ignore */ } }
+      function onKey(e) {
+        if (!alive || UI.modalIsOpen()) return;   /* Settings / Credits own the keyboard while open */
+        var k = e.key, handled = true;
+        if (k === 'ArrowDown' || k === 'ArrowRight') { sel = (sel + 1) % btns.length; refocus(); }
+        else if (k === 'ArrowUp' || k === 'ArrowLeft') { sel = (sel + btns.length - 1) % btns.length; refocus(); }
+        else if (k === 'Home') { sel = 0; refocus(); }
+        else if (k === 'End') { sel = btns.length - 1; refocus(); }
+        else if (k === 'Enter') { items[sel].run(); }
+        else if (k === '1' || k === '2' || k === '3') { sel = +k - 1; refocus(); items[sel].run(); }
+        else handled = false;   /* Esc and everything else: nothing */
+        if (handled) { e.preventDefault(); e.stopPropagation(); }   /* 1–3 must not reach the game's speed keys */
+      }
+      function resize() { paintContours(cv, el); }
+      function finish(v) {
+        if (!alive) return; alive = false;
+        document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', resize);
+        el.classList.add('leaving');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); document.body.classList.remove('menu-open'); resolve(v); }, reducedMotion() ? 0 : 420);
+      }
+      document.addEventListener('keydown', onKey, true); window.addEventListener('resize', resize);
+      resize(); mark();
+      setTimeout(refocus, 30);
+    });
+  };
+
+  /* ================================================================== SETTINGS (≤ 40 visible words) */
+  UI.showSettings = function () {
+    var S = WS.Sound || null;
+    return UI.modal({
+      icon: 'tools', eyebrow: 'Menu', title: 'Settings', className: 'narrow settings',
+      render: function (body) {
+        function row(label, ic, ctl, tip) { return h('div', { class: 'srow', 'data-tip': tip || null }, [h('span', { class: 'k' }, [icon(ic, 13), ' ', label]), h('span', { class: 'c' }, ctl)]); }
+        function toggle(id, on, label, onChange) { var cb = h('input', { type: 'checkbox', id: id, checked: on ? true : null, 'aria-label': label }); cb.addEventListener('change', function () { onChange(!!cb.checked); }); return cb; }
+        /* sound: volume + mute, persisted by sound.js */
+        var vol0 = (S && typeof S.getVolume === 'function') ? clamp(Number(S.getVolume()), 0, 1) : 0.8;
+        var vol = h('input', { type: 'range', id: 'set-volume', min: 0, max: 100, step: 5, value: Math.round(vol0 * 100), 'aria-label': 'Sound volume', disabled: S ? null : true });
+        var volV = h('span', { class: 'v num' }, Math.round(vol0 * 100) + '%');
+        vol.addEventListener('input', function () { var v = clamp(Number(vol.value), 0, 100); volV.textContent = v + '%'; if (S && typeof S.setVolume === 'function') S.setVolume(v / 100); });
+        body.appendChild(row('Sound', 'volume', [vol, volV], S ? 'Volume · remembered in this browser' : 'Sound unavailable'));
+        body.appendChild(row('Mute', 'volume-muted', toggle('set-mute', !!(S && typeof S.isMuted === 'function' && S.isMuted()), 'Mute', function (on) { if (S && typeof S.setMuted === 'function') S.setMuted(on); }), 'Silence all game audio'));
+        /* tutorial hints: also the setup modal's default */
+        body.appendChild(row('Tutorial hints', 'grad', toggle('set-tutorial', UI.pref('tutorial') !== false, 'Tutorial hints', function (on) { UI.pref('tutorial', on); }), 'Coach marks on the first turn · the setup default'));
+        /* reduced motion: html.reduce-motion, honoured like prefers-reduced-motion */
+        body.appendChild(row('Reduced motion', 'pause', toggle('set-motion', UI.pref('reduceMotion') === true, 'Reduced motion', function (on) { UI.pref('reduceMotion', on); UI.applyPrefs(); }), 'Turns page animations off'));
+        /* camera pan speed 0.6–1.6× */
+        var ps0 = clamp(Number(UI.pref('panSpeed')) || 1, 0.6, 1.6);
+        var ps = h('input', { type: 'range', id: 'set-pan', min: 60, max: 160, step: 10, value: Math.round(ps0 * 100), 'aria-label': 'Camera pan speed' });
+        var psV = h('span', { class: 'v num' }, ps0.toFixed(1) + '×');
+        ps.addEventListener('input', function () { var v = clamp(Number(ps.value), 60, 160) / 100; psV.textContent = v.toFixed(1) + '×'; UI.pref('panSpeed', v); UI.applyPanSpeed(v); });
+        body.appendChild(row('Camera pan speed', 'compass', [ps, psV], 'Drag and keyboard pan · 0.6× to 1.6×'));
+        /* forget the remembered character */
+        var reset = h('button', { type: 'button', class: 'tiny', id: 'set-reset-player', 'data-tip': 'Forget the remembered name and face', disabled: UI.pref('player') ? null : true }, [icon('refresh', 12), ' Reset saved character']);
+        reset.addEventListener('click', function () { UI.pref('player', null); reset.disabled = true; UI.toast('Character reset', 'info'); });
+        body.appendChild(row('', 'idcard', reset, null));
+      },
+      foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Done')); }
+    });
+  };
+
+  /* ================================================================== CREDITS (≤ 120 visible words; the numbers list is a disclosure) */
+  UI.showCredits = function () {
+    var srcs = (C.SOURCES && C.SOURCES.length) ? C.SOURCES : [];
+    return UI.modal({
+      icon: 'book', eyebrow: 'Menu', title: 'Credits', className: 'narrow credits',
+      render: function (body) {
+        body.appendChild(h('p', { class: 'lead' }, 'Watershed — a Colorado water-resilience game'));
+        body.appendChild(h('ul', { class: 'small' }, [
+          h('li', {}, 'Built with Three.js (r128)'),
+          h('li', {}, 'IBM Plex Sans / Mono and Fredoka via Google Fonts'),
+          h('li', {}, 'Synthesized audio')
+        ]));
+        body.appendChild(h('h3', {}, 'Where the numbers come from'));
+        var list = h('ul', { class: 'small sources', id: 'credits-sources', hidden: true }, srcs.map(function (r) {
+          return h('li', { 'data-tip': r.note || null }, [h('b', {}, String(r.label || '')), r.value ? ' · ' + r.value : '']);
+        }));
+        body.appendChild(disclosureButton('Show list', list, { controls: 'credits-sources' })); body.appendChild(list);
+        body.appendChild(h('p', { class: 'small', style: { marginTop: '12px' } }, 'Inspired by the Cameron Peak, East Troublesome and Marshall fires and the Colorado River.'));
+        body.appendChild(h('p', { class: 'small muted num' }, 'Version ' + (C.VERSION || '—')));
+      },
+      foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Close')); }
+    });
+  };
+
   UI.showIntro = function () {
-    return UI.showTitle().then(function () { return UI._showSetup(); });
+    return UI.showTitle().then(function () { return UI.showMenu(); }).then(function () { return UI._showSetup(); });
   };
   UI._showSetup = function () {
     return UI.modal({
@@ -16278,12 +16514,13 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
           h('div', { class: 'tag', 'data-tip': 'You run the Bitterbrush Creek watershed: a snow-fed reservoir, a mountain town, four farms, a century of unburned forest and neighbours with senior water rights. What burns above the reservoir ends up in the tap — and when a fire or flood hits, you fight it live.' },
             UI.cap('Run a Colorado watershed: snow, fire, floods, water rights.', UI.WORD_CAPS.intro))
         ]));
-        var years = 6, mode = 'simulated', tutorial = true;
-        /* three pickers: years · climate · seed (segmented buttons; explanations in tooltips) */
+        var years = 6, mode = 'simulated', tutorial = UI.pref('tutorial') !== false;   /* Settings → Tutorial hints is the default */
+        var diffPref = UI.pref('difficulty'), difficulty = (C.DIFFICULTY && C.DIFFICULTY[diffPref]) ? diffPref : 'normal';
+        /* four pickers: years · climate · difficulty · seed (segmented buttons; explanations in tooltips). opts: [value, label, tip, icon?] */
         function segPick(name, opts, current, onPick) {
           var seg = h('div', { class: 'seg', role: 'group', 'aria-label': name });
           var btns = opts.map(function (o) {
-            var b = h('button', { type: 'button', class: o[0] === current ? 'active' : '', 'aria-pressed': o[0] === current ? 'true' : 'false', 'data-tip': o[2] || null, 'aria-label': o[1] + (o[2] ? ' · ' + o[2] : '') }, o[1]);
+            var b = h('button', { type: 'button', class: o[0] === current ? 'active' : '', 'aria-pressed': o[0] === current ? 'true' : 'false', 'data-tip': o[2] || null, 'aria-label': o[1] + (o[2] ? ' · ' + o[2] : '') }, o[3] ? [icon(o[3], 12), ' ', o[1]] : o[1]);
             b.addEventListener('click', function () { btns.forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); }); b.classList.add('active'); b.setAttribute('aria-pressed', 'true'); onPick(o[0]); });
             seg.appendChild(b); return b;
           });
@@ -16293,19 +16530,22 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
           segPick('Game length', [[4, '4', 'Quick game'], [6, '6', 'Recommended'], [8, '8', 'Full arc']], years, function (v) { years = v; })]);
         var modeOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [icon('sun', 11), ' Climate']),
           segPick('Climate', [['simulated', 'Simulated', 'Seeded weather; varies by seed'], ['historical', 'Historical', 'Approximate Colorado snowpack sequence']], mode, function (v) { mode = v; })]);
+        var diffOpts = (C.DIFFICULTY ? (C.DIFFICULTY_ORDER || Object.keys(C.DIFFICULTY)) : []).map(function (k) { var d = C.DIFFICULTY[k]; return [k, d.label, d.desc, d.icon]; });
+        var diffOpt = diffOpts.length ? h('div', { class: 'opt', id: 'intro-difficulty' }, [h('span', { class: 'k' }, [icon('scales', 11), ' Difficulty']),
+          segPick('Difficulty', diffOpts, difficulty, function (v) { difficulty = v; })]) : null;
         var seedInput = h('input', { type: 'text', id: 'intro-seed', value: String(Math.floor(Math.random() * 90000) + 10000), 'aria-label': 'Seed', maxlength: 24, 'data-tip': 'Same seed, same world and weather' });
         var seedOpt = h('div', { class: 'opt' }, [h('span', { class: 'k' }, [icon('dice', 11), ' Seed']), h('div', { class: 'seed' }, [seedInput, h('button', { type: 'button', 'aria-label': 'Random seed', 'data-tip': 'Random seed', onclick: function () { seedInput.value = String(Math.floor(Math.random() * 90000) + 10000); } }, icon('dice', 14))])]);
         /* "Your character": live 128 px portrait, name, pickers, Randomise, presets. Remembered in localStorage (guarded by UI.pref). */
         var remembered = UI.pref('player');
         var creator = UI.characterCreator({ name: (remembered && remembered.name) || 'Director Rivera', face: (remembered && remembered.face) || (WS.Faces && WS.Faces.PRESETS && WS.Faces.PRESETS[0].face) || null });
         body.appendChild(creator.el);
-        body.appendChild(h('div', { class: 'opts three' }, [yearsOpt, modeOpt, seedOpt]));
-        var tutLabel = h('label', { class: 'tut small', 'data-tip': 'Coach marks on the first turn (skippable)' }, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: true, onchange: function (e) { tutorial = !!e.target.checked; } }), icon('grad', 13), ' Tutorial']);
+        body.appendChild(h('div', { class: 'opts ' + (diffOpt ? 'four' : 'three') }, [yearsOpt, modeOpt, diffOpt, seedOpt]));
+        var tutLabel = h('label', { class: 'tut small', 'data-tip': 'Coach marks on the first turn (skippable)' }, [h('input', { type: 'checkbox', id: 'intro-tutorial', checked: tutorial ? true : null, onchange: function (e) { tutorial = !!e.target.checked; } }), icon('grad', 13), ' Tutorial']);
         body.appendChild(h('div', { class: 'row', style: { justifyContent: 'center', gap: '16px', marginTop: '16px' } }, [tutLabel, h('button', { class: 'primary big', type: 'button', id: 'intro-begin', autofocus: true, onclick: function () {
           var raw = (seedInput.value || '').trim(); var seed = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : (raw || String(Date.now()));
           var player = creator.get();
-          UI.pref('player', player);
-          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player });
+          UI.pref('player', player); UI.pref('difficulty', difficulty); UI.pref('tutorial', tutorial);
+          close({ years: years, mode: mode, seed: seed, tutorial: tutorial, player: player, difficulty: difficulty });
         } }, ['Begin ', icon('play', 13)])]));
       }
     });
@@ -16731,6 +16971,10 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       icon: 'flag', eyebrow: 'After ' + fin(s.years, fin(summary.years, 6)) + ' years', title: 'How the watershed fared', className: 'wide end', critical: true,
       render: function (body) {
         body.appendChild(h('div', { class: 'end-score' }, [h('div', { class: 'big' }, Math.round(R)), h('div', { class: 'grade' }, [h('div', { class: 'g' }, g.letter || '—'), h('div', { class: 'title' }, g.title || 'Colorado Resilience Score')])]));
+        /* difficulty: level + the score bonus it carries (also a tile below) */
+        var dkey = summary.difficulty || s.difficulty || 'normal', dd = (C.DIFFICULTY && C.DIFFICULTY[dkey]) || null;
+        var dbonus = isFinite(Number(summary.difficultyBonus)) ? Number(summary.difficultyBonus) : (dd ? fin(dd.scoreBonus) : 0);
+        if (dd && dbonus) body.appendChild(h('div', { class: 'end-diff', 'data-tip': dd.label + ' · ' + signed(dbonus, 0) + ' added to the score (base ' + Math.round(fin(summary.baseR, R - dbonus)) + ')' }, [icon(dd.icon || 'dot', 13), ' Difficulty bonus ', h('b', { class: 'num' }, signed(dbonus, 0))]));
         body.appendChild(h('div', { class: 'end-bars' }, OUT_KEYS.map(function (k) {
           var v = clamp(oc[k], 0, 100);
           return h('div', { class: 'eb', 'data-tip': (OUT_NAMES[k] || k) + ' · weight ' + Math.round((OUT_WEIGHTS[k] || 0) * 100) + '%' }, [h('span', { class: 'label' }, UI.OUTCOME_SHORT[k] || k), h('div', { class: 'meter' }, h('i', { class: UI.OUTCOME_CLASS[k] || 'water', style: { width: v + '%' } })), h('span', { class: 'n' }, Math.round(v))]);
@@ -16743,6 +16987,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
           stat('Sediment', Math.round(fin(stats.sedimentTons)).toLocaleString(), 't'),
           stat('Outage', Math.round(fin(stats.contaminationOutageDays)), 'd'),
           stat('People', Math.round(fin(s.population)).toLocaleString()),
+          dd ? h('div', { class: 'stat', id: 'end-difficulty', 'data-tip': 'Difficulty · ' + dd.label + ' — ' + dd.desc + (dbonus ? ' · bonus ' + signed(dbonus, 0) : '') }, [h('span', { class: 'k' }, 'Difficulty'), h('span', { class: 'v' }, [icon(dd.icon || 'dot', 16), ' ', dd.label, dbonus ? h('span', { class: 'unit num' }, signed(dbonus, 0)) : null])]) : null,
           knowledgeTile(summary.quiz || s.quiz)
         ]));
         /* highlights: ≤ 3 icon rows of ≤ 10 words; lessons behind Details */
@@ -17805,7 +18050,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     var alloc = {}, zero = {};
     C.SECTORS.forEach(function (s) { alloc[s] = 1; zero[s] = 0; });
     return {
-      seed: opts.seed, mode: opts.mode || 'simulated', years: opts.years || C.YEARS_DEFAULT, turn: 0, year: 1, season: 0, phase: PH.BOOT,
+      seed: opts.seed, mode: opts.mode || 'simulated', years: opts.years || C.YEARS_DEFAULT, difficulty: 'normal', turn: 0, year: 1, season: 0, phase: PH.BOOT,
       budget: 8.5, annualBudget: 8.5, emergencyFund: 0,
       outcomes: { W: 70, E: 65, P: 72, F: 68, T: 60 }, resilience: 0, population: C.HYDRO.BASE_POPULATION, growthRate: 0.012,
       climate: { snowpackPct: 100, snowSWEin: 18, precipIn: 3.2, tempAnomF: 0, soilMoisturePct: 45, fireDanger: 0.2, fireDangerLabel: 'Moderate', streamflowCfs: 60, windDirRad: 0.8, windMph: 8, drought: 'None', description: '', uncertainty: 0.15 },
@@ -18032,12 +18277,16 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     function build(o) {
       var seed = (o.seed == null) ? 1 : o.seed;
       world = has('World', 'generate') ? call('World', 'generate', seed) : null;
-      state = has('State', 'create') ? call('State', 'create', { seed: seed, years: o.years || C.YEARS_DEFAULT, mode: o.mode || 'simulated' }) : null;
+      var difficulty = (C.DIFFICULTY && C.DIFFICULTY[o.difficulty]) ? o.difficulty : 'normal';
+      state = has('State', 'create') ? call('State', 'create', { seed: seed, years: o.years || C.YEARS_DEFAULT, mode: o.mode || 'simulated', difficulty: difficulty }) : null;
       if (!state) state = fallbackState({ seed: seed, years: o.years, mode: o.mode });
       if (!state.years) state.years = o.years || C.YEARS_DEFAULT;
       if (!state.timeline) state.timeline = [];
       if (!state.flags) state.flags = {};
       if (!state.stats) state.stats = {};
+      state.difficulty = difficulty;
+      // difficulty: the starting budget scales with the level (the yearly top-up is scaled in beginSeason; annualBudget stays the $8.5M base)
+      state.budget = Math.round(num(state.budget, 8.5) * C.diff(state, 'budget') * 100) / 100;
       state.tutorial = !!o.tutorial;
       state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
@@ -18134,9 +18383,10 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       if (state.turn > 0 && state.season === SEASON.WINTER) {
         var growth = num(state.population) / C.HYDRO.BASE_POPULATION - 1;
         // growth revenue: half the annual budget per 100% population growth (proportional to the $8.5M base)
-        var bonus = Math.max(0, num(state.annualBudget, 8.5) * 0.5 * growth);
-        state.budget = num(state.budget) + num(state.annualBudget, 8.5) + bonus;
-        log('New year: budget +' + fmtM(num(state.annualBudget, 8.5) + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
+        var annual = num(state.annualBudget, 8.5) * C.diff(state, 'budget');   // difficulty scales the yearly top-up
+        var bonus = Math.max(0, annual * 0.5 * growth);
+        state.budget = num(state.budget) + annual + bonus;
+        log('New year: budget +' + fmtM(annual + bonus) + (bonus > 0.05 ? ' (includes ' + fmtM(bonus) + ' growth revenue)' : ''), 'good');
         call('Projects', 'tick', state, world);
         call('Fire', 'updateAnnual', state, world);
         state.population = Math.round(num(state.population, C.HYDRO.BASE_POPULATION) * (1 + num(state.growthRate, 0.012)));
@@ -18638,7 +18888,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
       // state.emergencyFund (county reserve, state declaration, federal grant) + any explicit grant flag.
       var grant = 0;
       if (state.flags) { if (typeof state.flags.federalGrantM === 'number') grant += num(state.flags.federalGrantM); else if (state.flags.federalGrant === true || state.flags.federalFunding === true) grant += 2; }
-      var base = 2.0 + 0.5 * num(eff.stockpileBonus, 0);
+      var base = (2.0 + 0.5 * num(eff.stockpileBonus, 0)) * C.diff(state, 'emergencyFund');   // difficulty scales the county baseline
       state.emergencyFund = Math.round((base + grant + Math.max(0, num(state.emergencyFund))) * 100) / 100;
       state.mitigations = [];
       placement = { storm: storm, prep: prep, tools: toolList(prep), selected: null, freeLeft: num(eff.stockpileBonus, 0), done: null, fundStart: state.emergencyFund };
@@ -19407,7 +19657,8 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     game.restart = function (o) {
       o = o || {};
       var seed = o.seed != null ? o.seed : (state ? state.seed : 1);
-      build({ seed: seed, years: o.years || (state && state.years) || C.YEARS_DEFAULT, mode: o.mode || (state && state.mode) || 'simulated', tutorial: o.tutorial != null ? o.tutorial : false });
+      build({ seed: seed, years: o.years || (state && state.years) || C.YEARS_DEFAULT, mode: o.mode || (state && state.mode) || 'simulated', tutorial: o.tutorial != null ? o.tutorial : false,
+              difficulty: o.difficulty || (state && state.difficulty) || 'normal', player: o.player || (state && state.player) || null });
       if (!headless) { game.initRenderer(); ui.init(game); }
       return game.start();
     };
@@ -19634,9 +19885,9 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
     createHeadless: function (o) {
       o = o || {};
       // `player` (or decide.intro() → { player }) stands in for the browser intro creator (SPEC3 §C)
-      var dec = o.decide || {}, player = o.player || null;
-      if (!player && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = (ir && ir.player) || null; } catch (e) { player = null; } }
-      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player });
+      var dec = o.decide || {}, player = o.player || null, difficulty = o.difficulty || null;
+      if ((!player || !difficulty) && typeof dec.intro === 'function') { try { var ir = dec.intro(); player = player || (ir && ir.player) || null; difficulty = difficulty || (ir && ir.difficulty) || null; } catch (e) { /* keep options */ } }
+      var g = createGame({ seed: o.seed != null ? o.seed : 1, years: o.years || 8, mode: o.mode || 'simulated', headless: true, decide: dec, save: o.save || null, player: player, difficulty: difficulty || 'normal' });
       var drv = {
         game: g,
         runSeason: function () { return g.runSeason().then(function (r) { drv.state = g.state; drv.world = g.world; return r; }); },
@@ -19667,6 +19918,7 @@ canvas.portrait { display: block; border-radius: 50%; flex: 0 0 auto; background
           intro = intro || {};
           var seed = (intro.seed === '' || intro.seed == null) ? Math.floor(Math.random() * 1e6) : (isFinite(+intro.seed) ? +intro.seed : intro.seed);
           game.build({ seed: seed, years: +intro.years || C.YEARS_DEFAULT, mode: intro.mode || 'simulated', tutorial: intro.tutorial !== false,
+                       difficulty: intro.difficulty || 'normal',   // setup modal's difficulty picker
                        player: (intro.player && typeof intro.player === 'object') ? intro.player : null });   // SPEC3 §C: the intro's character creator
           game.initRenderer(host);   // re-inits the renderer for the real world and (re)subscribes cell click + paint exactly once
           await game.ui.init(game);

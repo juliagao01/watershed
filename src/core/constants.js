@@ -66,6 +66,14 @@
       { label: 'Fire tactics', value: 'Crew points; mutual aid $1.5M', note: 'For scale: a large air-tanker drop costs roughly $10,000-20,000, a dozer line about $2,000-5,000 per 100 m; the mutual-aid fee stands in for a county cost-share on a multi-day incident.' }
     ],
 
+    // difficulty levels: multipliers applied where the base numbers live (see C.diff); scoreBonus is added to the final score
+    DIFFICULTY: {
+      easy:   { label: 'Easy',   desc: 'More money, calmer weather, fewer fires.',   icon: 'leaf', budget: 1.25, emergencyFund: 1.5, ignition: 0.7, storm: 0.7, crew: 1.3, climateSigma: 0.8,  damage: 0.8, scoreBonus: -4 },
+      normal: { label: 'Normal', desc: 'The watershed as designed.',                  icon: 'drop', budget: 1,    emergencyFund: 1,   ignition: 1,   storm: 1,   crew: 1,   climateSigma: 1,    damage: 1,   scoreBonus: 0 },
+      hard:   { label: 'Hard',   desc: 'Tight budgets, wild weather, hotter fires.',  icon: 'fire', budget: 0.8,  emergencyFund: 0.7, ignition: 1.4, storm: 1.3, crew: 0.8, climateSigma: 1.25, damage: 1.2, scoreBonus: 6 }
+    },
+    DIFFICULTY_ORDER: ['easy', 'normal', 'hard'],
+
     // rendering conventions (shared by all render modules)
     RENDER: {
       CELL: 1.0,          // scene units per cell
@@ -105,6 +113,15 @@
       y: (elev - C.RENDER.ELEV_BASE) * C.RENDER.ELEV_SCALE,
       z: (y - C.N / 2 + 0.5) * C.RENDER.CELL
     };
+  };
+  /** diffDef(state) → the difficulty definition for state.difficulty ('normal' when missing / unknown). */
+  C.diffDef = function (state) { var k = state && state.difficulty; return (C.DIFFICULTY && C.DIFFICULTY[k]) || C.DIFFICULTY.normal; };
+  /** diff(state, key) → multiplier for `key` at the state's difficulty; 1 when missing (0 for scoreBonus). */
+  C.diff = function (state, key) {
+    var d = C.DIFFICULTY && C.DIFFICULTY[state && state.difficulty];
+    var v = d ? d[key] : undefined;
+    if (typeof v === 'number' && isFinite(v)) return v;
+    return key === 'scoreBonus' ? 0 : 1;
   };
   C.elevToScene = function (elev) { return (elev - C.RENDER.ELEV_BASE) * C.RENDER.ELEV_SCALE; };
   C.sceneToCell = function (sx, sz) {
