@@ -1300,6 +1300,10 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 #end-difficulty .v { font-size: 15px; }
 body.menu-open #sound-toggle { display: none !important; }   /* the floating sound button waits behind the menu page (Settings has volume + mute) */
 
+/* menu: coming-soon item */
+.m-btn.soon .lbl { color: var(--ink-2); }
+.m-btn .soon { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--trust); border: 1.5px dashed var(--trust); padding: 1px 6px; margin-left: 8px; transform: rotate(-2deg); }
+
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -16399,13 +16403,19 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
         'WATERSHED'.split('').map(function (ch) { return h('span', { 'aria-hidden': 'true' }, ch); }));
       var items = [
         { id: 'start', icon: 'play', label: 'Start Game', tip: 'Choose years, climate, seed, difficulty and your character', run: function () { finish('start'); } },
+        { id: 'multiplayer', icon: 'people', label: 'Multiplayer', tip: 'Coming soon', soon: true, run: function () {
+          UI.toast('Multiplayer is coming soon', 'info'); refocus();
+        } },
         { id: 'settings', icon: 'tools', label: 'Settings', tip: 'Sound, tutorial hints, motion, camera', run: function () { UI.showSettings().then(refocus); } },
         { id: 'credits', icon: 'book', label: 'Credits', tip: 'Who and what made Watershed', run: function () { UI.showCredits().then(refocus); } }
       ];
       var sel = 0, alive = true;
       var btns = items.map(function (it, i) {
         var b = h('button', { type: 'button', class: 'm-btn', id: 'menu-' + it.id, 'data-tip': it.tip, 'aria-label': it.label + ' (' + (i + 1) + ')' }, [
-          h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(it.icon, 24)), h('span', { class: 'lbl' }, it.label), h('span', { class: 'key', 'aria-hidden': 'true' }, String(i + 1))]);
+          h('span', { class: 'ic', 'aria-hidden': 'true' }, icon(it.icon, 24)), h('span', { class: 'lbl' }, it.label),
+          it.soon ? h('span', { class: 'soon' }, 'Soon') : null,
+          h('span', { class: 'key', 'aria-hidden': 'true' }, String(i + 1))]);
+        if (it.soon) b.classList.add('soon');
         b.addEventListener('click', function () { sel = i; mark(); it.run(); });
         b.addEventListener('focus', function () { sel = i; mark(); });
         return b;
@@ -16425,7 +16435,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
         else if (k === 'Home') { sel = 0; refocus(); }
         else if (k === 'End') { sel = btns.length - 1; refocus(); }
         else if (k === 'Enter') { items[sel].run(); }
-        else if (k === '1' || k === '2' || k === '3') { sel = +k - 1; refocus(); items[sel].run(); }
+        else if (/^[1-9]$/.test(k) && +k <= items.length) { sel = +k - 1; refocus(); items[sel].run(); }
         else handled = false;   /* Esc and everything else: nothing */
         if (handled) { e.preventDefault(); e.stopPropagation(); }   /* 1–3 must not reach the game's speed keys */
       }

@@ -1295,3 +1295,7 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .end-diff b { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
 #end-difficulty .v { font-size: 15px; }
 body.menu-open #sound-toggle { display: none !important; }   /* the floating sound button waits behind the menu page (Settings has volume + mute) */
+
+/* menu: coming-soon item */
+.m-btn.soon .lbl { color: var(--ink-2); }
+.m-btn .soon { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--trust); border: 1.5px dashed var(--trust); padding: 1px 6px; margin-left: 8px; transform: rotate(-2deg); }
