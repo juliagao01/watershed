@@ -1299,3 +1299,6 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
 /* menu: coming-soon item */
 .m-btn.soon .lbl { color: var(--ink-2); }
 .m-btn .soon { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--trust); border: 1.5px dashed var(--trust); padding: 1px 6px; margin-left: 8px; transform: rotate(-2deg); }
+.m-btn { flex-wrap: nowrap; white-space: nowrap; }
+.m-btn .soon { margin-left: auto; flex: 0 0 auto; }
+.m-btn.soon .key { margin-left: 10px; }

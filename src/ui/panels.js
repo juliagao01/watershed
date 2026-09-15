@@ -585,7 +585,7 @@
       });
       var el = h('div', { id: 'menu-screen', role: 'dialog', 'aria-label': 'Watershed menu' }, [
         cv,
-        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1 2 3')])
+        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1–4')])
       ]);
       host.appendChild(el); document.body.classList.add('menu-open');
       function mark() { btns.forEach(function (b, i) { b.classList.toggle('sel', i === sel); }); }

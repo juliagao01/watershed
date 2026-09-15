@@ -1303,6 +1303,9 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
 /* menu: coming-soon item */
 .m-btn.soon .lbl { color: var(--ink-2); }
 .m-btn .soon { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--trust); border: 1.5px dashed var(--trust); padding: 1px 6px; margin-left: 8px; transform: rotate(-2deg); }
+.m-btn { flex-wrap: nowrap; white-space: nowrap; }
+.m-btn .soon { margin-left: auto; flex: 0 0 auto; }
+.m-btn.soon .key { margin-left: 10px; }
 
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
@@ -16422,7 +16425,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       });
       var el = h('div', { id: 'menu-screen', role: 'dialog', 'aria-label': 'Watershed menu' }, [
         cv,
-        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1 2 3')])
+        h('div', { class: 'm-inner' }, [word, h('div', { class: 'm-sub' }, 'A Colorado water game'), h('div', { class: 'm-list', role: 'menu' }, btns), h('div', { class: 't-hint' }, 'Arrows · Enter · 1–4')])
       ]);
       host.appendChild(el); document.body.classList.add('menu-open');
       function mark() { btns.forEach(function (b, i) { b.classList.toggle('sel', i === sel); }); }
