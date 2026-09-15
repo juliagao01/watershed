@@ -16494,6 +16494,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
         }));
         body.appendChild(disclosureButton('Show list', list, { controls: 'credits-sources' })); body.appendChild(list);
         body.appendChild(h('p', { class: 'small', style: { marginTop: '12px' } }, 'Inspired by the Cameron Peak, East Troublesome and Marshall fires and the Colorado River.'));
+        body.appendChild(h('p', { class: 'small', style: { marginTop: '10px', fontWeight: '600' } }, '\u00A9 ' + new Date().getFullYear() + ' Julia Gao and Bettina Lee'));
         body.appendChild(h('p', { class: 'small muted num' }, 'Version ' + (C.VERSION || '—')));
       },
       foot: function (foot, close) { foot.appendChild(h('button', { class: 'primary', type: 'button', autofocus: true, onclick: function () { close(); } }, 'Close')); }
