@@ -566,8 +566,8 @@
         'WATERSHED'.split('').map(function (ch) { return h('span', { 'aria-hidden': 'true' }, ch); }));
       var items = [
         { id: 'start', icon: 'play', label: 'Start Game', tip: 'Choose years, climate, seed, difficulty and your character', run: function () { finish('start'); } },
-        { id: 'multiplayer', icon: 'people', label: 'Multiplayer', tip: 'Coming soon', soon: true, run: function () {
-          UI.toast('Multiplayer is coming soon', 'info'); refocus();
+        { id: 'multiplayer', icon: 'people', label: 'Multiplayer', tip: 'Play with friends', run: function () {
+          UI.toast('Multiplayer is not available yet', 'info'); refocus();
         } },
         { id: 'settings', icon: 'tools', label: 'Settings', tip: 'Sound, tutorial hints, motion, camera', run: function () { UI.showSettings().then(refocus); } },
         { id: 'credits', icon: 'book', label: 'Credits', tip: 'Who and what made Watershed', run: function () { UI.showCredits().then(refocus); } }
