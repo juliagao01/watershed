@@ -608,6 +608,7 @@
     /* advisor speech bubble (anchored to a 3D avatar by UI.moveBubble) + the one-time hint */
     E.bubble = h('div', { id: 'advisor-bubble', class: 'bubble', hidden: true, role: 'dialog', 'aria-live': 'polite', 'aria-label': 'Advisor' }); ui.appendChild(E.bubble);
     E.advisorHint = h('div', { id: 'advisor-hint', class: 'advisor-hint', hidden: true, role: 'status' }); ui.appendChild(E.advisorHint);
+    E.pointer = h('div', { id: 'pointer', class: 'pointer', hidden: true, 'aria-hidden': 'true' }, [h('div', { class: 'lbl' }), h('div', { class: 'arr' }, UI.icon('chevron-down', 34))]); ui.appendChild(E.pointer);
     E.modalRoot = h('div', { id: 'modal-root', class: 'modal-root' }); ui.appendChild(E.modalRoot);
     BUB.el = E.bubble; BUB.visible = false;
 
@@ -1457,6 +1458,34 @@
   UI.bubbleVisible = function () { return !!BUB.visible; };
   UI.bubbleAdvisor = function () { return BUB.visible && BUB.spec ? (BUB.spec.id || null) : null; };
   /** Small unobtrusive hint near the bottom-left ("Click an advisor in town to hear their take"). null hides it. */
+  /* Guided pointer: a bobbing arrow with a short label, pinned to a DOM element (selector/element) or a screen point.
+     UI.pointTo({ text, el|selector|sx,sy, side:'up'|'down' }) · UI.pointMove(sx, sy, visible) · UI.pointHide(). */
+  UI.pointTo = function (opts) {
+    var el = UI.els.pointer; if (!el) return;
+    opts = opts || {};
+    el.className = 'pointer' + (opts.side === 'up' ? ' up' : '');
+    var lbl = el.querySelector('.lbl'); clear(lbl); lbl.appendChild(document.createTextNode(UI.cap(String(opts.text || ''), 6)));
+    el.querySelector('.arr').replaceChildren(UI.icon(opts.side === 'up' ? 'chevron-up' : 'chevron-down', 34));
+    el.hidden = false; el.classList.add('in');
+    UI._pointerTarget = opts.el || (opts.selector ? document.querySelector(opts.selector) : null) || null;
+    if (UI._pointerTarget) UI.pointSync(); else if (isFinite(opts.sx) && isFinite(opts.sy)) UI.pointMove(opts.sx, opts.sy, true);
+  };
+  UI.pointMove = function (sx, sy, visible) {
+    var el = UI.els.pointer; if (!el || el.hidden) return;
+    if (visible === false || !isFinite(sx) || !isFinite(sy)) { el.style.opacity = '0'; return; }
+    var up = el.classList.contains('up'), w = el.offsetWidth || 120, hgt = el.offsetHeight || 70;
+    var x = clamp(sx - w / 2, 6, innerWidth - w - 6), y = up ? sy + 14 : sy - hgt - 10;
+    el.style.left = Math.round(x) + 'px'; el.style.top = Math.round(clamp(y, 6, innerHeight - hgt - 6)) + 'px'; el.style.opacity = '1';
+  };
+  /** Re-pin to the tracked DOM element (call on resize / rerender); hides when the element is gone or off-screen. */
+  UI.pointSync = function () {
+    var t = UI._pointerTarget; if (!t) return;
+    if (!document.contains(t)) { t = UI._pointerTarget = null; UI.pointMove(0, 0, false); return; }
+    var r = t.getBoundingClientRect(), up = UI.els.pointer.classList.contains('up');
+    if (!r.width || !r.height) { UI.pointMove(0, 0, false); return; }
+    UI.pointMove(r.left + r.width / 2, up ? r.bottom : r.top, true);
+  };
+  UI.pointHide = function () { var el = UI.els.pointer; if (!el) return; el.classList.remove('in'); el.hidden = true; UI._pointerTarget = null; };
   UI.setAdvisorHint = function (text) {
     var el = UI.els.advisorHint; if (!el) return;
     if (text == null || text === false || text === '') { el.classList.remove('in'); el.hidden = true; return; }

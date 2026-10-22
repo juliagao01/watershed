@@ -1307,6 +1307,17 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
 .m-btn .soon { margin-left: auto; flex: 0 0 auto; }
 .m-btn.soon .key { margin-left: 10px; }
 
+/* guided pointer: bobbing arrow + label (first turn) */
+.pointer { position: absolute; z-index: 64; display: flex; flex-direction: column; align-items: center; gap: 0; pointer-events: none; opacity: 0; transition: opacity 200ms var(--ease), left 120ms linear, top 120ms linear; }
+.pointer .lbl { background: var(--fire); color: var(--paper); border: 2px solid var(--ink); padding: 5px 12px; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; white-space: nowrap; box-shadow: 3px 3px 0 var(--ink); }
+.pointer .arr { color: var(--fire); display: inline-flex; filter: drop-shadow(2px 2px 0 var(--ink)); animation: point-bob 0.9s ease-in-out infinite; }
+.pointer.up { flex-direction: column-reverse; }
+.pointer.up .arr { animation-name: point-bob-up; }
+@keyframes point-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(9px); } }
+@keyframes point-bob-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+@media (prefers-reduced-motion: reduce) { .pointer .arr { animation: none; } }
+html.reduce-motion .pointer .arr { animation: none; }
+
 </style>
 <div id="app"><div id="canvas-host"></div><div id="ui"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -14950,6 +14961,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
     /* advisor speech bubble (anchored to a 3D avatar by UI.moveBubble) + the one-time hint */
     E.bubble = h('div', { id: 'advisor-bubble', class: 'bubble', hidden: true, role: 'dialog', 'aria-live': 'polite', 'aria-label': 'Advisor' }); ui.appendChild(E.bubble);
     E.advisorHint = h('div', { id: 'advisor-hint', class: 'advisor-hint', hidden: true, role: 'status' }); ui.appendChild(E.advisorHint);
+    E.pointer = h('div', { id: 'pointer', class: 'pointer', hidden: true, 'aria-hidden': 'true' }, [h('div', { class: 'lbl' }), h('div', { class: 'arr' }, UI.icon('chevron-down', 34))]); ui.appendChild(E.pointer);
     E.modalRoot = h('div', { id: 'modal-root', class: 'modal-root' }); ui.appendChild(E.modalRoot);
     BUB.el = E.bubble; BUB.visible = false;
 
@@ -15799,6 +15811,34 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
   UI.bubbleVisible = function () { return !!BUB.visible; };
   UI.bubbleAdvisor = function () { return BUB.visible && BUB.spec ? (BUB.spec.id || null) : null; };
   /** Small unobtrusive hint near the bottom-left ("Click an advisor in town to hear their take"). null hides it. */
+  /* Guided pointer: a bobbing arrow with a short label, pinned to a DOM element (selector/element) or a screen point.
+     UI.pointTo({ text, el|selector|sx,sy, side:'up'|'down' }) · UI.pointMove(sx, sy, visible) · UI.pointHide(). */
+  UI.pointTo = function (opts) {
+    var el = UI.els.pointer; if (!el) return;
+    opts = opts || {};
+    el.className = 'pointer' + (opts.side === 'up' ? ' up' : '');
+    var lbl = el.querySelector('.lbl'); clear(lbl); lbl.appendChild(document.createTextNode(UI.cap(String(opts.text || ''), 6)));
+    el.querySelector('.arr').replaceChildren(UI.icon(opts.side === 'up' ? 'chevron-up' : 'chevron-down', 34));
+    el.hidden = false; el.classList.add('in');
+    UI._pointerTarget = opts.el || (opts.selector ? document.querySelector(opts.selector) : null) || null;
+    if (UI._pointerTarget) UI.pointSync(); else if (isFinite(opts.sx) && isFinite(opts.sy)) UI.pointMove(opts.sx, opts.sy, true);
+  };
+  UI.pointMove = function (sx, sy, visible) {
+    var el = UI.els.pointer; if (!el || el.hidden) return;
+    if (visible === false || !isFinite(sx) || !isFinite(sy)) { el.style.opacity = '0'; return; }
+    var up = el.classList.contains('up'), w = el.offsetWidth || 120, hgt = el.offsetHeight || 70;
+    var x = clamp(sx - w / 2, 6, innerWidth - w - 6), y = up ? sy + 14 : sy - hgt - 10;
+    el.style.left = Math.round(x) + 'px'; el.style.top = Math.round(clamp(y, 6, innerHeight - hgt - 6)) + 'px'; el.style.opacity = '1';
+  };
+  /** Re-pin to the tracked DOM element (call on resize / rerender); hides when the element is gone or off-screen. */
+  UI.pointSync = function () {
+    var t = UI._pointerTarget; if (!t) return;
+    if (!document.contains(t)) { t = UI._pointerTarget = null; UI.pointMove(0, 0, false); return; }
+    var r = t.getBoundingClientRect(), up = UI.els.pointer.classList.contains('up');
+    if (!r.width || !r.height) { UI.pointMove(0, 0, false); return; }
+    UI.pointMove(r.left + r.width / 2, up ? r.bottom : r.top, true);
+  };
+  UI.pointHide = function () { var el = UI.els.pointer; if (!el) return; el.classList.remove('in'); el.hidden = true; UI._pointerTarget = null; };
   UI.setAdvisorHint = function (text) {
     var el = UI.els.advisorHint; if (!el) return;
     if (text == null || text === false || text === '') { el.classList.remove('in'); el.hidden = true; return; }
@@ -18114,7 +18154,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
   }
   // UI adapter: every method returns a Promise. Headless: `decide` callbacks answer cards; everything else is a no-op.
   var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showQuiz', 'showEnd', 'showHelp', 'toast', 'ticker',
-    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
+    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'pointTo', 'pointMove', 'pointHide', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
     // SPEC2 §D tactical HUD / after-action (guarded: missing fns resolve immediately, so crisis loops never stall)
     'showTactical', 'updateTactical', 'hideTactical', 'alert', 'showAfterAction'];
   function makeUI(real, decide) {
@@ -18305,7 +18345,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
       endCrisis();
-      ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false;
+      ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false; promptStop(); PROMPT.done = false; PROMPT.flags = {};
       game.state = state; game.world = world;
       if (world && world.reservoir && state.reservoir && !state.reservoir.capacityAF) state.reservoir.capacityAF = world.reservoir.capacityAF;
     }
@@ -18347,6 +18387,62 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       if (headless || evidenceShown[key]) return;
       evidenceShown[key] = true;
       await openEvidence(topic, { intro: intro });
+    }
+    /* First-turn guided prompts (SPEC: "so people know where to click"): a bobbing arrow points at an advisor in town until one
+       is clicked, then at the first Fund button until a project is funded, then at End Season. Each step also times out. */
+    var PROMPT = { step: null, raf: 0, timer: 0, done: false, flags: {} };
+    function promptEvent(name) { PROMPT.flags[name] = true; if (PROMPT.step && PROMPT.step.until === name) promptAdvance(); }
+    function promptStop() {
+      if (PROMPT.raf) cancelAnimationFrame(PROMPT.raf); PROMPT.raf = 0;
+      if (PROMPT.timer) clearTimeout(PROMPT.timer); PROMPT.timer = 0;
+      PROMPT.step = null;
+      if (WS.UI && typeof WS.UI.pointHide === 'function') WS.UI.pointHide();
+    }
+    function promptAdvisorId() {
+      var ids = Object.keys(ADV.alerted || {});
+      if (!ids.length) ids = (call('Renderer', 'getAdvisors') || []).map(function (a) { return a.id; });
+      if (!ids.length) return null;
+      // prefer the advisor nearest the centre of the screen so the arrow is on-screen
+      var best = null, bestD = Infinity;
+      ids.forEach(function (id) {
+        var p = call('Renderer', 'advisorScreenPos', id); if (!p || !p.visible) return;
+        var d = Math.hypot(p.sx - innerWidth / 2, p.sy - innerHeight / 2); if (d < bestD) { bestD = d; best = id; }
+      });
+      return best || ids[0];
+    }
+    var PROMPT_STEPS = [
+      { until: 'advisor', text: 'Click an advisor', timeout: 25000, track: function () { var id = PROMPT.advisorId || (PROMPT.advisorId = promptAdvisorId()); if (!id) return null; var p = call('Renderer', 'advisorScreenPos', id); return p ? { sx: p.sx, sy: p.sy - 6, visible: !!p.visible } : null; } },
+      { until: 'fund', text: 'Fund a project', timeout: 20000, selector: '#panel-right .tile button.primary, #panel-right .tile button', side: 'up', delay: 1500 },
+      { until: 'end', text: 'End the season', timeout: 30000, selector: '#primary-btn', side: 'down' }
+    ];
+    function promptRun(i) {
+      if (headless || PROMPT.done) return;
+      if (i >= PROMPT_STEPS.length || state.phase !== PH.PLAN) { PROMPT.done = true; promptStop(); return; }
+      var st = PROMPT_STEPS[i]; PROMPT.index = i;
+      if (PROMPT.flags[st.until]) { promptRun(i + 1); return; }   // already happened (e.g. the player clicked ahead)
+      promptStop(); PROMPT.step = st;
+      var start = function () {
+        if (PROMPT.step !== st) return;
+        if (st.selector) { ui.pointTo({ text: st.text, selector: st.selector, side: st.side || 'down' }); }
+        else ui.pointTo({ text: st.text, sx: -100, sy: -100 });
+        var tick = function () {
+          if (PROMPT.step !== st) return;
+          var U = WS.UI || {};   // direct calls: this runs every frame
+          if (state.phase !== PH.PLAN || (U.modalIsOpen && U.modalIsOpen())) { if (U.pointMove) U.pointMove(0, 0, false); }
+          else if (st.track) { var p = st.track(); if (U.pointMove) { if (p) U.pointMove(p.sx, p.sy, p.visible); else U.pointMove(0, 0, false); } }
+          else if (U.pointSync) U.pointSync();
+          PROMPT.raf = requestAnimationFrame(tick);
+        };
+        tick();
+        PROMPT.timer = setTimeout(function () { if (PROMPT.step === st) promptAdvance(); }, st.timeout);
+      };
+      if (st.delay) PROMPT.timer = setTimeout(start, st.delay); else start();
+    }
+    function promptAdvance() { var i = (PROMPT.index | 0) + 1; promptStop(); promptRun(i); }
+    function runFirstTurnPrompts() {
+      if (headless || !state.tutorial || PROMPT.done) return;
+      PROMPT.flags = {}; PROMPT.advisorId = null;
+      promptRun(0);
     }
     async function runTutorial() {
       if (headless || tutorialDone || !state.tutorial) return;
@@ -18431,6 +18527,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
+      if (state.turn === 0) runFirstTurnPrompts();   // bobbing arrows: advisor → fund a project → End Season (fire-and-forget)
       // SPEC2 §D: the Evidence Board never auto-opens in Winter/Spring; the 3D advisors in town carry the signal instead
       // (avatars with an urgent take get an alert marker; click one for a speech bubble, "Full advice" opens the board).
       // It still auto-opens before a prescribed burn and before a storm (see runPrescribedBurn / runFloodPrep).
@@ -19469,6 +19566,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       if (res.ok) {
         var cost = Math.max(0, before - num(state.budget));
         if (id === 'prescribed_burn') { if (!state.projects.pendingBurn) state.projects.pendingBurn = { zoneId: targetZoneId, turn: state.turn }; if (typeof state.projects.pendingBurn === 'object') state.projects.pendingBurn.costM = cost; }
+        promptEvent('fund');
         // Projects.fund already writes its own log line; only log here if it did not.
         var lastLog = state.log && state.log.length ? state.log[state.log.length - 1] : null;
         if (!(lastLog && res.text && lastLog.text === res.text)) log(res.text || ('Funded ' + id + (targetZoneId != null ? ' in ' + zoneName(world, targetZoneId) : '') + ' for ' + fmtM(cost) + '.'), 'good');
@@ -19604,6 +19702,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
       state.projects.pendingBurn = null; refresh(); return true;
     });
     game.endSeason = function () {
+      promptEvent('end'); PROMPT.done = true; promptStop();
       if (!state || running || ended) return Promise.resolve(null);
       if (state.phase !== PH.PLAN) { return Promise.resolve(null); }
       running = true;
@@ -19773,6 +19872,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
     }
     /** Show `id`'s take on `topic` (defaults to the topic that fits this season) as a bubble anchored to the 3D avatar. */
     function advShow(id, topic) {
+      promptEvent('advisor');
       id = advIdOf(id); if (!id || headless || !state || !WS.UI || typeof WS.UI.showBubble !== 'function') return null;
       topic = topic || advTopicForNow();
       var rec = advRecFor(id, topic);
@@ -19835,7 +19935,7 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
         }
       }
     }
-    game.askAdvisor = function (id, topic) { return advShow(id, topic || null); };
+    game.askAdvisor = function (id, topic) { promptEvent('advisor'); return advShow(id, topic || null); };
     game.closeAdvisor = function () { advClose('api'); };
     game.advisorTopic = function () { return advTopicForNow(); };
     game.listZones = function (type) { return (type ? zonesOf(world, type) : (world && world.zones) || []).map(function (z) { return { id: z.id, name: z.name, type: z.type, center: z.center, upstreamOfReservoir: !!z.upstreamOfReservoir }; }); };

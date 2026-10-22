@@ -109,7 +109,7 @@
   }
   // UI adapter: every method returns a Promise. Headless: `decide` callbacks answer cards; everything else is a no-op.
   var UI_FNS = ['init', 'refresh', 'setPhase', 'showIntro', 'showEventCard', 'showEvidenceBoard', 'showSeasonReport', 'showCaseStudy', 'showQuiz', 'showEnd', 'showHelp', 'toast', 'ticker',
-    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
+    'showFireBanner', 'startPlacement', 'updatePlacement', 'endPlacement', 'pointTo', 'pointMove', 'pointHide', 'renderProjects', 'renderWater', 'renderFire', 'renderConditions', 'renderLog', 'setBusy', 'flashOutcome', 'tutorialStep', 'closeModal',
     // SPEC2 §D tactical HUD / after-action (guarded: missing fns resolve immediately, so crisis loops never stall)
     'showTactical', 'updateTactical', 'hideTactical', 'alert', 'showAfterAction'];
   function makeUI(real, decide) {
@@ -300,7 +300,7 @@
       state.player = normalizePlayer(o.player || null, state.player);   // SPEC3 §C: intro creator result (or a headless option) → state
       rng = WS.RNG.create(seed);
       endCrisis();
-      ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false;
+      ended = false; begun = false; running = false; placement = null; evidenceShown = {}; tutorialDone = false; promptStop(); PROMPT.done = false; PROMPT.flags = {};
       game.state = state; game.world = world;
       if (world && world.reservoir && state.reservoir && !state.reservoir.capacityAF) state.reservoir.capacityAF = world.reservoir.capacityAF;
     }
@@ -342,6 +342,62 @@
       if (headless || evidenceShown[key]) return;
       evidenceShown[key] = true;
       await openEvidence(topic, { intro: intro });
+    }
+    /* First-turn guided prompts (SPEC: "so people know where to click"): a bobbing arrow points at an advisor in town until one
+       is clicked, then at the first Fund button until a project is funded, then at End Season. Each step also times out. */
+    var PROMPT = { step: null, raf: 0, timer: 0, done: false, flags: {} };
+    function promptEvent(name) { PROMPT.flags[name] = true; if (PROMPT.step && PROMPT.step.until === name) promptAdvance(); }
+    function promptStop() {
+      if (PROMPT.raf) cancelAnimationFrame(PROMPT.raf); PROMPT.raf = 0;
+      if (PROMPT.timer) clearTimeout(PROMPT.timer); PROMPT.timer = 0;
+      PROMPT.step = null;
+      if (WS.UI && typeof WS.UI.pointHide === 'function') WS.UI.pointHide();
+    }
+    function promptAdvisorId() {
+      var ids = Object.keys(ADV.alerted || {});
+      if (!ids.length) ids = (call('Renderer', 'getAdvisors') || []).map(function (a) { return a.id; });
+      if (!ids.length) return null;
+      // prefer the advisor nearest the centre of the screen so the arrow is on-screen
+      var best = null, bestD = Infinity;
+      ids.forEach(function (id) {
+        var p = call('Renderer', 'advisorScreenPos', id); if (!p || !p.visible) return;
+        var d = Math.hypot(p.sx - innerWidth / 2, p.sy - innerHeight / 2); if (d < bestD) { bestD = d; best = id; }
+      });
+      return best || ids[0];
+    }
+    var PROMPT_STEPS = [
+      { until: 'advisor', text: 'Click an advisor', timeout: 25000, track: function () { var id = PROMPT.advisorId || (PROMPT.advisorId = promptAdvisorId()); if (!id) return null; var p = call('Renderer', 'advisorScreenPos', id); return p ? { sx: p.sx, sy: p.sy - 6, visible: !!p.visible } : null; } },
+      { until: 'fund', text: 'Fund a project', timeout: 20000, selector: '#panel-right .tile button.primary, #panel-right .tile button', side: 'up', delay: 1500 },
+      { until: 'end', text: 'End the season', timeout: 30000, selector: '#primary-btn', side: 'down' }
+    ];
+    function promptRun(i) {
+      if (headless || PROMPT.done) return;
+      if (i >= PROMPT_STEPS.length || state.phase !== PH.PLAN) { PROMPT.done = true; promptStop(); return; }
+      var st = PROMPT_STEPS[i]; PROMPT.index = i;
+      if (PROMPT.flags[st.until]) { promptRun(i + 1); return; }   // already happened (e.g. the player clicked ahead)
+      promptStop(); PROMPT.step = st;
+      var start = function () {
+        if (PROMPT.step !== st) return;
+        if (st.selector) { ui.pointTo({ text: st.text, selector: st.selector, side: st.side || 'down' }); }
+        else ui.pointTo({ text: st.text, sx: -100, sy: -100 });
+        var tick = function () {
+          if (PROMPT.step !== st) return;
+          var U = WS.UI || {};   // direct calls: this runs every frame
+          if (state.phase !== PH.PLAN || (U.modalIsOpen && U.modalIsOpen())) { if (U.pointMove) U.pointMove(0, 0, false); }
+          else if (st.track) { var p = st.track(); if (U.pointMove) { if (p) U.pointMove(p.sx, p.sy, p.visible); else U.pointMove(0, 0, false); } }
+          else if (U.pointSync) U.pointSync();
+          PROMPT.raf = requestAnimationFrame(tick);
+        };
+        tick();
+        PROMPT.timer = setTimeout(function () { if (PROMPT.step === st) promptAdvance(); }, st.timeout);
+      };
+      if (st.delay) PROMPT.timer = setTimeout(start, st.delay); else start();
+    }
+    function promptAdvance() { var i = (PROMPT.index | 0) + 1; promptStop(); promptRun(i); }
+    function runFirstTurnPrompts() {
+      if (headless || !state.tutorial || PROMPT.done) return;
+      PROMPT.flags = {}; PROMPT.advisorId = null;
+      promptRun(0);
     }
     async function runTutorial() {
       if (headless || tutorialDone || !state.tutorial) return;
@@ -426,6 +482,7 @@
       refresh();
       autosave();
       if (state.turn === 0) await runTutorial();
+      if (state.turn === 0) runFirstTurnPrompts();   // bobbing arrows: advisor → fund a project → End Season (fire-and-forget)
       // SPEC2 §D: the Evidence Board never auto-opens in Winter/Spring; the 3D advisors in town carry the signal instead
       // (avatars with an urgent take get an alert marker; click one for a speech bubble, "Full advice" opens the board).
       // It still auto-opens before a prescribed burn and before a storm (see runPrescribedBurn / runFloodPrep).
@@ -1464,6 +1521,7 @@
       if (res.ok) {
         var cost = Math.max(0, before - num(state.budget));
         if (id === 'prescribed_burn') { if (!state.projects.pendingBurn) state.projects.pendingBurn = { zoneId: targetZoneId, turn: state.turn }; if (typeof state.projects.pendingBurn === 'object') state.projects.pendingBurn.costM = cost; }
+        promptEvent('fund');
         // Projects.fund already writes its own log line; only log here if it did not.
         var lastLog = state.log && state.log.length ? state.log[state.log.length - 1] : null;
         if (!(lastLog && res.text && lastLog.text === res.text)) log(res.text || ('Funded ' + id + (targetZoneId != null ? ' in ' + zoneName(world, targetZoneId) : '') + ' for ' + fmtM(cost) + '.'), 'good');
@@ -1599,6 +1657,7 @@
       state.projects.pendingBurn = null; refresh(); return true;
     });
     game.endSeason = function () {
+      promptEvent('end'); PROMPT.done = true; promptStop();
       if (!state || running || ended) return Promise.resolve(null);
       if (state.phase !== PH.PLAN) { return Promise.resolve(null); }
       running = true;
@@ -1768,6 +1827,7 @@
     }
     /** Show `id`'s take on `topic` (defaults to the topic that fits this season) as a bubble anchored to the 3D avatar. */
     function advShow(id, topic) {
+      promptEvent('advisor');
       id = advIdOf(id); if (!id || headless || !state || !WS.UI || typeof WS.UI.showBubble !== 'function') return null;
       topic = topic || advTopicForNow();
       var rec = advRecFor(id, topic);
@@ -1830,7 +1890,7 @@
         }
       }
     }
-    game.askAdvisor = function (id, topic) { return advShow(id, topic || null); };
+    game.askAdvisor = function (id, topic) { promptEvent('advisor'); return advShow(id, topic || null); };
     game.closeAdvisor = function () { advClose('api'); };
     game.advisorTopic = function () { return advTopicForNow(); };
     game.listZones = function (type) { return (type ? zonesOf(world, type) : (world && world.zones) || []).map(function (z) { return { id: z.id, name: z.name, type: z.type, center: z.center, upstreamOfReservoir: !!z.upstreamOfReservoir }; }); };

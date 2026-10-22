@@ -1302,3 +1302,14 @@ body.menu-open #sound-toggle { display: none !important; }   /* the floating sou
 .m-btn { flex-wrap: nowrap; white-space: nowrap; }
 .m-btn .soon { margin-left: auto; flex: 0 0 auto; }
 .m-btn.soon .key { margin-left: 10px; }
+
+/* guided pointer: bobbing arrow + label (first turn) */
+.pointer { position: absolute; z-index: 64; display: flex; flex-direction: column; align-items: center; gap: 0; pointer-events: none; opacity: 0; transition: opacity 200ms var(--ease), left 120ms linear, top 120ms linear; }
+.pointer .lbl { background: var(--fire); color: var(--paper); border: 2px solid var(--ink); padding: 5px 12px; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; white-space: nowrap; box-shadow: 3px 3px 0 var(--ink); }
+.pointer .arr { color: var(--fire); display: inline-flex; filter: drop-shadow(2px 2px 0 var(--ink)); animation: point-bob 0.9s ease-in-out infinite; }
+.pointer.up { flex-direction: column-reverse; }
+.pointer.up .arr { animation-name: point-bob-up; }
+@keyframes point-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(9px); } }
+@keyframes point-bob-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+@media (prefers-reduced-motion: reduce) { .pointer .arr { animation: none; } }
+html.reduce-motion .pointer .arr { animation: none; }
